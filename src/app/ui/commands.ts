@@ -7,7 +7,7 @@
 // also carries `when`: dispatch only if the live state matches, otherwise the command is already in effect.
 import type { EnvEvent, RGB, Recipe, WorldSnapshot } from '../../contracts';
 import { FONT } from '../../score/font';
-import type { ControlIntent, ControlStatus } from '../actions';
+import { OPERATOR_JAM_ID, OPERATOR_PARTITION_ID, toggleOnAt, type ControlIntent, type ControlStatus } from '../actions';
 
 // ---------------------------------------------------------------------------------------------- types
 
@@ -544,29 +544,24 @@ function unknownCommand(tokens: readonly Token[]): string {
 
 export interface LiveState { playing: boolean; jam: boolean; partition: boolean }
 
-/** The ids actions.ts gives the one jam and the one partition an operator controls (not exported there). */
-export const OPERATOR_JAM_ID = 'operator-jam';
-export const OPERATOR_PARTITION_ID = 'operator-partition';
+/** The ids of the one jam and the one partition an operator controls, defined once in actions.ts. */
+export { OPERATOR_JAM_ID, OPERATOR_PARTITION_ID };
 
 /**
- * The state a `when` precondition is checked against: transport from the controller, the operator's jam and
- * partition from the snapshot, overridden by the controller's scheduled events that have not been applied yet
- * (pass `controller.getEventLog()`). This mirrors the controller's own toggle rule, so `on` twice is idempotent
- * and an `off` right after an `on` is dispatched. Jams and partitions under other ids (scripted) are ignored,
- * because the controller never toggles them.
+ * The state a `when` precondition is checked against: transport from the controller, and the operator's jam and
+ * partition as they will be on the tick a dispatched toggle lands (snapshot.tick + 1). That is the snapshot's state
+ * with the controller's pending events up to that tick applied in tick order (pass `controller.getEventLog()`),
+ * through the SAME rule the controller uses (actions.ts toggleOnAt), so the two can never disagree: `on` twice is
+ * idempotent, an `off` right after an `on` is dispatched, and an event pending for a later tick (a timed `at`, as
+ * the scripted demo sends) does not count yet. Jams and partitions under other ids (scripted) are ignored, because
+ * the controller never toggles them.
  */
 export function liveState(status: Pick<ControlStatus, 'playing'>, snapshot: Pick<WorldSnapshot, 'tick' | 'jams' | 'partitions'>, log: readonly EnvEvent[] = []): LiveState {
-  const pending = (on: EnvEvent['type'], off: EnvEvent['type'], id: string, current: boolean): boolean => {
-    for (let i = log.length - 1; i >= 0; i--) {
-      const event = log[i];
-      if ((event.type === on || event.type === off) && 'id' in event && event.id === id && event.tick > snapshot.tick) return event.type === on;
-    }
-    return current;
-  };
+  const at = snapshot.tick + 1;
   return {
     playing: status.playing,
-    jam: pending('JAM_ON', 'JAM_OFF', OPERATOR_JAM_ID, snapshot.jams.some(jam => jam.id === OPERATOR_JAM_ID)),
-    partition: pending('PARTITION_ON', 'PARTITION_OFF', OPERATOR_PARTITION_ID, snapshot.partitions.some(p => p.id === OPERATOR_PARTITION_ID)),
+    jam: toggleOnAt(log, 'jam', OPERATOR_JAM_ID, snapshot.tick, at, snapshot.jams.some(jam => jam.id === OPERATOR_JAM_ID)),
+    partition: toggleOnAt(log, 'partition', OPERATOR_PARTITION_ID, snapshot.tick, at, snapshot.partitions.some(p => p.id === OPERATOR_PARTITION_ID)),
   };
 }
 

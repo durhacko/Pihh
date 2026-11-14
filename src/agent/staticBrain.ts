@@ -6,7 +6,7 @@
 // Imports only the contracts, the score package and ./steer. No module-level state.
 import type { AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Params, Score, Slot, Vec3 } from '../contracts';
 import { currentMovement, expandRecipe } from '../score';
-import { steer, steerTarget } from './steer';
+import { pacedSlotPos, steer, steerTarget } from './steer';
 
 /** Plain JSON, as the contract requires of every brain state. */
 export interface StaticState {
@@ -52,9 +52,19 @@ export const staticBrain: AgentBrain<StaticState> = {
   step(s: StaticState, input: AgentInput): AgentOutput {
     // input.inbox is deliberately never read.
     const slot = slotAt(s, input.tick);
+    // belief.target stays the real slot position (what the ghost and tether views mean by target);
+    // only the steering aims at the paced point (section 10, paced targets).
     const target: Vec3 = [slot.pos[0], slot.pos[1], slot.pos[2]];
     s.lastTarget = target;
-    const accel = steer(input.pos, input.vel, steerTarget(s.id, input.pos, target, s.params), input.sensed, s.params);
+    const paced = pacedSlotPos(s.score, input.tick, s.slot, s.n0, s.params);
+    let aim = paced;
+    if (s.params.transitLanes) {
+      // The lane is chosen by the distance to the real slot (the drone trails the paced point by less than
+      // the 3 m release distance, so judged against it the lane would never apply), then shifted onto the paced point.
+      const lane = steerTarget(s.id, input.pos, target, s.params);
+      aim = [paced[0] + lane[0] - target[0], paced[1] + lane[1] - target[1], paced[2] + lane[2] - target[2]];
+    }
+    const accel = steer(input.pos, input.vel, aim, input.sensed, s.params);
     return { accel, colour: [slot.colour[0], slot.colour[1], slot.colour[2]], outbox: [] };
   },
 

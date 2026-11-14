@@ -495,7 +495,21 @@ steer(pos, vel, target, sensed, params):
 
 `dAvoid < slotSpacingMin`, so drones at rest on their slots do not push each other. Light colour is the slot's colour.
 
-SHOULD (`transitLanes`): `steer` takes no id, so the lane offset is a separate function, `steerTarget(id, pos, target, params)`, which returns the point to aim at (the target itself when `transitLanes` is off). While more than 3 m from the target, aim at `target + [0, 0, ((id % 3) - 1) * 2]` so crossing traffic is spread over three depth layers, then go straight in. Turn it on only if transitions gridlock or collision counts are ugly.
+**Paced targets (MUST, both arms; [contract] #80).** A brain does not steer straight at its slot. It steers at `pacedSlotPos(score, tick, slot, n0, params)` (`src/agent/steer.ts`), a point that moves in a straight line, at constant speed, from the same slot index of the previous movement (`launchPos(slot, n0)` for movement 0) to the slot of the current movement:
+
+```text
+pacedSlotPos(score, tick, slot, n0, params):
+  m = currentMovement(score, tick);  to = slot `slot` of m
+  if m is movement 0 and m.startTick > 0: return to                       # no known previous formation: not paced
+  from = slot `slot` of the previous movement (launchPos(slot, n0) for movement 0, the launch movement)
+  begin = max(m.startTick, 0);  end = m.holdStart - PACE_SETTLE_TICKS     # PACE_SETTLE_TICKS = 3 s = 60 ticks
+  if end <= begin or tick >= end: return to
+  return from + (to - from) * max(0, (tick - begin) / (end - begin))
+```
+
+The point reaches the slot 3 s before `holdStart` (the settle allowance of the authoring formula, section 6), so the formation is on its slots when the hold starts. Every drone of a formation moves its point in step, so crossing traffic meets at transit speeds the sidestep can handle, not at `vMax`. Movement 0 is paced from the launch grid only when it starts at or before tick 0; a later movement 0 is in practice the current movement that `composeNext` carries into an injected score, whose previous formation that score no longer holds, so it is flown unpaced. In S0 (static) this cut collisions per run from 27 to 7 at n0 = 100, 60 to 14 at n0 = 200 and 92 to 30 at n0 = 300 (`research/experiments/80-collisions/` on the spike branch). The paced point is used **only** for steering: the target a brain reports (`Belief.target`), its at-slot and settled checks, and vacancy sensing all use the real slot position. A brain whose slot changes (healing) paces against its new slot index, which in a hold is the slot itself.
+
+SHOULD (`transitLanes`): `steer` takes no id, so the lane offset is a separate function, `steerTarget(id, pos, target, params)`, which returns the point to aim at (the target itself when `transitLanes` is off). While more than 3 m from the target, aim at `target + [0, 0, ((id % 3) - 1) * 2]` so crossing traffic is spread over three depth layers, then go straight in. With paced targets, the lane is judged against the **real slot** (the drone trails its paced point by less than 3 m) and the offset is added to the paced point. Measured in #80, it does not reduce collisions; it stays off.
 
 Collisions (`d < dCollide`) and near-misses (`d < dNear`) are **counted from true positions by the world and have no physical effect**. A pair is counted once each time it enters the distance. At `vMax` two drones can close 0.8 m in one tick, so end-of-tick sampling can miss a fast pass: counts are lower bounds unless the world uses the closest approach within the tick (SHOULD). We never claim collision-freedom; we report the counts. This is a simulated proof of concept, not flight-control software.
 
