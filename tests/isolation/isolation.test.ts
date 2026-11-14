@@ -71,7 +71,8 @@ describe.each(brains)('%s isolation and replay', (_name, brain) => {
     const observer = before.drones[0];
     const distant = [...before.drones].reverse().find(drone => drone.alive &&
       Math.hypot(...drone.pos.map((component, index) => component - observer.pos[index])) >
-        Math.max(base.params.rRadio, base.params.rSense) + 1);
+        // Also exclude a two-hop sensing path over this two-tick assertion window.
+        Math.max(base.params.rRadio, 2 * base.params.rSense) + 1);
     expect(distant, 'scenario must contain a genuinely out-of-range drone').toBeDefined();
     const killTick = before.tick + 1;
     killed.schedule({ type: 'KILL', tick: killTick, ids: [distant!.id] });
