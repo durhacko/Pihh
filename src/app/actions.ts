@@ -1,10 +1,10 @@
-import type { EnvEvent, Params, Recipe, Score, World, WorldSnapshot } from '../contracts';
+import type { EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
 import { idsInSphere, randomIds } from '../sim';
 
 export type ControlIntent =
-  | { type: 'play' } | { type: 'reset'; seed: number } | { type: 'speed'; speed: number }
-  | { type: 'select'; id: number | null } | { type: 'kill-region'; radius?: number }
-  | { type: 'kill-selected' } | { type: 'kill-random' } | { type: 'jam'; radius?: number }
+  | { type: 'play' } | { type: 'step' } | { type: 'reset'; seed: number } | { type: 'speed'; speed: number }
+  | { type: 'select'; id: number | null } | { type: 'kill-region'; radius?: number; centre?: Vec3 }
+  | { type: 'kill-selected' } | { type: 'kill-random' } | { type: 'jam'; radius?: number; centre?: Vec3 }
   | { type: 'partition' } | { type: 'loss'; loss: number } | { type: 'inject'; recipe: Recipe }
   | { type: 'xray' } | { type: 'belief' };
 
@@ -24,6 +24,13 @@ export interface ControlContext {
   /** Explicitly true only when the world implements WP-2b faults and injection. */
   radioFaults?: boolean;
   display?: { setSelected(id: number | null): void; toggleXray(): void; toggleBelief(): void };
+  /** Advance exactly one tick while paused (the `.` key / dock step button). */
+  step?(): void;
+  /** One path into both worlds. When given, the controller schedules through it instead of calling each
+   *  world (so a latched failure refuses), and it must register injected scores / record events itself. */
+  scheduleBoth?(event: EnvEvent): void;
+  /** Why the show cannot run right now (e.g. a failed tick), or null. Play and step say so instead. */
+  blockedReason?(): string | null;
 }
 
 export interface ControlStatus {
@@ -59,15 +66,18 @@ export function createActionController(context: ControlContext) {
     return drone;
   }
   function schedule(event: EnvEvent): ControlResult {
-    const worlds = context.getWorlds();
-    worlds.encore.schedule(structuredClone(event));
-    worlds.static.schedule(structuredClone(event));
+    if (context.scheduleBoth) context.scheduleBoth(structuredClone(event));
+    else {
+      const worlds = context.getWorlds();
+      worlds.encore.schedule(structuredClone(event));
+      worlds.static.schedule(structuredClone(event));
+    }
     log.push(structuredClone(event));
     if (event.type === 'INJECT_SCORE') {
       authoredScore = structuredClone(event.score);
-      context.registerScore?.(structuredClone(event.score));
+      if (!context.scheduleBoth) context.registerScore?.(structuredClone(event.score));
     }
-    context.onScheduledEvent?.(structuredClone(event));
+    if (!context.scheduleBoth) context.onScheduledEvent?.(structuredClone(event));
     return { ok: true, message: `${event.type} scheduled for tick ${event.tick} in both worlds.`, event: structuredClone(event) };
   }
   function pendingToggle(on: 'JAM_ON' | 'PARTITION_ON', off: 'JAM_OFF' | 'PARTITION_OFF', id: string, tick: number, current: boolean): boolean {
@@ -80,7 +90,17 @@ export function createActionController(context: ControlContext) {
 
   function handle(intent: ControlIntent): ControlResult {
     try {
-      if (intent.type === 'play') { context.setPlaying(!context.getTransport().playing); message = context.getTransport().playing ? 'Playing.' : 'Paused.'; return { ok: true, message }; }
+      if (intent.type === 'play' || intent.type === 'step') {
+        const starting = intent.type === 'step' || !context.getTransport().playing;
+        const blocked = starting ? context.blockedReason?.() : null;
+        if (blocked) { message = `Cannot ${intent.type === 'step' ? 'step' : 'play'}: ${blocked}. Press R to reset.`; return { ok: false, message }; }
+        if (intent.type === 'step') {
+          if (!context.step) throw new Error('Single-step is not connected.');
+          if (context.getTransport().playing) context.setPlaying(false);
+          context.step(); message = 'Stepped one tick.'; return { ok: true, message };
+        }
+        context.setPlaying(!context.getTransport().playing); message = context.getTransport().playing ? 'Playing.' : 'Paused.'; return { ok: true, message };
+      }
       if (intent.type === 'speed') {
         if (![0.25, 0.5, 1, 2, 4].includes(intent.speed)) throw new Error('Choose a supported playback speed.');
         context.setSpeed(intent.speed); message = `Playback ${intent.speed}×.`; return { ok: true, message };
@@ -103,7 +123,7 @@ export function createActionController(context: ControlContext) {
       if (snapshots.encore.tick !== snapshots.static.tick) throw new Error('World clocks are not aligned.');
       const tick = snapshots.encore.tick + 1;
       let event: EnvEvent;
-      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, selected(snapshots.encore).pos, killRadius(intent.radius ?? context.params.rClaim)) };
+      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, intent.centre ? [...intent.centre] : selected(snapshots.encore).pos, killRadius(intent.radius ?? context.params.rClaim)) };
       else if (intent.type === 'kill-selected') event = { type: 'KILL', tick, ids: [selected(snapshots.encore).id] };
       else if (intent.type === 'kill-random') {
         const live = snapshots.encore.drones.filter(drone => drone.alive).map(drone => drone.id);
@@ -113,7 +133,7 @@ export function createActionController(context: ControlContext) {
         if (!context.radioFaults) throw new Error('Radio fault controls are not connected yet.');
         if (intent.type === 'jam') {
           const on = pendingToggle('JAM_ON', 'JAM_OFF', jamId, snapshots.encore.tick, snapshots.encore.jams.some(jam => jam.id === jamId));
-          event = on ? { type: 'JAM_OFF', tick, id: jamId } : { type: 'JAM_ON', tick, id: jamId, centre: [...selected(snapshots.encore).pos], radius: intent.radius ?? context.params.rRadio };
+          event = on ? { type: 'JAM_OFF', tick, id: jamId } : { type: 'JAM_ON', tick, id: jamId, centre: [...(intent.centre ?? selected(snapshots.encore).pos)], radius: intent.radius ?? context.params.rRadio };
           if (event.type === 'JAM_ON' && (!Number.isFinite(event.radius) || event.radius <= 0)) throw new Error('Radius must be positive.');
         } else if (intent.type === 'partition') {
           const on = pendingToggle('PARTITION_ON', 'PARTITION_OFF', partitionId, snapshots.encore.tick, snapshots.encore.partitions.some(partition => partition.id === partitionId));
