@@ -201,10 +201,15 @@ function scanAndClaim(s: EncoreState, input: AgentInput, slots: readonly Slot[],
   }
 
   // Watch every other slot within rClaim of where I am.
+  // DEVIATION from the section 8.3 pseudocode, which only says what to do with slots within rClaim and is
+  // silent about a slot that was watched and is now beyond it (I drift within rOcc of my own slot). Taken
+  // literally its timer would keep running unchecked, and vacant(v) would let me claim a slot farther than
+  // rClaim, even one I sense a drone on. Here such a slot is "not watched" again: its timer is cleared
+  // (section 7: null = not empty / not watched; section 1: rClaim = max distance to a slot I may claim).
   for (let v = 0; v < slots.length; v++) {
     if (v === s.slot) continue;
     const slotPos = slots[v].pos;
-    if (dist(slotPos, input.pos) > p.rClaim) continue;
+    if (dist(slotPos, input.pos) > p.rClaim) { s.emptySince[v] = null; continue; }
     const empty = !occupied(slotPos, input.pos, input.sensed, p.rOcc);
     s.emptySince[v] = empty ? (s.emptySince[v] ?? now) : null;
   }

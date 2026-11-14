@@ -690,6 +690,85 @@ describe('encoreBrain: vacancy, claim and commit (section 8.3, step 4)', () => {
     expect(p.frames.every(f => f.state.emptySince[SENSED_FAR] === null)).toBe(true);   // not watched
   });
 
+  describe('a watched slot that leaves rClaim (I drift within rOcc of my own slot) is no longer watched', () => {
+    // Slot 25 is 6.19 m from slot 33: just beyond rClaim = 6. A body leaning 0.3 m towards it is still
+    // "at its slot" (0.3 < rOcc) and has slot 25 within rClaim, at 5.89 m.
+    const FRINGE = 25;
+    const LEAN = 0.3;
+    const home = slotPos(ME, 1);
+    const towards = sub(slotPos(FRINGE, 1), home);
+    const k = LEAN / len(towards);
+    const leaning: Vec3 = add(home, [towards[0] * k, towards[1] * k, towards[2] * k]);
+    /** The body leans towards slot 25 on the ticks for which `leans` is true, and sits exactly on slot 33 otherwise. */
+    const body = (leans: (tick: number) => boolean): Stage['pos'] => tick => (leans(tick) ? leaning : home);
+    const silent = dies([FRINGE], KILL).heartbeat;
+    const FIRST_SCAN_OUTSIDE = scanAtOrAfter(230);                                   // 233
+
+    it('has the geometry these tests rely on', () => {
+      expect(dist(slotPos(FRINGE, 1), home)).toBeGreaterThan(P.rClaim);
+      expect(dist(slotPos(FRINGE, 1), home)).toBeLessThanOrEqual(P.rSense - P.rOcc);   // it can be sensed from home
+      expect(dist(slotPos(FRINGE, 1), leaning)).toBeLessThanOrEqual(P.rClaim);
+      expect(LEAN).toBeLessThan(P.rOcc);
+      expect(FRINGE + P.claimGap).toBeLessThan(ME);
+      expect(FIRST_SCAN_OUTSIDE).toBe(233);
+      // The control: leaning all the time, with drone 25 dead, slot 25 is claimed on the reference timeline.
+      const control = play({ ...dies([FRINGE], KILL), pos: body(() => true) }, COMMIT);
+      expect(control.frames.every(f => f.tick < CLAIM || f.belief.canHeal)).toBe(true);
+      expect(claimsSent(control)[0]).toEqual({ tick: CLAIM, slot: FRINGE, rank: ME });
+      expect(slotChanges(control, ME)).toEqual([{ tick: COMMIT, from: ME, to: FRINGE }]);
+    });
+
+    it('its timer is cleared: a silent holder that comes back while the slot is beyond rClaim is not replaced', () => {
+      // Drone 25 is silent from tick 200, away from its slot during ticks 200..239, and sensed on it again from 240.
+      // I lean towards slot 25 until tick 229 (watching it, seeing it empty from 203), then sit on slot 33.
+      const p = play({
+        sensed: (j, tick) => !(j === FRINGE && tick >= KILL && tick < 240),
+        heartbeat: silent,
+        pos: body(tick => tick <= 229),
+      }, 400);
+      expect(frameAt(p, FIRST_SCAN_OUTSIDE - 1).state.emptySince[FRINGE]).toBe(EMPTY_FROM);   // watched, seen empty
+      for (const f of p.frames) {
+        if (f.tick >= FIRST_SCAN_OUTSIDE) expect(f.state.emptySince[FRINGE], `tick ${f.tick}`).toBeNull();
+      }
+      // Nothing else was in the way: it may heal, and the slot has been silent for tSuspect.
+      expect(frameAt(p, CLAIM).belief.canHeal).toBe(true);
+      expect(CLAIM - frameAt(p, CLAIM).state.slotHeard[FRINGE]).toBeGreaterThanOrEqual(P.tSuspect);
+      expect(claimsSent(p)).toEqual([]);
+      expect(slotChanges(p, ME)).toEqual([]);
+      expect(p.frames.every(f => f.belief.claiming === null)).toBe(true);
+      expect(encoreBrain.belief(p.state).log).toEqual([]);
+    });
+
+    it('it is not claimed from beyond rClaim even when it really is empty and silent', () => {
+      const p = play({ ...dies([FRINGE], KILL), pos: body(tick => tick <= 229) }, 800);
+      expect(frameAt(p, FIRST_SCAN_OUTSIDE - 1).state.emptySince[FRINGE]).toBe(EMPTY_FROM);
+      expect(p.state.emptySince[FRINGE]).toBeNull();
+      expect(claimsSent(p)).toEqual([]);
+      expect(slotChanges(p, ME)).toEqual([]);
+    });
+
+    it('a claim in progress on it is dropped, not committed', () => {
+      // The slot leaves rClaim five ticks into the contention window.
+      const p = play({ ...dies([FRINGE], KILL), pos: body(tick => tick < CLAIM + P.hbPeriod) }, COMMIT + 100);
+      expect(claimsSent(p)).toEqual([{ tick: CLAIM, slot: FRINGE, rank: ME }]);
+      expect(frameAt(p, CLAIM + P.hbPeriod).belief.log).toEqual([
+        `t=${CLAIM} claim slot ${FRINGE} (bid ${ME})`, `t=${CLAIM + P.hbPeriod} drop claim on slot ${FRINGE}: no longer vacant`,
+      ]);
+      expect(frameAt(p, CLAIM + P.hbPeriod).state.emptySince[FRINGE]).toBeNull();
+      expect(slotChanges(p, ME)).toEqual([]);
+    });
+
+    it('when it comes back within rClaim the timer starts again: empty for tVacant means while watched', () => {
+      // Leaning until 229, on slot 33 during 230..239, leaning again from 240. Drone 25 is dead throughout.
+      const p = play({ ...dies([FRINGE], KILL), pos: body(tick => tick <= 229 || tick >= 240) }, 400);
+      const back = scanAtOrAfter(240);
+      expect(frameAt(p, back - 1).state.emptySince[FRINGE]).toBeNull();
+      expect(frameAt(p, back).state.emptySince[FRINGE]).toBe(back);
+      expect(claimsSent(p)[0]).toEqual({ tick: back + P.tVacant, slot: FRINGE, rank: ME });
+      expect(slotChanges(p, ME)).toEqual([{ tick: back + P.tVacant + P.claimWindow, from: ME, to: FRINGE }]);
+    });
+  });
+
   it('does not claim when v + claimGap >= its own slot', () => {
     // Slots 31, 32, 34 and 39 are within rClaim, empty and silent. None is claimGap + 1 more important than 33.
     const stage = dies([31, 32, 34, 39], KILL);
