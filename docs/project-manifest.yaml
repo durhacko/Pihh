@@ -29,7 +29,7 @@ stack:
 team:   # all three GitHub handles are confirmed by activity (readiness PRs #40 and #59; Williams's merged PRs)
   - { name: Arnav, github: reverez, lane: "integration lead; owns shared contracts; agent brain" }
   - { name: Haris, github: sirahmo, lane: "readiness, sponsor brief, demo, pitch, submission; docs review" }
-  - { name: Williams, github: wpimento, lane: "simulation world, radio, validation (provisional)" }
+  - { name: Williams, github: wpimento, lane: "paused development 21:20 Sat; lanes B and C integration moved to Arnav, HUD to Haris" }
 
 source_of_truth:
   current_state: docs/CURRENT_STATE.md
