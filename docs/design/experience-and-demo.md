@@ -11,9 +11,9 @@ Types and parameter values are in [contracts](contracts-and-algorithms.md); rule
 | `main.ts`, `worlds.ts`, `actions.ts` | Loop; building both worlds and observers; turning actions into `EnvEvent`s. The only callers of `createWorld`, `step`, `schedule` |
 | `render/{WorldView,SnapshotBuffer,CameraRig}.ts` | One view per world (canvas, scene, layers); previous and current snapshot with alpha; one camera shared by both views |
 | `render/Layer.ts` | The interface below |
-| `render/layers/{Env,Drone,Death,GhostSlot,Radio,Zone,Selection}Layer.ts` | One layer per file (§3), registered by one line in `render/layers/index.ts` |
+| `render/layers/{Env,Drone,Death,GhostSlot,Radio,Zone,Selection}Layer.ts` | One layer per file (§3). `render/layers/index.ts` loads them all with `import.meta.glob`, so adding a layer never edits a shared file |
 | `render/colourModes/` | Colour modes (show, belief). Pure functions |
-| `ui/{ControlPanel,Hud,Inspector,Captions,keys,DemoScript}.ts` | DOM only, no Three.js, registered in `ui/index.ts`. Emit actions; never hold a world |
+| `ui/{ControlPanel,Hud,Inspector,Captions,keys,DemoScript}.ts` | DOM only, no Three.js; `ui/index.ts` loads the panels the same way. Emit actions; never hold a world |
 
 ```ts
 interface Layer {
@@ -46,7 +46,7 @@ Two worlds, one script (MUST):
 |---|---|---|
 | Audience | Near-black background, ground grid. Drone colour is exactly `DroneSnap.colour` (× 0.25 in X-ray so overlays read) | MUST |
 | Death | On `alive` true→false: one 0.4 s flash, then hidden. In X-ray a dim `×` stays at the spot | MUST |
-| Ghost slots | Ring per non-occupied slot, by status (§4); smaller for higher slot index | MUST |
+| Ghost slots | Ring per non-occupied slot, by status (§4); smaller for higher slot index | SHOULD |
 | Tether | Line from a drone to its own `belief.target` while farther than `rOcc` from it. Never to a reference-formation slot | SHOULD |
 | Radio X-ray | Lines from sender to `RadioEvent.delivered` receivers, 0.3 s fade. Plain `HB`: dim slate, sampled (every 4th broadcast, 3 receivers). `HB` with `claimSlot`: bright cyan. `SCORE`: bright magenta. Highlighted types drawn first, capped per broadcast | MUST |
 | Dropped | Short stub at the sender per non-zero reason: `lost` grey, `jammed` vermilion, `partitioned` yellow. The log holds counts, not receiver ids, so a stub points at nobody | MUST |
@@ -95,7 +95,7 @@ The inspector is SHOULD (WP-8c). If built, it is built ONLY from `World.inspect(
 | Disrupt | Kill region, kill selected → `KILL`; jam → `JAM_ON`/`JAM_OFF`; loss → `SET_LOSS` | MUST |
 | Disrupt | Partition → `PARTITION_ON`/`PARTITION_OFF`; random 10% kill via `randomIds` | SHOULD |
 | Compose | Recipe (text, sphere, helix), "Inject into selected drone" → `INJECT_SCORE` | MUST |
-| View | X-ray, belief colours, ghost slots, split | MUST |
+| View | X-ray, belief colours (MUST); ghost slots, split (SHOULD) | MUST |
 | Demo | Run 90 s, run 3 min, stop | MUST |
 
 HUD, 4 Hz, from each world's `MetricsSample`:

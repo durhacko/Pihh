@@ -37,7 +37,7 @@ Need something the contract doesn't give you? Don't work around it locally. Ask 
 | State | How it looks on GitHub |
 |---|---|
 | BACKLOG | Open issue, label `status:blocked` (a dependency isn't merged yet) |
-| READY | Open issue, no status label. Assigned = reserved for that human for 15 minutes after it becomes READY; after that, or if unassigned, anyone may claim |
+| READY | Open issue, no status label. Unassigned = anyone may claim. Assigned = reserved for that human; others use the takeover rule below |
 | CLAIMED / IN_PROGRESS | Assignee set **and** label `status:in-progress`, with a claim comment naming the branch |
 | BLOCKED | Label `status:blocked` plus a comment saying on what |
 | IN_REVIEW | PR open with `Closes #N`; label `status:in-review` |
@@ -51,7 +51,15 @@ gh issue edit <N> --add-assignee @me --add-label status:in-progress
 gh issue comment <N> --body "STATUS: CLAIMED by <human>'s agent. BRANCH: <type>/<N>-<slug>"
 ```
 
-**Release rule** (this is what "a lane with nobody active" means): a READY issue that its assignee has not claimed within 15 minutes of becoming READY is free to anyone. An issue that is `status:in-progress` with no commit, PR or comment for 30 minutes is free to anyone. Say so on the issue when you take it.
+**Keep your claim alive:** while an issue is `status:in-progress`, push a commit or post a one-line comment at least every 30 minutes.
+
+**Takeover rule** (so nobody's work is taken by accident). You may take over an issue only when one of these is true: it is assigned and READY but unclaimed 15 minutes after becoming READY; or it is `status:in-progress` with no commit, PR or comment for 30 minutes. Then:
+
+1. Comment `TAKEOVER REQUEST` on the issue, @-mentioning the owner, and tell them directly if you can.
+2. Wait 10 minutes. Any reply from the owner cancels the request.
+3. If there is no reply, claim it. If the owner pushed a branch, **continue that branch**; never restart from scratch or overwrite it.
+
+A human teammate may waive the wait for their own issues, and the team lead may for a P0 issue that blocks everyone, saying so on the issue.
 
 ## 2. On starting work
 

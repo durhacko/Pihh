@@ -98,7 +98,7 @@ STRETCH central baseline, after G5 only. An assignment with instant global knowl
 
 1. **Tune** on dev seeds 101–105 only; they never appear in reported results.
 2. **Freeze:** commit the `Params` used. `paramsHash` hashes its canonical JSON; every evaluation record carries the same `paramsHash` and `git`.
-3. **Run** eval seeds 1–20 on S0–S5 for both arms, paired by seed: 240 records in `results/`.
+3. **Run** the minimum matrix first: eval seeds 1–5 on S0, S1, S2, S3 and S5, both arms, paired by seed (50 records in `results/`). The full matrix (seeds 1–20, plus S4: 240 records) is optional and runs only if G1–G4 are green with time to spare. Pass lines written "out of 20" scale to the seeds actually run, and the report states the count.
 4. **Report** per scenario and metric: median and IQR per arm, median paired Δ, win/tie/loss counts, censored count, worst seed.
 5. **A later parameter change** is a new revision: rerun everything and keep the old table, labelled superseded.
 
@@ -126,6 +126,7 @@ vitest, headless. All MUST except T15 and T16 (SHOULD). "Gate" is the latest gat
 | T14 | Observer read-only | observer | `stateHash()` equal with and without the observer; snapshots deep-frozen | G5 |
 | T15 | Scaling | core-sim | Mean brain step time per drone at `n0 = 300` ≤ 2× that at `n0 = 100`; printed, not stored | G5 |
 | T16 | Version order | core-agent | Scores injected on both sides of a partition: after `PARTITION_OFF` every live drone holds the later `issuedTick` (tie: higher origin) | G4 |
+| T18 | Score relay | core-agent | Three drones in a line, A in range of B, B in range of C, A out of range of C; inject at A. C adopts within 40 ticks at `loss` 0, and within 400 ticks at `loss` 0.2 on seeds 1–5. Same bounds with two extra up-to-date drones beside B (hidden terminal). No drone sends more than one `SCORE` per `scoreResendMin` | G4 |
 | T17 | Formation invariants | score | Every recipe kind: `n0` slots, closest pair ≥ `slotSpacingMin`, same output on a second call | G1 |
 
 ## 7. Gates
@@ -138,7 +139,7 @@ What happens on a miss: [development plan](../planning/development-plan.md); for
 | G1 core mechanism feasibility | Sat 23:30 | T08–T10 green on seed 101, then on 101–105; T01, T06, T12, T17 green; one headless command |
 | G2 minimum 3D vertical slice | Sun 00:30 | Browser shows both worlds stepped by real brains (the static brain in both until WP-1b merges, then Encore in the upper one); one scheduled kill lowers `alive` in both; roster size and frame rate recorded in [CURRENT_STATE](../CURRENT_STATE.md) |
 | G3 communications resilience | Sun 02:30 | T02–T05, T07, T13 green; S3 on seed 101: zero Encore slot changes, `msgs.blocked > 0`; every drawn radio spark maps to a `RadioEvent` (I8) |
-| G4 composition and dissemination | Sun 03:30 | S5 on seed 101: injection into one drone, two keys in `versions` during the split, no adoption in the other group before `PARTITION_OFF`, one key at the end; the belief layer shows the same |
+| G4 composition and dissemination | Sun 03:30 | T16 and T18 green; S5 on seed 101: injection into one drone, two keys in `versions` during the split, no adoption in the other group before `PARTITION_OFF`, one key at the end; the belief layer shows the same |
 | G5 validation | Sun 06:30 | T11 and T14 green; frozen `paramsHash`; the §5 matrix in `results/`; generated table with win/tie/loss, censored counts and `LOSS` rows; one record per scenario re-run with equal `stateHash` and `summary` |
 | G6 demo and submission | Freeze 08:30, video 09:00, submit 10:15, hard 11:00 (BRIEF S3) | Backup video of the scripted demo from a fixed seed; README lists libraries (R3), credits AI use (R4) and has "Where Encore ties or loses"; every quoted number traces to a `RunRecord`; Devpost timestamp |
 
