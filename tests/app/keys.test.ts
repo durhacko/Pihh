@@ -1,51 +1,31 @@
 // tests/app/keys.test.ts
-// Keyboard shortcuts must keep working after a panel click leaves focus on a button; only Space is ignored
-// there (it activates the button natively). Headless: window and Element are minimal stubs.
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ControlIntent, ControlStatus } from '../../src/app/actions';
-import { bindKeyboard } from '../../src/app/ui/keys';
+// Global shortcuts (#92): one map; typing never fires a shortcut; modified keys and key repeat are left to the
+// browser; Space on a focused button is left to the button. Pure: shortcutFor needs no DOM.
+import { describe, expect, it } from 'vitest';
+import { shortcutFor } from '../../src/app/ui/keys';
 
-class FakeElement {
-  constructor(private readonly tag: string) {}
-  closest(selector: string) { return selector.split(',').includes(this.tag) ? this : null; }
-}
-const status: ControlStatus = {
-  available: true, playing: true, speed: 1, seed: 1, loss: 0.05, selectedId: 3, selectedAlive: true,
-  radioFaults: true, composition: true, display: true, message: '',
-};
-
-function bind() {
-  let onKey: ((event: KeyboardEvent) => void) | undefined;
-  vi.stubGlobal('Element', FakeElement);
-  vi.stubGlobal('window', { addEventListener: (_: string, fn: (event: KeyboardEvent) => void) => { onKey = fn; }, removeEventListener: () => {} });
-  const host = new EventTarget() as HTMLElement;
-  const intents: ControlIntent[] = [];
-  host.addEventListener('encore:control', event => intents.push((event as CustomEvent<ControlIntent>).detail));
-  bindKeyboard(host, () => status, () => ({ type: 'inject', recipe: { kind: 'sphere' } }));
-  const press = (key: string, tag: string) => onKey!({ key, target: new FakeElement(tag), repeat: false, ctrlKey: false, altKey: false, metaKey: false, preventDefault() {} } as unknown as KeyboardEvent);
-  return { intents, press };
-}
-
-describe('bindKeyboard focus rules', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('letter and bracket shortcuts still work while a button has focus', () => {
-    const { intents, press } = bind();
-    for (const key of ['k', 'j', 'p', 'i', 'x', 'c', 'r', ']', '[']) press(key, 'button');
-    expect(intents.map(intent => intent.type)).toEqual(['kill-region', 'jam', 'partition', 'inject', 'xray', 'belief', 'reset', 'speed', 'speed']);
+describe('shortcutFor', () => {
+  it('maps the DESIGN §2.3 keys, case-insensitively', () => {
+    const cases: [string, string][] = [[' ', 'play'], ['.', 'step'], ['[', 'slower'], [']', 'faster'], ['r', 'reset'], ['R', 'reset'],
+      ['1', 'camera-audience'], ['2', 'camera-quarter'], ['3', 'camera-top'], ['k', 'kill-region'], ['j', 'jam'], ['p', 'partition'],
+      ['x', 'xray'], ['c', 'belief'], ['b', 'view'], ['m', 'metrics'], ['h', 'hide'], ['?', 'help'], ['f', 'compose'], ['/', 'console']];
+    for (const [key, action] of cases) expect(shortcutFor({ key }, false), key).toBe(action);
+    expect(shortcutFor({ key: 'q' }, false)).toBeNull();
   });
 
-  it('Space is ignored on a focused button but plays/pauses elsewhere', () => {
-    const { intents, press } = bind();
-    press(' ', 'button');
-    expect(intents).toEqual([]);
-    press(' ', 'canvas');
-    expect(intents).toEqual([{ type: 'play' }]);
+  it('never fires while typing in a field', () => {
+    for (const key of [' ', 'r', 'k', 'j', 'x', 'h', '?', '1', '.']) expect(shortcutFor({ key }, true), key).toBeNull();
   });
 
-  it('typing into a field never triggers shortcuts', () => {
-    const { intents, press } = bind();
-    for (const tag of ['input', 'textarea', 'select']) press('k', tag);
-    expect(intents).toEqual([]);
+  it('leaves modified keys and auto-repeat to the browser', () => {
+    expect(shortcutFor({ key: 'r', ctrlKey: true }, false)).toBeNull();
+    expect(shortcutFor({ key: 'r', metaKey: true }, false)).toBeNull();
+    expect(shortcutFor({ key: 'k', altKey: true }, false)).toBeNull();
+    expect(shortcutFor({ key: 'k', repeat: true }, false)).toBeNull();
+  });
+
+  it('Space on a focused button is the button\'s; every other key still works there', () => {
+    expect(shortcutFor({ key: ' ' }, false, true)).toBeNull();
+    for (const key of ['k', 'j', 'p', 'x', 'c', 'r', ']', '[', 'm', 'h']) expect(shortcutFor({ key }, false, true), key).not.toBeNull();
   });
 });
