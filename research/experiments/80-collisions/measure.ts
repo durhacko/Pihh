@@ -90,7 +90,7 @@ function steerVariant(pos: Vec3, vel: Vec3, target: Vec3, sensed: readonly Sense
 // transitLanes with pacing: the lane offset is decided from the distance to the REAL slot (not the paced target,
 // which the drone trails by < 3 m, so steerTarget would never apply the offset) and added to the paced target.
 // ---------------------------------------------------------------------------------------------------------
-interface Pace { mode: 'none' | 'authored' | 'score'; scale: number; which: 'all' | 'B' }
+interface Pace { mode: 'none' | 'authored' | 'score' | 'settle'; scale: number; which: 'all' | 'B' }
 interface VariantState { id: number; n0: number; score: Score; params: Params; lastTarget: Vec3; ttc: boolean; pace: Pace }
 const SETTLE_TICKS = 60; // 3 s, the authoring formula's settle allowance
 const NO_PACE: Pace = { mode: 'none', scale: 1, which: 'all' };
@@ -122,10 +122,13 @@ function makeVariantBrain(ttc: boolean, pace: Pace): AgentBrain<VariantState> {
       if (p.mode !== 'none' && !(p.which === 'B' && cm.index === 0)) {
         const prev = slotPos(s.score, cm.index - 1, s.id, s.n0, s.params);
         const begin = Math.max(cm.movement.startTick, 0);
-        const window = p.mode === 'authored' ? cm.movement.transitionTicks - SETTLE_TICKS : cm.movement.startTick + cm.movement.transitionTicks - begin;
+        const holdStart = cm.movement.startTick + cm.movement.transitionTicks;
+        const window = p.mode === 'authored' ? cm.movement.transitionTicks - SETTLE_TICKS : p.mode === 'settle' ? holdStart - SETTLE_TICKS - begin : holdStart - begin;
+        if (window <= 0) { target = real; } else {
         const flight = Math.max(1, window * p.scale);
         const f = Math.min(1, Math.max(0, (input.tick - begin) / flight));
         target = [prev[0] + (real[0] - prev[0]) * f, prev[1] + (real[1] - prev[1]) * f, prev[2] + (real[2] - prev[2]) * f];
+        }
       }
       s.lastTarget = target;
       // Lane offset judged against the real slot; identical to steerTarget(id, pos, target) when unpaced.
@@ -166,6 +169,9 @@ const CONFIGS: Config[] = [
   { name: 'C5e', label: 'paced 1.0x authored + TTC, all', lanes: false, ttc: true, pace: au(1), authorScale: 1 },
   { name: 'C7', label: 'paced to the score + A_START_TICK -60 (holdA 303)', lanes: false, ttc: false, pace: sc(1), authorScale: 1, aStart: -60 },
   { name: 'C7b', label: 'paced to the score + A_START_TICK -60 + TTC', lanes: false, ttc: true, pace: sc(1), authorScale: 1, aStart: -60 },
+  { name: 'C8', label: 'paced to holdStart - 3 s (settle) + A_START_TICK -60', lanes: false, ttc: false, pace: { mode: 'settle', scale: 1, which: 'all' }, authorScale: 1, aStart: -60 },
+  { name: 'C8b', label: 'paced to holdStart - 3 s + A_START_TICK -40', lanes: false, ttc: false, pace: { mode: 'settle', scale: 1, which: 'all' }, authorScale: 1, aStart: -40 },
+  { name: 'C8c', label: 'paced to holdStart - 3 s + A_START_TICK -23', lanes: false, ttc: false, pace: { mode: 'settle', scale: 1, which: 'all' }, authorScale: 1, aStart: -23 },
 ];
 
 // Phase windows (ticks, inclusive). Fixed across configs so the columns compare like with like.
@@ -196,6 +202,7 @@ interface RunResult {
   colEpisodes: number;        // endpoint collisions merged per pair when they re-enter within 20 ticks
   colReentries: number;       // endpoint collisions that are re-entries of a pair counted within the last 20 ticks
   slowContacts: number;       // endpoint collisions at relative speed < 1 m/s (jostling, not crossing)
+  atHoldA?: number; atHoldB?: number;
   episodeMin: number[];       // per swept collision episode: the closest approach (m) over the whole contact
   samples: ContactSample[];
 }
@@ -295,6 +302,8 @@ function runConfig(cfg: Config, seed: number, n0: number, brainOverride?: AgentB
     }
 
     if (t === LAUNCH_END) res.onSlot400 = onSlotFraction(snap, score, params);
+    if (t === holdA) res.atHoldA = onSlotFraction(snap, score, params);
+    if (t === holdB) res.atHoldB = onSlotFraction(snap, score, params);
     if (t === total) res.onSlotEnd = onSlotFraction(snap, score, params);
     if (res.arriveA95 === null && t < B_START && onSlotFraction(snap, score, params) >= 0.95) res.arriveA95 = t;
     if (res.arriveB95 === null && t >= B_START && onSlotFraction(snap, score, params) >= 0.95) res.arriveB95 = t;
@@ -379,7 +388,7 @@ for (const cfg of CONFIGS) {
 // Arrival relative to the score's hold start (the Encore brain reads holdStart + holdGrace as "should be there").
 console.log('\narrival vs score: cfg holdA arrA95 (arrA95 - holdA) | holdB arrB95 (arrB95 - holdB)');
 for (const r of all.filter((x) => x.seed === seeds[0])) {
-  console.log(`${r.config}: ${r.holdA} ${r.arriveA95} (${(r.arriveA95 ?? NaN) - r.holdA}) | ${r.holdB} ${r.arriveB95} (${(r.arriveB95 ?? NaN) - r.holdB})`);
+  console.log(`${r.config}: ${r.holdA} ${r.arriveA95} (${(r.arriveA95 ?? NaN) - r.holdA}) | ${r.holdB} ${r.arriveB95} (${(r.arriveB95 ?? NaN) - r.holdB}) | on slot at holdStart A ${((r.atHoldA ?? NaN) * 100).toFixed(1)}% B ${((r.atHoldB ?? NaN) * 100).toFixed(1)}%`);
 }
 
 // Swept audit of endpoint collisions, per config (every endpoint collision is sampled; the cap of 400 per run is never reached).

@@ -124,3 +124,18 @@ For every pair that came near, the script computes the closest approach *within*
 - **Timing.** Per #80's acceptance, apply this only *after* G1 has run, because C7 changes the EVAL score (holdA) and every trajectory.
 - **Other n0 values.** At other n0, check `buildEvalScore`'s guard. With −60, holdA = −60 + tA, which must stay ≤ 340. At n0 = 200, tA = 363.
 - **What is measured.** These are end-of-tick counts from the world, the same counts the observer reports. The swept audit is analysis only. The world's counting is unchanged.
+
+## Addendum: C7 superseded by C8b (implemented in PR #96)
+
+C7 paces the target to reach the slot *at* `holdStart`. The drone trails a moving target, so at `holdStart` only **34%** of drones are on slot for A and **81%** for B. That breaks the meaning of `holdStart` and the static brain's existing "on slot and settled from holdStart" tests.
+
+**C8** paces the target to reach the slot `PACE_SETTLE_TICKS` = 60 ticks (the authoring formula's 3 s settle allowance) *before* `holdStart`. Run with `--only C1,C7,C8,C8b,C8c`:
+
+| # | configuration | collisions launch / t→s / holds = **total** | near-misses | on slot at holdStart A / B | A 95% (vs holdA) |
+|---|---|---|---|---|---|
+| C7 | arrive at holdStart, `A_START_TICK` −60 | 8 / 3 / 0 = **11** | 241 | **34% / 81%** | 308 (+5) |
+| C8 | arrive at holdStart − 3 s, −60 | 14 / 3 / 0 = **17** | 249 | 100% / 100% | 252 (−51) |
+| **C8b** | **arrive at holdStart − 3 s, −40** | **11 / 3 / 0 = 14** | **250** | **100% / 100%** | **270 (−53)** |
+| C8c | arrive at holdStart − 3 s, −23 (exactly on the 380 guard) | 9 / 3 / 0 = **12** | 246 | 100% / 100% | 286 (−54) |
+
+**C8b is the one adopted.** It has 17 ticks of slack on the guard, and the implementation in PR #96 reproduces it exactly: 14 collisions, 250 near-misses.
