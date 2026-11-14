@@ -40,6 +40,7 @@ The map of the canonical documentation for **Encore**. One fact lives in one pla
 |---|---|
 | [demo/DEMO_PLAN.md](demo/DEMO_PLAN.md) | Pitch, known-good demo path, fallbacks, judging traceability |
 | [demo/SUBMISSION_CHECKLIST.md](demo/SUBMISSION_CHECKLIST.md) | Devpost and README requirements |
+| [demo/DEVPOST.md](demo/DEVPOST.md) | Paste-ready Devpost text with marked placeholders for results |
 
 ## History
 
