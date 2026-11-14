@@ -159,9 +159,11 @@ function evaluateCanHeal(s: EncoreState, now: number, holdStart: number): boolea
   if (now < holdStart + p.holdGrace) return false;                                  // 1. in hold, past the grace time
   if (now - s.lastTargetChange < p.tStable) return false;                           // 2. my target is stable
   if (s.settledSince === null || now - s.settledSince < p.tSettle) return false;    // 3. I am settled at my slot
-  for (let id = 0; id < s.peers.length; id++) {                                     // 4. nobody nearby flies another score
-    const peer = s.peers[id];
-    if (peer !== null && now - peer.heard <= p.tDeaf && !sameVersion(peer.version, s.score.version)) return false;
+  // Loop-invariant reads hoisted (perf: this runs over all n0 peer entries on every scan).
+  const peers = s.peers, tDeaf = p.tDeaf, mine = s.score.version;
+  for (let id = 0; id < peers.length; id++) {                                       // 4. nobody nearby flies another score
+    const peer = peers[id];
+    if (peer !== null && now - peer.heard <= tDeaf && !sameVersion(peer.version, mine)) return false;
   }
   if (now - s.lastRx > p.tDeaf) return false;                                       // 5. I am not deaf
   return true;
@@ -175,10 +177,11 @@ function vacant(s: EncoreState, now: number, v: number): boolean {
 
 /** True iff a peer heard within claimWindow is claiming slot `v` with a better bid than mine. */
 function outbid(s: EncoreState, now: number, v: number): boolean {
-  for (let id = 0; id < s.peers.length; id++) {
-    const peer = s.peers[id];
+  const peers = s.peers, claimWindow = s.params.claimWindow;
+  for (let id = 0; id < peers.length; id++) {
+    const peer = peers[id];
     if (peer === null || peer.claim === null || peer.claim.slot !== v) continue;
-    if (now - peer.heard <= s.params.claimWindow && betterBid(peer.claim.rank, id, s.slot, s.id)) return true;
+    if (now - peer.heard <= claimWindow && betterBid(peer.claim.rank, id, s.slot, s.id)) return true;
   }
   return false;
 }
@@ -188,9 +191,10 @@ function scanAndClaim(s: EncoreState, input: AgentInput, slots: readonly Slot[],
   const p = s.params;
 
   // Section 3, "Freshness": a peer-table entry not refreshed for 200 ticks is dropped.
-  for (let id = 0; id < s.peers.length; id++) {
-    const peer = s.peers[id];
-    if (peer !== null && now - peer.heard >= PEER_DROP_TICKS) s.peers[id] = null;
+  const peers = s.peers;
+  for (let id = 0; id < peers.length; id++) {
+    const peer = peers[id];
+    if (peer !== null && now - peer.heard >= PEER_DROP_TICKS) peers[id] = null;
   }
 
   s.canHeal = evaluateCanHeal(s, now, holdStart);
@@ -322,10 +326,13 @@ export const encoreBrain: AgentBrain<EncoreState> = {
   belief(s: EncoreState): Belief {
     // Where I am flying: my slot of the movement that was current at my last step (at tick 0 before the first).
     const pos = expandRecipe(s.score.movements[s.mvIndex].recipe, s.n0, s.params).slots[s.slot].pos;
+    // Loop-invariant reads hoisted: belief() runs for every drone on every tick (the world snapshots it), so this
+    // loop is n0 * n0 entries per tick; reading s.now and s.params.tSuspect per entry made it about 8x slower.
     let peersKnown = 0;
-    for (let id = 0; id < s.peers.length; id++) {
-      const peer = s.peers[id];
-      if (peer !== null && s.now - peer.heard < s.params.tSuspect) peersKnown++;
+    const peers = s.peers, now = s.now, tSuspect = s.params.tSuspect;
+    for (let id = 0; id < peers.length; id++) {
+      const peer = peers[id];
+      if (peer !== null && now - peer.heard < tSuspect) peersKnown++;
     }
     return {
       slot: s.slot,
