@@ -144,7 +144,11 @@ window.encore = {
     if (ids.length === 0) throw new Error('No live Encore drones in that region');
     return scheduleKill(ids);
   },
-  reset: (seed = worlds.seed) => reset(seed),
+  // Through the controller, like the panel and R: it also clears its event log, authored score and selection.
+  reset(seed = worlds.seed) {
+    const result = controls.handle({ type: 'reset', seed });
+    if (!result.ok) throw new Error(result.message);
+  },
   snapshots: current,
   alive: () => { const s = current(); return { encore: s.encore.drones.filter(d => d.alive).length, static: s.static.drones.filter(d => d.alive).length }; },
   stateHashes: () => ({ encore: worlds.worlds.encore.stateHash(), static: worlds.worlds.static.stateHash() }),
@@ -171,7 +175,8 @@ function screenPositions(): { id: number; x: number; y: number }[] {
   for (const drone of frame.curr.drones) {
     if (!drone.alive) continue;
     projected.set(...interpolateDrone(frame.prev.drones[drone.id], drone, frame.alpha).pos).project(rig.camera);
-    if (projected.z < -1 || projected.z > 1) continue;   // behind the camera or past the far plane
+    // Outside the view volume (behind the camera, past the far plane, or off the canvas) is not drawn.
+    if (Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1 || projected.z < -1 || projected.z > 1) continue;
     out.push({ id: drone.id, x: rect.left + (projected.x + 1) / 2 * rect.width, y: rect.top + (1 - projected.y) / 2 * rect.height });
   }
   return out;
@@ -189,18 +194,27 @@ function pickDrone(clientX: number, clientY: number): number | null {
   }
   return best;
 }
-let pressed: { x: number; y: number } | null = null;
-const onPointerDown = (event: PointerEvent) => { pressed = event.button === 0 ? { x: event.clientX, y: event.clientY } : null; };
+// A click is one primary pointer going down and up within 5 px. A second pointer (pinch), a drag (orbit) or a
+// cancel is never a click.
+let pressed: { pointerId: number; x: number; y: number } | null = null;
+let pointersDown = 0;
+const onPointerDown = (event: PointerEvent) => {
+  pointersDown++;
+  pressed = pointersDown === 1 && event.isPrimary && event.button === 0 ? { pointerId: event.pointerId, x: event.clientX, y: event.clientY } : null;
+};
 // pointerup on window: OrbitControls captures the pointer on the element it is attached to (the pane host in split).
 const onPointerUp = (event: PointerEvent) => {
-  const start = pressed;
+  const start = pressed?.pointerId === event.pointerId ? pressed : null;
   pressed = null;
-  if (!start || event.button !== 0 || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;   // a drag orbits
+  pointersDown = Math.max(0, pointersDown - 1);
+  if (!start || event.button !== 0 || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;
   const id = pickDrone(event.clientX, event.clientY);
   if (id !== null) controls.selectDrone(id);
 };
+const onPointerCancel = () => { pressed = null; pointersDown = Math.max(0, pointersDown - 1); };
 encoreCanvas?.addEventListener('pointerdown', onPointerDown);
 window.addEventListener('pointerup', onPointerUp);
+window.addEventListener('pointercancel', onPointerCancel);
 
 const buttons = [...app.querySelectorAll<HTMLButtonElement>('[data-preset]')];
 function setPreset(preset: CameraPreset) {
@@ -255,6 +269,7 @@ if (import.meta.hot) import.meta.hot.dispose(() => {
   window.removeEventListener('keydown', onKey);
   encoreCanvas?.removeEventListener('pointerdown', onPointerDown);
   window.removeEventListener('pointerup', onPointerUp);
+  window.removeEventListener('pointercancel', onPointerCancel);
   controls.dispose();
   delete window.encore;
   resetViewMode();
