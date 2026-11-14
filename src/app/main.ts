@@ -1,11 +1,11 @@
 import { DT } from '../contracts';
-import type { EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
-import { composeNext } from '../score';
+import type { EnvEvent, Vec3, WorldSnapshot } from '../contracts';
+import { bindControls } from './actions';
 import { CameraRig, type CameraPreset } from './render/CameraRig';
 import { SnapshotBuffer } from './render/SnapshotBuffer';
 import { WorldView } from './render/WorldView';
 import { createPanels } from './ui';
-import { ARMS, createWorlds, encoreBrainIsFixture, idsInRegion, killEvent, type Arm, type Pair } from './worlds';
+import { ARMS, controlContext, createWorlds, encoreBrainIsFixture, idsInRegion, killEvent, type Arm, type Pair } from './worlds';
 import './style.css';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -103,36 +103,15 @@ function scheduleKill(ids: readonly number[]): EnvEvent {
   return structuredClone(event);
 }
 
-// --- Controls (#22 / PR #52). bindControls is picked up when src/app/actions.ts exists; until then the
-// panel stays disabled. Shape as proposed on issue #6; the binder schedules into both worlds itself.
-interface ControlContext {
-  params: Params;
-  getWorlds(): Pair<World>;
-  getSnapshots(): Pair<WorldSnapshot>;
-  getScore(): Score;
-  getTransport(): { playing: boolean; speed: number; seed: number };
-  setPlaying(playing: boolean): void;
-  setSpeed(speed: number): void;
-  reset(seed: number): void;
-  composeScore?: (score: Score, tick: number, recipe: Recipe, origin: number, n0: number, params: Params) => Score;
-  radioFaults?: boolean;
-}
-type ControlBinder = (host: HTMLElement, context: ControlContext) => { dispose(): void; refresh?(): void };
-const controlModules = import.meta.glob<{ bindControls?: ControlBinder }>('./actions.ts', { eager: true });
-const bindControls = Object.values(controlModules)[0]?.bindControls;
-const controls = bindControls?.(app, {
-  params,
-  getWorlds: () => worlds.worlds,
+// --- Controls (#22). The binder resolves each intent once and schedules the same event into both worlds.
+const controls = bindControls(app, controlContext(worlds, {
   getSnapshots: current,
-  getScore: () => worlds.score,
   getTransport: () => ({ ...transport, seed: worlds.seed }),
   setPlaying,
   setSpeed,
   reset,
-  composeScore: composeNext,
-  radioFaults: false,   // partitions, SET_LOSS and INJECT_SCORE are WP-2b (#19), not in the world yet
-});
-if (controls?.refresh) refreshControls = () => controls.refresh?.();
+}));
+refreshControls = () => controls.refresh();
 
 // --- Console handle for manual checks. Only schedules KILL events, steps or resets; never edits a drone.
 interface EncoreDebug {
@@ -213,7 +192,7 @@ animation = requestAnimationFrame(draw);
 if (import.meta.hot) import.meta.hot.dispose(() => {
   cancelAnimationFrame(animation);
   window.removeEventListener('keydown', onKey);
-  controls?.dispose();
+  controls.dispose();
   delete window.encore;
   for (const panel of panels) panel.dispose();
   rig.dispose();

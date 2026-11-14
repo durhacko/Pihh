@@ -6,8 +6,9 @@
 import { makeParams } from '../contracts';
 import type { AgentBrain, EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
 import { staticBrain } from '../agent/staticBrain';
-import { makeScore } from '../score';
+import { composeNext, makeScore } from '../score';
 import { createWorld } from '../sim';
+import type { ControlContext } from './actions';
 
 // G2 fixture: the Encore brain (#16) is not on this branch yet, so BOTH arms fly the static brain.
 const ENCORE_BRAIN: AgentBrain = staticBrain; // swap to encoreBrain when #16 merges
@@ -121,4 +122,19 @@ export function killEvent(worlds: Pick<Worlds, 'tick' | 'params'>, ids: readonly
     if (!Number.isInteger(id) || id < 0 || id >= worlds.params.n0) throw new RangeError(`Drone id ${id} is not in this roster (0..${worlds.params.n0 - 1})`);
   }
   return { type: 'KILL', tick: worlds.tick + 1, ids: [...new Set(ids)].sort((a, b) => a - b) };
+}
+
+/** What the app shell owns and the control binder needs: the clock (transport) and the view. */
+export type ShellHooks = Pick<ControlContext, 'getSnapshots' | 'getTransport' | 'setPlaying' | 'setSpeed' | 'reset' | 'display'>;
+
+/** The ControlContext the app hands to bindControls (#22): real worlds, real score composer, radio faults on. */
+export function controlContext(worlds: Worlds, shell: ShellHooks): ControlContext {
+  return {
+    ...shell,
+    params: worlds.params,
+    getWorlds: () => worlds.worlds,
+    getScore: () => worlds.score,
+    composeScore: composeNext,
+    radioFaults: true,   // the world implements JAM, PARTITION, SET_LOSS and INJECT_SCORE (#19)
+  };
 }
