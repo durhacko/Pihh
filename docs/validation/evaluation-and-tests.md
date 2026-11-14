@@ -57,7 +57,7 @@ Capacity loss `= 1 − P*(M)`. Coordination loss `= P*(M) − pwc`. With no live
 
 MUST. `n0 = 200`, 1800 ticks, default `Params`. Preloaded score `EVAL`, version `{0, OPERATOR}`: movement A = text `ENCORE` with `startTick: -200` (the contract allows the first movement to start before tick 0; drones still launch at tick 0), movement B = sphere at tick 900, `transitionTicks` by the contract's authoring formula. The runner asserts A's `holdStart + holdGrace ≤ 380` and B's `holdStart ≤ 1300`; if A's assertion fails, make A's `startTick` more negative before the freeze and leave the event ticks alone. Shortening the text does not help: the formation's size is set by 200 slots at `slotSpacingMin`, not by the letter count.
 
-A pure builder in `src/sim/scenarios.ts` returns `{ score, events }` from `(id, seed, params)`. It draws from its own seeded stream and resolves kills to explicit ids from formation-A slot positions (launch slot = id), never from live positions. Plane `P`: point `[0, 30, 0]`, normal `[1, 0, 0]`.
+A pure builder in `src/cli/scenarios.ts` (the world may not import `src/score`, the CLI may) returns `{ score, events }` from `(id, seed, params)`. It draws from its own seeded stream and resolves kills to explicit ids from formation-A slot positions (launch slot = id), never from live positions. Plane `P`: point `[0, 30, 0]`, normal `[1, 0, 0]`.
 
 | ID | Events (tick) |
 |---|---|
@@ -140,7 +140,7 @@ What happens on a miss: [development plan](../planning/development-plan.md); for
 | G1 core mechanism feasibility | Sat 23:30 | T08–T10 green on seed 101, then on 101–105; T01, T06, T12, T17 green; one headless command |
 | G2 minimum 3D vertical slice | Sun 00:30 | Browser shows both worlds stepped by real brains (the static brain in both until WP-1b merges, then Encore in the upper one); one scheduled kill lowers `alive` in both; roster size and frame rate recorded in [CURRENT_STATE](../CURRENT_STATE.md) |
 | G3 communications resilience | Sun 02:30 | T02–T05, T07, T13 green; S3 on seed 101: zero Encore slot changes, `msgs.blocked > 0`; every drawn radio spark maps to a `RadioEvent` (I8) |
-| G4 composition and dissemination | Sun 03:30 | T16 and T18 green; S5 on seed 101: injection into one drone, two keys in `versions` during the split, no adoption in the other group before `PARTITION_OFF`, one key at the end; the belief layer shows the same |
+| G4 composition and dissemination | Sun 03:30 | T18 green (and T16 if built); S5 on seed 101: injection into one drone, two keys in `versions` during the split, no adoption in the other group before `PARTITION_OFF`, one key at the end; the belief layer shows the same |
 | G5 validation | Sun 06:30 | T11 and T14 green; frozen `paramsHash`; the §5 matrix in `results/`; generated table with win/tie/loss, censored counts and `LOSS` rows; one record per scenario re-run with equal `stateHash` and `summary` |
 | G6 demo and submission | Freeze 08:30, video 09:00, submit 10:15, hard 11:00 (BRIEF S3) | Backup video of the scripted demo from a fixed seed; README lists libraries (R3), credits AI use (R4) and has "Where Encore ties or loses"; every quoted number traces to a `RunRecord`; Devpost timestamp |
 
