@@ -7,6 +7,7 @@ import { resetViewMode } from './render/colourModes/viewMode';
 import { interpolateDrone, SnapshotBuffer } from './render/SnapshotBuffer';
 import { WorldView } from './render/WorldView';
 import { createPanels } from './ui';
+import { bindHud } from './ui/Hud';
 import { idsInSphere } from '../sim';
 import { ARMS, controlContext, createWorlds, encoreBrainIsFixture, killEvent, viewModeDisplay, type Arm, type Pair } from './worlds';
 import './style.css';
@@ -235,6 +236,20 @@ let measuredTime = 0;
 let measuredFrames = 0;
 let animation = 0;
 let lastControlRefresh = 0;
+// The comparison HUD (#24) is fed explicitly by the bootstrap: observer samples, roster, fps, layout, brains.
+// bindHud throttles its own publishing to 4 Hz; feed it when a new sample lands or the fps reading changes.
+const hud = bindHud(app);
+let lastFps: number | null = null;
+let lastHudTick = -1;
+function feedHud(): void {
+  const samples = worlds.samples();
+  lastHudTick = samples.encore?.tick ?? -1;
+  hud.update({
+    ...samples, rosterSize: params.n0, fps: lastFps, layout: split ? 'split' : views[0].arm,
+    brainKinds: { encore: worlds.worlds.encore.config.brain.kind, static: worlds.worlds.static.config.brain.kind },
+  });
+}
+feedHud();
 function draw(now: number) {
   const dtReal = Math.max(0, (now - previousTime) / 1000);
   previousTime = now;
@@ -243,6 +258,7 @@ function draw(now: number) {
   while (accumulator >= DT && steps < 5) { advance(); accumulator -= DT; steps++; }
   if (steps === 5) accumulator = Math.min(accumulator, DT);   // fell behind: drop the backlog, never fake ticks
   if (steps > 0 && now - lastControlRefresh >= 200) { refreshControls(); lastControlRefresh = now; }   // ≤ 5 Hz
+  if (steps > 0 && (worlds.samples().encore?.tick ?? -1) !== lastHudTick) feedHud();   // new sample, or a reset
   lastAlpha = accumulator / DT;
   for (const { arm, view } of views) view.render(buffers[arm].frame(lastAlpha, dtReal));
   measuredTime += dtReal;
@@ -251,6 +267,8 @@ function draw(now: number) {
     const snapshots = current();
     const alive = { encore: snapshots.encore.drones.filter(d => d.alive).length, static: snapshots.static.drones.filter(d => d.alive).length };
     const fps = measuredFrames / measuredTime;
+    lastFps = fps;
+    feedHud();
     readout.dataset.fps = fps.toFixed(1);
     readout.dataset.tick = String(snapshots.encore.tick);
     readout.dataset.visible = String(alive[views[0].arm]);
@@ -271,6 +289,7 @@ if (import.meta.hot) import.meta.hot.dispose(() => {
   window.removeEventListener('pointerup', onPointerUp);
   window.removeEventListener('pointercancel', onPointerCancel);
   controls.dispose();
+  hud.dispose();
   delete window.encore;
   resetViewMode();
   for (const panel of panels) panel.dispose();
