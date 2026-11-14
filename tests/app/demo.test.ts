@@ -2,7 +2,7 @@
 // WP-9a (#27): the scripted demo, run headless over the browser's own path: the real controls binder (bindControls)
 // on an event target, the demo connected to it by DOM events only (connectDemo), and status refreshed the way
 // main.ts refreshes it. These tests check scheduling, determinism and stop/restart only. They make no claim about
-// repair, adoption or radio behaviour: both arms fly the static brain until #16 merges (see BRAIN_DEPENDENT_BEATS).
+// repair, adoption or radio behaviour (see BRAIN_DEPENDENT_BEATS): they run whatever brains the app's worlds fly.
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { makeParams, OPERATOR } from '../../src/contracts';
 import type { EnvEvent, MetricsSample, WorldSnapshot } from '../../src/contracts';
@@ -12,7 +12,7 @@ import { bindControls } from '../../src/app/actions';
 import { readViewMode, resetViewMode } from '../../src/app/render/colourModes/viewMode';
 import { controlContext, createWorlds, DEFAULT_N0, viewModeDisplay, type Pair, type Worlds } from '../../src/app/worlds';
 import {
-  BRAIN_DEPENDENT_BEATS, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, dispatchTick,
+  BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, dispatchTick,
   INJECT_DRONE, JAM_CENTRE, JAM_RADIUS, KILL_CENTRE, KILL_RADIUS, LEAD_TICKS, type DemoBeat,
 } from '../../src/app/ui/DemoScript';
 
@@ -233,6 +233,41 @@ describe('scripted demo problems reach the panel over the browser path', () => {
     play(r, 120, 120);   // after start, status next arrives at tick 120: past the beat's tick
     expect(r.controls.getEventLog().map(event => [event.type, event.tick])).toEqual([['KILL', 121]]);
     expect(r.runner.problems[0]).toMatch(/off-script/);
+  });
+});
+
+describe('injection target and brain note', () => {
+  it('the target is selected again in the same poll that sends the injection', () => {
+    const inject = DEMO_BEATS.findIndex(beat => beat.id === 'inject');
+    const target = DEMO_BEATS[inject - 1];
+    expect(target.action).toEqual({ kind: 'control', intent: { type: 'select', id: INJECT_DRONE } });
+    expect(dispatchTick(target)).toBe(dispatchTick(DEMO_BEATS[inject]));
+  });
+
+  it('a presenter click before the injection is sent cannot retarget it', () => {
+    const beats = DEMO_BEATS.filter(beat => ['select', 'target', 'inject'].includes(beat.id))
+      .map(beat => ({ ...beat, tick: beat.tick - DEMO_TICKS.JAM_ON + 20, action: beat.action?.kind === 'control' && beat.action.intent.type === 'inject' ? { kind: 'control' as const, intent: { ...beat.action.intent, at: DEMO_TICKS.INJECT - DEMO_TICKS.JAM_ON + 20 } } : beat.action }));
+    const r = rig(7, beats);
+    r.runner.start();
+    play(r, 25);
+    expect(readViewMode().selectedDroneId).toBe(INJECT_DRONE);
+    r.controls.handle({ type: 'select', id: 3 });   // a presenter clicks another drone
+    play(r, 90);
+    expect(r.runner.problems).toEqual([]);
+    expect(r.controls.getEventLog()).toMatchObject([{ type: 'INJECT_SCORE', droneId: INJECT_DRONE }]);
+  });
+
+  it('the Encore-only note follows the brains the live worlds fly, not a build-time constant', () => {
+    const repair = DEMO_BEATS.find(beat => beat.id === 'repair')!;
+    const formation = DEMO_BEATS.find(beat => beat.id === 'formation')!;
+    const r = rig();
+    const status = r.controls.status();
+    expect(status.brains).toEqual({ encore: r.worlds.worlds.encore.config.brain.kind, static: r.worlds.worlds.static.config.brain.kind });
+    const both = { brains: { encore: 'static' as const, static: 'static' as const } };
+    expect(brainNote(both, repair)).toBe('Static brain in both arms: no difference shows yet.');
+    expect(brainNote(both, formation)).toBe('');   // not an Encore-only beat
+    expect(brainNote({ brains: { encore: 'encore', static: 'static' } }, repair)).toBe('');   // the Encore brain is in
+    expect(brainNote(undefined, repair)).toBe('');
   });
 });
 

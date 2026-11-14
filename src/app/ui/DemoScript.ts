@@ -8,7 +8,6 @@ import type { Recipe, Vec3 } from '../../contracts';
 import type { ControlIntent, ControlResult, ControlStatus } from '../actions';
 import type { CameraPreset } from '../render/CameraRig';
 import { readViewMode } from '../render/colourModes/viewMode';
-import { encoreBrainIsFixture } from '../worlds';
 import type { PanelContext } from './index';
 
 // --- Frozen demo inputs. Placements are measured for the app's default roster (n0 = 200) and preloaded score
@@ -55,6 +54,8 @@ export const DEMO_BEATS: readonly DemoBeat[] = [
   { id: 'jam', tick: T.JAM_ON, action: control({ type: 'jam', centre: JAM_CENTRE, radius: JAM_RADIUS, at: T.JAM_ON }), caption: 'Jam the radio over the top of the formation: nothing in or out. Encore arm: drones inside turn deaf and keep flying their score.' },
   { id: 'belief', tick: T.JAM_ON, action: { kind: 'view', xray: true, beliefColours: true }, caption: '' },
   { id: 'select', tick: T.JAM_ON, action: control({ type: 'select', id: INJECT_DRONE }), caption: '' },
+  // Selected again in the same poll that sends the injection, so a presenter's click since 54 s cannot retarget it.
+  { id: 'target', tick: T.INJECT - LEAD_TICKS, action: control({ type: 'select', id: INJECT_DRONE }), caption: '' },
   { id: 'inject', tick: T.INJECT, action: control({ type: 'inject', recipe: INJECT_RECIPE, at: T.INJECT }), caption: 'A new score, a helix, goes to one drone below the jam. Encore arm: it spreads along real SCORE messages, and the jam stops it at the cap.' },
   { id: 'slow', tick: T.INJECT, action: control({ type: 'speed', speed: 0.5 }), caption: '' },
   { id: 'new-movement', tick: T.NEW_MOVEMENT, action: control({ type: 'speed', speed: 1 }), caption: 'The new movement starts. Encore drones that heard it fly the helix; drones still cut off keep the old score. Static baseline: sphere.' },
@@ -63,8 +64,20 @@ export const DEMO_BEATS: readonly DemoBeat[] = [
   { id: 'final', tick: T.FINAL, action: { kind: 'camera', preset: 'audience' }, caption: '' },
   { id: 'end', tick: T.END, action: null, caption: 'End of the 90-second demo. Press D to run it again.' },
 ];
-/** Beats whose caption describes what only the Encore brain shows. Check these once #16 is swapped in. */
+/** Beats whose caption describes what only the Encore brain shows. While the live Encore world flies another brain
+ * (status.brains, the HUD's brainKinds source), the bar marks them; with the Encore brain in the app (#107) the mark
+ * goes by itself, and these beats are the ones to re-check on screen. */
 export const BRAIN_DEPENDENT_BEATS: readonly string[] = ['xray', 'repair', 'jam', 'inject', 'new-movement', 'jam-off'];
+
+/**
+ * The note under an Encore-only caption, from the brains the live worlds actually fly (status.brains, the same
+ * config.brain.kind the HUD's brainKinds reports): empty when the Encore world flies the Encore brain, or when the
+ * caption on screen is not an Encore-only one.
+ */
+export function brainNote(status: Pick<ControlStatus, 'brains'> | undefined, captionBeat: DemoBeat | null): string {
+  if (!captionBeat || !BRAIN_DEPENDENT_BEATS.includes(captionBeat.id) || !status?.brains || status.brains.encore === 'encore') return '';
+  return status.brains.static === 'static' ? 'Static brain in both arms: no difference shows yet.' : 'The Encore arm is not flying the Encore brain: no difference shows yet.';
+}
 
 /** When the runner sends a beat's action: timed world events LEAD_TICKS early, everything else on its tick. */
 export function dispatchTick(beat: DemoBeat): number {
@@ -257,9 +270,9 @@ export function createPanel({ host }: PanelContext) {
     toggle.disabled = !status?.available;
     restart.disabled = !status?.available || runner.state === 'idle';
     if (captionEl.textContent !== runner.caption) captionEl.textContent = runner.caption;   // re-announce only on change
-    const brainNote = encoreBrainIsFixture && running && runner.captionBeat !== null && BRAIN_DEPENDENT_BEATS.includes(runner.captionBeat.id);
-    note.hidden = !brainNote;
-    note.textContent = brainNote ? 'Static brain in both arms: no difference shows yet.' : '';
+    const text = running ? brainNote(status, runner.captionBeat) : '';
+    note.hidden = !text;
+    if (note.textContent !== text) note.textContent = text;
     progress.textContent = running ? ` · ${Math.min(90, Math.floor((status?.tick ?? 0) / SECOND))} s` : '';
     const problems = runner.problems.join(' ');
     if (output.textContent !== problems) output.textContent = problems;

@@ -39,6 +39,8 @@ export interface ControlStatus {
   message: string;
   /** Only on the status emitted right after an intent: that intent's result. */
   result?: ControlResult;
+  /** The brain each live world actually flies (its config.brain.kind), as the HUD's brainKinds reports it. */
+  brains?: { encore: World['config']['brain']['kind']; static: World['config']['brain']['kind'] };
 }
 export interface ControlResult { ok: boolean; message: string; event?: EnvEvent }
 
@@ -48,19 +50,38 @@ function killRadius(radius: number): number {
   return radius;
 }
 
+/** The ids of the one jam and the one partition an operator toggles (the controls, the keys and the console). */
+export const OPERATOR_JAM_ID = 'operator-jam';
+export const OPERATOR_PARTITION_ID = 'operator-partition';
+
+/**
+ * THE toggle rule, shared by the controller and the console's preconditions (ui/commands.ts liveState): whether the
+ * operator jam or partition `id` will be on at tick `at`. Start from `current` (what the latest snapshot shows), then
+ * apply every scheduled on/off for that id with now < tick ≤ at, in tick order; same-tick events keep log order.
+ * Log order alone is not tick order once an intent can name a later tick with `at`, so it must never decide this.
+ */
+export function toggleOnAt(log: readonly EnvEvent[], kind: 'jam' | 'partition', id: string, now: number, at: number, current: boolean): boolean {
+  const on = kind === 'jam' ? 'JAM_ON' : 'PARTITION_ON';
+  const off = kind === 'jam' ? 'JAM_OFF' : 'PARTITION_OFF';
+  const pending = log.filter(event => (event.type === on || event.type === off) && event.id === id && event.tick > now && event.tick <= at);
+  pending.sort((a, b) => a.tick - b.tick);   // stable: same-tick events keep log order
+  return pending.length ? pending[pending.length - 1].type === on : current;
+}
+
 /** App boundary: resolve an intent once, then schedule equal explicit events into both arms. */
 export function createActionController(context: ControlContext) {
   const log: EnvEvent[] = [];
   let selectedId: number | null = null;
   let authoredScore = structuredClone(context.getScore());
   let message = 'Real simulation controls connected.';
-  const jamId = 'operator-jam';
-  const partitionId = 'operator-partition';
+  const jamId = OPERATOR_JAM_ID;
+  const partitionId = OPERATOR_PARTITION_ID;
 
   function status(): ControlStatus {
     const snapshot = context.getSnapshots().encore;
     const lossEvent = [...log].reverse().find((event): event is Extract<EnvEvent, { type: 'SET_LOSS' }> => event.type === 'SET_LOSS');
-    return { available: true, ...context.getTransport(), tick: snapshot.tick, loss: lossEvent?.loss ?? context.params.loss, selectedId, selectedAlive: snapshot.drones.some(drone => drone.id === selectedId && drone.alive), radioFaults: !!context.radioFaults, composition: !!context.radioFaults && !!context.composeScore, display: !!context.display, message };
+    const worlds = context.getWorlds();
+    return { available: true, ...context.getTransport(), tick: snapshot.tick, brains: { encore: worlds.encore.config.brain.kind, static: worlds.static.config.brain.kind }, loss: lossEvent?.loss ?? context.params.loss, selectedId, selectedAlive: snapshot.drones.some(drone => drone.id === selectedId && drone.alive), radioFaults: !!context.radioFaults, composition: !!context.radioFaults && !!context.composeScore, display: !!context.display, message };
   }
   function selected(snapshot: WorldSnapshot) {
     const drone = snapshot.drones.find(drone => drone.id === selectedId && drone.alive);
@@ -78,13 +99,6 @@ export function createActionController(context: ControlContext) {
     }
     context.onScheduledEvent?.(structuredClone(event));
     return { ok: true, message: `${event.type} scheduled for tick ${event.tick} in both worlds.`, event: structuredClone(event) };
-  }
-  /** Whether the toggle will be on at tick `at`: the current state, then every pending on/off for this id up to
-   * `at`, in tick order. (Log order alone is not tick order once an intent can name a later tick with `at`.) */
-  function pendingToggle(on: 'JAM_ON' | 'PARTITION_ON', off: 'JAM_OFF' | 'PARTITION_OFF', id: string, now: number, at: number, current: boolean): boolean {
-    const pending = log.filter(event => (event.type === on || event.type === off) && event.id === id && event.tick > now && event.tick <= at);
-    pending.sort((a, b) => a.tick - b.tick);   // stable: same-tick events keep log order
-    return pending.length ? pending[pending.length - 1].type === on : current;
   }
   function centre(value: Vec3 | undefined, fallback: () => Vec3): Vec3 {
     if (value === undefined) return [...fallback()];
@@ -128,11 +142,11 @@ export function createActionController(context: ControlContext) {
       else {
         if (!context.radioFaults) throw new Error('Radio fault controls are not connected yet.');
         if (intent.type === 'jam') {
-          const on = pendingToggle('JAM_ON', 'JAM_OFF', jamId, snapshots.encore.tick, tick, snapshots.encore.jams.some(jam => jam.id === jamId));
+          const on = toggleOnAt(log, 'jam', jamId, snapshots.encore.tick, tick, snapshots.encore.jams.some(jam => jam.id === jamId));
           event = on ? { type: 'JAM_OFF', tick, id: jamId } : { type: 'JAM_ON', tick, id: jamId, centre: centre(intent.centre, () => selected(snapshots.encore).pos), radius: intent.radius ?? context.params.rRadio };
           if (event.type === 'JAM_ON' && (!Number.isFinite(event.radius) || event.radius <= 0)) throw new Error('Radius must be positive.');
         } else if (intent.type === 'partition') {
-          const on = pendingToggle('PARTITION_ON', 'PARTITION_OFF', partitionId, snapshots.encore.tick, tick, snapshots.encore.partitions.some(partition => partition.id === partitionId));
+          const on = toggleOnAt(log, 'partition', partitionId, snapshots.encore.tick, tick, snapshots.encore.partitions.some(partition => partition.id === partitionId));
           event = on ? { type: 'PARTITION_OFF', tick, id: partitionId } : { type: 'PARTITION_ON', tick, id: partitionId, point: [0, 30, 0], normal: [1, 0, 0] };
         } else if (intent.type === 'loss') {
           if (!Number.isFinite(intent.loss) || intent.loss < 0 || intent.loss > 1) throw new Error('Packet loss must be between 0 and 1.');

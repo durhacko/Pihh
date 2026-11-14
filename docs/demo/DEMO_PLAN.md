@@ -86,13 +86,13 @@ Startup time, browser fps, offline pass and reset demonstration: **not measured/
 | 21–48 | 420 | Caption only | Hole stays in both arms | Hole refills from its rim above |
 | 48 | 963 | Preloaded sphere movement | Both arms re-form as a sphere | |
 | 54 | 1080 | `JAM_ON`; belief colours; select drone 151 | Jam sphere on the cap; one belief colour | Deaf rings inside the jam |
-| 58 | 1160 | `INJECT_SCORE` (helix); 0.5× | Nothing changes; the static brain ignores injection | New colour spreads along `SCORE` lines; the jam stops it at the cap |
+| 58 | 1160 | `INJECT_SCORE` (helix) into drone 151, which is selected again as the injection is sent (at 55 s), so a click since 54 s cannot change the target; 0.5× | Nothing changes; the static brain ignores injection | New colour spreads along `SCORE` lines; the jam stops it at the cap |
 | 61 | 1220 | 1× | Still a sphere | Adopters fly the helix; cut-off drones keep the sphere |
 | 68 | 1360 | `JAM_OFF` | Jam sphere gone | The new score crosses; late adopters join |
 | 82 | 1640 | X-ray and belief colours off; Audience | Final view and HUD | |
 | 90 | 1800 | End | "End of the 90-second demo" | |
 
-While both arms fly the static brain, every Encore-only caption carries an amber note: "Static brain in both arms: no difference shows yet." Re-check those beats when #16 is merged.
+The amber note follows the brains the live worlds actually fly (their `config.brain.kind`, the same source as the HUD's brain labels). While the Encore arm flies the static brain, every Encore-only caption carries the note "Static brain in both arms: no difference shows yet." Once the Encore brain is in the app (#107), the note goes away by itself, and those beats are the ones to re-check on screen.
 
 **Verification so far.**
 - Headless, `tests/app/demo.test.ts`. These run over the same event path as the browser: the real controls binder, the demo talking to it by DOM events only, and status refreshed periodically.
