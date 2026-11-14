@@ -56,16 +56,24 @@ Startup time, browser fps, offline pass and reset demonstration: **not measured/
 
 > **Scripted, not yet rehearsed by a person.** The 90-second script ([experience §9](../design/experience-and-demo.md#9-scripted-demo), #27) runs unattended and gives the same result each time in headless tests. It has had one headless-browser run. No presenter rehearsal is recorded (see below).
 
-**Run it.** Open the production preview with `?split=1`, then press **D** or **Run demo** in the bar at the bottom. The script resets both worlds to its own seed, sets 1× and plays, so the seed in the URL does not matter. Press **D** again to stop; the show keeps running. **Restart** resets and runs the script from the start. A reset from the control panel or the console stops the script.
+**Run it.** Open the production preview with `?split=1`, then press **D** or **Run demo** in the bar at the bottom. The script resets both worlds to its own seed, sets 1×, turns X-ray and belief colours off, and plays, so the seed in the URL does not matter.
+- **Stop:** press **D** again. The script stops and the show resets to seed 101. The reset discards any event the script had already scheduled, up to 3 s ahead. The show keeps playing.
+- **Restart:** resets and runs the script from the start.
+- **Outside reset:** a reset or seed change from the control panel, the keys or the console stops the script.
 
-**Frozen inputs.** These are defined in `src/app/ui/DemoScript.ts` and pinned by `tests/app/demo.test.ts`. They assume the default roster, n0 = 200, and the default preloaded score: ENCORE text, then sphere, then helix.
+**Frozen inputs.** These are defined in `src/app/ui/DemoScript.ts`. They assume the default roster, n0 = 200, and the default preloaded score: ENCORE text, then sphere, then helix. `tests/app/demo.test.ts` checks the seed, the beat ticks, and the measured facts below.
 
 | Input | Value |
 |---|---|
 | Seed | `101` |
-| Regional kill | Sphere centre (-35, 30.4, 0), radius 6 m, around the first **E** during its hold. Resolved to 20 ids (10% of n0) on the Encore world, then the same `KILL` goes into both arms at tick 400 |
-| Jam | `JAM_ON` centre (0, 39, 0), radius 6 m, the upper third of the sphere, at tick 1080. `JAM_OFF` at tick 1360 |
-| Injection | `INJECT_SCORE` with recipe helix into drone 151, at tick 1160. Drone 151 holds the lowest sphere slot, below the jam, and flew in the last **E**, far from the kill |
+| Regional kill | Sphere centre (-35, 30.4, 0), radius 6 m, over half of the first **E** during its hold. Resolved on the Encore world to 20 ids (10% of n0), all from the first E. The ids stay the same throughout the 3 s before the kill, when the script sends it. The same `KILL` goes into both arms at tick 400 |
+| Jam | `JAM_ON` centre (0, 39, 0), radius 6 m, at tick 1080; `JAM_OFF` at tick 1360. It covers the top cap of the sphere, reaching down to y = 33 on the axis: 18 of 180 live drones with today's static brain |
+| Injection | `INJECT_SCORE` with recipe helix into drone 151, at tick 1160. Drone 151 holds one of the eight lowest sphere slots (y ≈ 21), well below the jam. It flew in the last **E**, far from the kill |
+
+**Differences from experience §9:**
+- **Formation change:** it is the preloaded sphere at 48 s, because the default score has no helix before 93 s. The injected score is therefore a helix rather than a sphere.
+- **Split view:** it is a page option (`?split=1`). The script cannot toggle it, so the split beat is a caption only.
+- **Ghost slots:** they are not wired in this build, so there is no ghost beat.
 
 **Beats** (sim seconds at 1×; 20 ticks per second):
 
@@ -84,32 +92,42 @@ Startup time, browser fps, offline pass and reset demonstration: **not measured/
 | 82 | 1640 | X-ray and belief colours off; Audience | Final view and HUD | |
 | 90 | 1800 | End | "End of the 90-second demo" | |
 
-While both arms fly the static brain, the bar shows an amber note under every Encore-only caption, saying the beat shows no difference yet. Re-check those beats when #16 is merged.
+While both arms fly the static brain, every Encore-only caption carries an amber note: "Static brain in both arms: no difference shows yet." Re-check those beats when #16 is merged.
 
 **Verification so far.**
-- Headless, `tests/app/demo.test.ts`:
-  - every world beat lands as a valid `EnvEvent` on its exact tick in both worlds;
-  - two runs from the demo's own reset end with identical `stateHash` values, HUD samples and event logs, even when status arrives only every 7 ticks;
-  - stop and restart work.
-- One headless Chromium run, split view, 1440×900, software WebGL:
+- Headless, `tests/app/demo.test.ts`. These run over the same event path as the browser: the real controls binder, the demo talking to it by DOM events only, and status refreshed periodically.
+  - Every world beat lands as a valid `EnvEvent` on its exact tick in both worlds.
+  - Each caption appears on its own beat's tick, never early.
+  - Two runs from the demo's own reset end with identical `stateHash` values, HUD samples and event logs, even when status arrives only every 7 ticks.
+  - Stop, including inside the 3 s window before an event, restart and an outside reset work.
+  - A failed or late beat is reported in the bar.
+- One headless Chromium run of this code, split view, 1440×900, software WebGL:
   - the whole script ran with no page errors;
-  - the kill took both arms to 180 alive;
+  - alive went from 200 to 180 in both arms at the kill;
   - the jam was active from tick 1080 to 1360;
-  - it ended at tick ~1800 after ~104 s real time, which includes the 0.5× section;
-  - it rendered 6–19 fps on software WebGL. That says nothing about a laptop GPU: record real fps at rehearsal.
+  - each caption, and the static-brain note, appeared on its beat;
+  - it ended at tick ~1805 after 111 s real time, which includes the 0.5× section;
+  - it rendered 8–16 fps on software WebGL. That says nothing about a laptop GPU: record real fps at rehearsal.
+- Layout measured at 1440×900, 1280×800 and 1000×760: the bar does not overlap the HUD, the control panel, the camera buttons, the help text or the fps readout.
 
-**Not yet verified:** a presenter rehearsal, a run on the presentation laptop, an offline run, and window widths below 1280 px. Below 1100 px the bar moves to the top right.
+**Not yet verified:** a presenter rehearsal, a run on the presentation laptop, and an offline run. The bar is laid out for windows 1280 px wide or more. From 861 to 1279 px it narrows and clips captions to two lines. Below 860 px it is hidden, but **D** still runs the script.
 
 ## Fallbacks
 
 | If this fails | Do this | Evidence boundary |
 |---|---|---|
 | Playback/controls misbehave | Reset to the rehearsed seed using tested UI or the console above; reload the production URL if necessary | No repair claim from an unrehearsed reset |
-| The demo bar reports that a beat "was due at tick … but was sent at tick …" (the show stalled or ran faster than the script could follow) | Press **Restart** at 1× and keep the tab in front. That run is off-script; do not quote its numbers | Only a run with no such message is the canonical one |
-| The scripted demo stops or misbehaves mid-run | Press **D** to stop and drive the same beats by hand: select a drone in the first E, then **K**; **J**; select drone 151, then **I** | Hand-driven events land on different ticks from the script; say so |
+| The demo bar says a step "went out at … s, so this run is off-script", or that a step "failed" | Press **Restart** at 1× and keep the tab in front. Do not quote numbers from that run | Only a run with no such message is the canonical one |
+| The scripted demo stops or misbehaves mid-run | Press **D** to stop; the show resets to seed 101. Then drive similar beats by hand from the control panel (a sequence follows this table) | Hand-driven events land on different ticks and use the controls' default radii (kill 6 m, jam 15 m), not the script's; say so |
 | Split is too slow | Reopen without `split=1`; show both arms' recorded results separately when available | Report the actual laptop observation, not fixture fps |
 | Healing/dissemination is unproven | Show the working shared-world/failure path; explain the mechanism as design and follow the fallback ladder | No staged repair or invented communication result |
 | WebGL or all live paths fail | Play a labelled offline backup only if it exists; otherwise show source and real headless evidence with limits | No video/screenshots supplied by this drafting increment |
+
+**Hand-driven sequence** for the second fallback row:
+1. Once the word holds, click a drone in the middle of the first E, then press **K**.
+2. After the sphere forms, click a drone at its top and press **J**.
+3. Choose "Double helix" under New composition, click a drone at the bottom, and press **I**.
+4. Press **J** again to lift the jam.
 
 ## Judging traceability
 

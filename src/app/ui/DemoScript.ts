@@ -12,7 +12,7 @@ import { encoreBrainIsFixture } from '../worlds';
 import type { PanelContext } from './index';
 
 // --- Frozen demo inputs. Placements are measured for the app's default roster (n0 = 200) and preloaded score
-// (ENCORE text, then sphere, then helix); tests/app/demo.test.ts pins them. Times are sim ticks at 1× (20 per s).
+// (ENCORE text, then sphere, then helix); tests/app/demo.test.ts checks them. Times are sim ticks at 1× (20 per s).
 export const DEMO_SEED = 101;
 export const DEMO_N0 = 200;
 const SECOND = Math.round(1 / DT);
@@ -22,13 +22,14 @@ export const DEMO_TICKS = Object.freeze({
   JAM_ON: 54 * SECOND, INJECT: 58 * SECOND, NEW_MOVEMENT: 58 * SECOND + 60, JAM_OFF: 68 * SECOND,
   FINAL: 82 * SECOND, END: 90 * SECOND,
 });
-/** Regional kill: the first E of ENCORE during its hold. 20 drones, 10% of n0, none from another letter. */
+/** Regional kill: half of the first E of ENCORE, during its hold. 20 drones (10% of n0), none from another letter. */
 export const KILL_CENTRE: Vec3 = [-35, 30.4, 0];
 export const KILL_RADIUS = 6;
-/** Jam: the upper third of the sphere (y ≥ 33). */
+/** Jam: the top cap of the sphere formation (it reaches down to y = 33 on the axis; about 18 drones). */
 export const JAM_CENTRE: Vec3 = [0, 39, 0];
 export const JAM_RADIUS = 6;
-/** Score injection target: holds the lowest sphere slot, far from the jam; flew in the last E, far from the kill. */
+/** Score injection target: near the bottom of the sphere (slot y ≈ 21), far below the jam; in the last E during
+ * the text, far from the kill. */
 export const INJECT_DRONE = 151;
 export const INJECT_RECIPE: Recipe = { kind: 'helix' };
 /** Timed world events are sent this many ticks early with an explicit `at`, so they land on their exact tick
@@ -45,20 +46,20 @@ export interface DemoBeat { id: string; tick: number; action: DemoAction | null;
 const T = DEMO_TICKS;
 const control = (intent: ControlIntent): DemoAction => ({ kind: 'control', intent });
 export const DEMO_BEATS: readonly DemoBeat[] = [
-  { id: 'launch', tick: T.LAUNCH, action: { kind: 'camera', preset: 'audience' }, caption: '200 drones, no central controller: each one decides for itself, flying a preloaded score on a shared clock.' },
+  { id: 'launch', tick: T.LAUNCH, action: { kind: 'camera', preset: 'audience' }, caption: '200 drones and no central controller: each flies a preloaded score on a shared clock, steering by what it senses nearby.' },
   { id: 'xray', tick: T.XRAY, action: { kind: 'view', xray: true, beliefColours: false }, caption: 'X-ray on. Each line is a real heartbeat from the radio log, sampled. The static baseline sends none.' },
-  { id: 'split', tick: T.SPLIT, action: null, caption: 'With ?split=1, the static baseline flies below: same seed, same physics, same failures, no radio.' },
+  { id: 'split', tick: T.SPLIT, action: null, caption: 'In split view, the static baseline flies below: same seed, same physics, same failures, no radio.' },
   { id: 'kill', tick: T.KILL, action: control({ type: 'kill-region', centre: KILL_CENTRE, radius: KILL_RADIUS, at: T.KILL }), caption: 'Knock out part of one letter in both worlds: about 10% of the swarm, the same drones on the same tick.' },
-  { id: 'repair', tick: T.REPAIR, action: null, caption: 'Encore arm: neighbours sense the gap, claim its most important slots by heartbeat, and the letter refills from its rim. Static arm: the hole stays.' },
-  { id: 'formation', tick: T.FORMATION, action: null, caption: 'Next movement: the survivors re-form as a sphere without a single message, by the shared clock.' },
+  { id: 'repair', tick: T.REPAIR, action: null, caption: 'Encore arm: neighbours sense the gap, claim its most important slots by heartbeat, and the letter refills from its rim. Static baseline: the hole stays.' },
+  { id: 'formation', tick: T.FORMATION, action: null, caption: 'Next movement: the survivors re-form as a sphere by the shared clock; no message is needed to do it.' },
   { id: 'jam', tick: T.JAM_ON, action: control({ type: 'jam', centre: JAM_CENTRE, radius: JAM_RADIUS, at: T.JAM_ON }), caption: 'Jam the radio over the top of the formation: nothing in or out. Encore arm: drones inside turn deaf and keep flying their score.' },
   { id: 'belief', tick: T.JAM_ON, action: { kind: 'view', xray: true, beliefColours: true }, caption: '' },
   { id: 'select', tick: T.JAM_ON, action: control({ type: 'select', id: INJECT_DRONE }), caption: '' },
   { id: 'inject', tick: T.INJECT, action: control({ type: 'inject', recipe: INJECT_RECIPE, at: T.INJECT }), caption: 'A new score, a helix, goes to one drone below the jam. Encore arm: it spreads along real SCORE messages, and the jam stops it at the cap.' },
   { id: 'slow', tick: T.INJECT, action: control({ type: 'speed', speed: 0.5 }), caption: '' },
-  { id: 'new-movement', tick: T.NEW_MOVEMENT, action: control({ type: 'speed', speed: 1 }), caption: 'The new movement starts. Encore drones that heard it fly the helix; drones still cut off keep the old score. Static arm: sphere.' },
+  { id: 'new-movement', tick: T.NEW_MOVEMENT, action: control({ type: 'speed', speed: 1 }), caption: 'The new movement starts. Encore drones that heard it fly the helix; drones still cut off keep the old score. Static baseline: sphere.' },
   { id: 'jam-off', tick: T.JAM_OFF, action: control({ type: 'jam', at: T.JAM_OFF }), caption: 'Jam off. Encore arm: the new score crosses into the drones that were cut off, and they join it by the clock.' },
-  { id: 'final-view', tick: T.FINAL, action: { kind: 'view', xray: false, beliefColours: false }, caption: 'Audience view. Every number in the HUD comes from the observer: same seed, same failures in both arms.' },
+  { id: 'final-view', tick: T.FINAL, action: { kind: 'view', xray: false, beliefColours: false }, caption: 'Audience view. The HUD compares both arms on the observer’s measurements: same seed, same failures.' },
   { id: 'final', tick: T.FINAL, action: { kind: 'camera', preset: 'audience' }, caption: '' },
   { id: 'end', tick: T.END, action: null, caption: 'End of the 90-second demo. Press D to run it again.' },
 ];
@@ -72,18 +73,19 @@ export function dispatchTick(beat: DemoBeat): number {
 }
 
 export interface DemoHost {
-  /** Sends an intent exactly as a button would. The DOM panel cannot see the result, so it returns nothing. */
+  /** Sends an intent exactly as a button would; returns its result when the transport reports one. */
   send(intent: ControlIntent): ControlResult | void;
   /** The newest control status, or undefined before the controls connect. */
   status(): ControlStatus | undefined;
   view(): { xray: boolean; beliefColours: boolean };
   camera(preset: CameraPreset): void;
-  /** Called whenever the runner's state, beat or caption changes. */
+  /** Called whenever the runner's state or caption changes. */
   changed(): void;
 }
 export type DemoState = 'idle' | 'running' | 'stopped' | 'finished';
+const beatName = (beat: DemoBeat | null) => `The ${beat ? beat.id.replace('-', ' ') : 'demo'} step`;
 
-/** The demo's clock: pure, driven by control status, so a test can run it headless against the real controller. */
+/** The demo's clock: driven only by control status, so a test can run it headless against the real controls. */
 export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DEMO_BEATS) {
   let state: DemoState = 'idle';
   let next = 0;          // the next beat whose action is due
@@ -95,21 +97,21 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
   let busy = false;
   const problems: string[] = [];
 
+  function setView(xray: boolean, beliefColours: boolean) {
+    if (host.view().xray !== xray) host.send({ type: 'xray' });
+    if (host.view().beliefColours !== beliefColours) host.send({ type: 'belief' });
+  }
   function run(action: DemoAction, tick: number, late: boolean) {
     if (action.kind === 'camera') { host.camera(action.preset); return; }
-    if (action.kind === 'view') {
-      if (host.view().xray !== action.xray) host.send({ type: 'xray' });
-      if (host.view().beliefColours !== action.beliefColours) host.send({ type: 'belief' });
-      return;
-    }
+    if (action.kind === 'view') { setView(action.xray, action.beliefColours); return; }
     let intent = action.intent;
     if (late && 'at' in intent) {
       // Its exact tick has passed (the show stalled or ran fast): land it next tick and say this run is off-script.
       intent = { ...intent, at: undefined };
-      problems.push(`${beat?.id ?? 'beat'} was due at tick ${('at' in action.intent && action.intent.at) || '?'} but was sent at tick ${tick}.`);
+      problems.push(`${beatName(beat)} was due at ${((beat?.tick ?? 0) / SECOND).toFixed(1)} s but went out at ${(tick / SECOND).toFixed(1)} s, so this run is off-script.`);
     }
     const result = host.send(intent);
-    if (result && !result.ok) problems.push(`${beat?.id ?? 'beat'}: ${result.message}`);
+    if (result && !result.ok) problems.push(`${beatName(beat)} failed: ${result.message}`);
   }
 
   function poll(): void {
@@ -117,7 +119,8 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
     const status = host.status();
     if (!status?.available || status.tick === undefined) return;
     const tick = status.tick;
-    if (tick < lastTick) { stop('The show was reset outside the demo, so the demo stopped.'); return; }
+    // Any reset or seed change not made by the demo means the show is no longer the scripted one.
+    if (tick < lastTick || status.seed !== DEMO_SEED) { halt('The show was reset outside the demo, so the demo stopped.'); return; }
     lastTick = tick;
     busy = true;
     let changed = false;
@@ -139,15 +142,21 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
     if (changed) host.changed();
   }
 
+  /** Reset to the demo seed at 1× with the overlays off. A reset also discards every event still pending. */
+  function cleanShow() {
+    host.send({ type: 'reset', seed: DEMO_SEED });
+    host.send({ type: 'speed', speed: 1 });
+    if (!host.status()?.playing) host.send({ type: 'play' });
+    setView(false, false);
+  }
+
   function start(): boolean {
-    const before = host.status();
-    if (!before?.available) { problems.push('Simulation controls are not connected.'); host.changed(); return false; }
+    if (!host.status()?.available) { problems.push('Real simulation controls unavailable. Waiting for the simulation connection.'); host.changed(); return false; }
     busy = true;
     try {
+      state = 'idle';
       problems.length = 0; next = 0; nextCaption = 0; beat = null; captionBeat = null; caption = '';
-      host.send({ type: 'reset', seed: DEMO_SEED });
-      host.send({ type: 'speed', speed: 1 });
-      if (!host.status()?.playing) host.send({ type: 'play' });
+      cleanShow();
       lastTick = 0;   // the demo's own reset: status ticks restart from 1
       state = 'running';
     } finally { busy = false; }
@@ -156,15 +165,24 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
     return true;
   }
 
-  function stop(reason = 'Demo stopped.'): void {
-    if (state !== 'running') return;
+  function halt(reason: string) {
     state = 'stopped'; caption = reason; beat = null; captionBeat = null;
     host.changed();
   }
 
+  /** Stops the script and resets the show, so nothing it already scheduled (up to LEAD_TICKS ahead) still lands. */
+  function stop(): void {
+    if (state !== 'running') return;
+    busy = true;
+    try { state = 'stopped'; cleanShow(); } finally { busy = false; }
+    halt(`Demo stopped. The show was reset to seed ${DEMO_SEED}.`);
+  }
+
   return {
     start, stop, poll,
-    restart() { stop(); return start(); },
+    /** Stops without touching the show (used when the panel is torn down). */
+    abandon() { if (state === 'running') halt('Demo stopped.'); },
+    restart() { if (state === 'running') state = 'stopped'; return start(); },
     get state() { return state; },
     get caption() { return caption; },
     get beat() { return beat; },
@@ -173,18 +191,52 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
   };
 }
 
-/** The bar: Run / Stop, Restart, the D key, progress and the caption overlay. */
+/**
+ * Connects a runner to a page's controls over DOM events only, exactly as the control panel talks to them: it sends
+ * `encore:control` intents and reads `encore:control-status`, including the result reported right after each intent.
+ */
+export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPreset): void; changed(): void }, beats: readonly DemoBeat[] = DEMO_BEATS) {
+  let status: ControlStatus | undefined;
+  let result: ControlResult | undefined;
+  const runner = createDemoRunner({
+    send(intent) {
+      result = undefined;
+      host.dispatchEvent(new CustomEvent('encore:control', { detail: intent }));
+      return result;
+    },
+    status: () => status,
+    view: () => readViewMode(),
+    camera: hooks.camera,
+    changed: hooks.changed,
+  }, beats);
+  const onStatus = (event: Event) => {
+    status = (event as CustomEvent<ControlStatus>).detail;
+    if (status.result) result = status.result;
+    runner.poll();
+    hooks.changed();
+  };
+  host.addEventListener('encore:control-status', onStatus);
+  host.dispatchEvent(new Event('encore:control-query'));
+  return {
+    runner,
+    status: () => status,
+    dispose() { runner.abandon(); host.removeEventListener('encore:control-status', onStatus); },
+  };
+}
+
+/** The bar: Run / Stop, Restart, the D key, progress and the caption. Hidden below 860 px wide; D still works. */
 export function createPanel({ host }: PanelContext) {
   const panel = document.createElement('aside');
   panel.className = 'encore-demo';
   panel.setAttribute('aria-label', 'Scripted demo');
   panel.innerHTML = `<style>
     .encore-demo{position:absolute;left:360px;right:250px;bottom:6px;max-width:900px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 16px;align-items:center;padding:8px 12px;border:1px solid #24404f;border-radius:10px;background:#06121de8;box-shadow:0 15px 40px #0005;color:#c4d9e2;font:12px system-ui;z-index:3}
-    .encore-demo h2{font-size:11px;letter-spacing:.15em;color:#87adbe;margin:0;font-weight:600}.encore-demo .row{display:flex;gap:7px;margin-top:6px}
+    .encore-demo h2{font-size:11px;letter-spacing:.15em;color:#87adbe;margin:0}.encore-demo .row{display:flex;gap:7px;margin-top:6px}
     .encore-demo button{font:inherit;background:#102633;border:1px solid #2a4757;border-radius:5px;padding:6px 10px;color:#d2e7ef;cursor:pointer}.encore-demo button:hover:not(:disabled){background:#1b3d4d}.encore-demo :disabled{opacity:.38;cursor:not-allowed}.encore-demo :focus-visible{outline:2px solid #71d5dd;outline-offset:2px}.encore-demo kbd{font:10px system-ui;opacity:.55;margin-left:4px}
-    .encore-demo .progress{font-size:11px;letter-spacing:0;font-weight:400;color:#7896a6;font-variant-numeric:tabular-nums;margin-left:8px}.encore-demo .caption{font-size:13px;line-height:1.4;color:#dcebf2;margin:0}.encore-demo [data-caption]:empty::before{content:'Press D to run the scripted 90-second demo from seed ${DEMO_SEED}.';color:#7896a6}.encore-demo .note{font-size:11px;color:#e7b677;margin-left:6px}.encore-demo output{display:block;color:#93b4c2;font-size:11px;line-height:1.5;margin-top:4px}.encore-demo output:empty{display:none}
-    @media(max-width:1100px){.encore-demo{left:auto;right:20px;bottom:auto;top:120px;width:min(440px,calc(100vw - 330px));grid-template-columns:1fr;gap:8px}}
-  </style><div><h2>SCRIPTED DEMO · 90 S<span class="progress" data-progress></span></h2><div class="row"><button data-demo="toggle">Run demo <kbd>D</kbd></button><button data-demo="restart" disabled>Restart</button></div></div>
+    .encore-demo .progress{font-size:11px;letter-spacing:0;font-weight:400;color:#7896a6;font-variant-numeric:tabular-nums;margin-left:8px}.encore-demo .caption{font-size:13px;line-height:1.4;color:#dcebf2;margin:0}.encore-demo [data-caption]:empty::before{content:'Press D to run the scripted 90-second demo from seed ${DEMO_SEED}.';color:#7896a6}.encore-demo .note{font-size:11px;color:#e7b677;margin-left:6px}.encore-demo output{display:block;color:#93b4c2;font-size:11px;line-height:1.5;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.encore-demo output:empty{display:none}
+    @media(max-width:1279px){.encore-demo{left:350px;right:245px;bottom:4px;padding:7px 10px;grid-template-columns:1fr;gap:4px}.encore-demo>div:first-child{display:flex;align-items:center;gap:10px}.encore-demo .row{margin-top:0}.encore-demo .caption{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}
+    @media(max-width:860px){.encore-demo{display:none}}
+  </style><div><h2>SCRIPTED DEMO · 90 s<span class="progress" data-progress></span></h2><div class="row"><button data-demo="toggle">Run demo <kbd>D</kbd></button><button data-demo="restart" disabled>Restart</button></div></div>
   <div><p class="caption" aria-live="polite"><span data-caption></span><span class="note" data-note hidden></span></p><output role="status" data-status></output></div>`;
   host.append(panel);
   const toggle = panel.querySelector<HTMLButtonElement>('[data-demo=toggle]')!;
@@ -193,55 +245,45 @@ export function createPanel({ host }: PanelContext) {
   const note = panel.querySelector<HTMLElement>('[data-note]')!;
   const progress = panel.querySelector<HTMLElement>('[data-progress]')!;
   const output = panel.querySelector<HTMLOutputElement>('[data-status]')!;
-  let status: ControlStatus | undefined;
 
-  const runner = createDemoRunner({
-    send: intent => { host.dispatchEvent(new CustomEvent('encore:control', { detail: intent })); },
-    status: () => status,
-    view: () => readViewMode(),
-    // The camera presets are page buttons (main.ts); press the same one a person would.
-    camera: preset => host.querySelector<HTMLButtonElement>(`[data-preset="${preset}"]`)?.click(),
-    changed: render,
-  });
-
-  const seconds = () => `${Math.min(90, Math.floor((status?.tick ?? 0) / SECOND))} s / 90 s`;
+  const ref: { demo?: ReturnType<typeof connectDemo> } = {};   // the first status arrives while connecting
   function render() {
+    if (!ref.demo) return;
+    const runner = ref.demo.runner;
+    const status = ref.demo.status();
     const running = runner.state === 'running';
-    toggle.innerHTML = running ? 'Stop demo <kbd>D</kbd>' : 'Run demo <kbd>D</kbd>';
-    restart.disabled = runner.state === 'idle';
+    const label = running ? 'Stop demo' : 'Run demo';
+    if (!toggle.textContent?.startsWith(label)) toggle.innerHTML = `${label} <kbd>D</kbd>`;
     toggle.disabled = !status?.available;
-    captionEl.textContent = runner.caption;
-    const brainNote = encoreBrainIsFixture && running && runner.captionBeat && BRAIN_DEPENDENT_BEATS.includes(runner.captionBeat.id);
+    restart.disabled = !status?.available || runner.state === 'idle';
+    if (captionEl.textContent !== runner.caption) captionEl.textContent = runner.caption;   // re-announce only on change
+    const brainNote = encoreBrainIsFixture && running && runner.captionBeat !== null && BRAIN_DEPENDENT_BEATS.includes(runner.captionBeat.id);
     note.hidden = !brainNote;
     note.textContent = brainNote ? 'Static brain in both arms: no difference shows yet.' : '';
-    progress.textContent = running ? seconds() : '';
-    output.textContent = runner.problems.join(' ');
+    progress.textContent = running ? ` · ${Math.min(90, Math.floor((status?.tick ?? 0) / SECOND))} s` : '';
+    const problems = runner.problems.join(' ');
+    if (output.textContent !== problems) output.textContent = problems;
   }
-  function onStatus(event: Event) {
-    status = (event as CustomEvent<ControlStatus>).detail;
-    runner.poll();
-    if (runner.state === 'running') progress.textContent = seconds();
-    toggle.disabled = !status.available;
-  }
-  const onToggle = () => { if (runner.state === 'running') runner.stop(); else runner.start(); };
-  const onRestart = () => { runner.restart(); };
+  // Camera presets are page buttons (main.ts): press the same one a person would.
+  const connected = connectDemo(host, { camera: preset => host.querySelector<HTMLButtonElement>(`[data-preset="${preset}"]`)?.click(), changed: render });
+  ref.demo = connected;
+  const onToggle = () => { if (connected.runner.state === 'running') connected.runner.stop(); else connected.runner.start(); };
+  const onRestart = () => { connected.runner.restart(); };
   function onKey(event: KeyboardEvent) {
-    if (event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.key.toLowerCase() !== 'd') return;
+    if (!connected.status()?.available || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.key.toLowerCase() !== 'd') return;
     if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable=true]')) return;
     event.preventDefault();
     onToggle();
   }
   toggle.addEventListener('click', onToggle);
   restart.addEventListener('click', onRestart);
-  host.addEventListener('encore:control-status', onStatus);
   window.addEventListener('keydown', onKey);
-  host.dispatchEvent(new Event('encore:control-query'));
   render();
   return {
     dispose() {
-      runner.stop();
+      connected.dispose();
       toggle.removeEventListener('click', onToggle); restart.removeEventListener('click', onRestart);
-      host.removeEventListener('encore:control-status', onStatus); window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey);
       panel.remove();
     },
   };

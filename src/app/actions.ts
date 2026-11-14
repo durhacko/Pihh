@@ -37,6 +37,8 @@ export interface ControlStatus {
   tick?: number;
   selectedId: number | null; selectedAlive: boolean; radioFaults: boolean; composition: boolean; display: boolean;
   message: string;
+  /** Only on the status emitted right after an intent: that intent's result. */
+  result?: ControlResult;
 }
 export interface ControlResult { ok: boolean; message: string; event?: EnvEvent }
 
@@ -77,12 +79,17 @@ export function createActionController(context: ControlContext) {
     context.onScheduledEvent?.(structuredClone(event));
     return { ok: true, message: `${event.type} scheduled for tick ${event.tick} in both worlds.`, event: structuredClone(event) };
   }
-  function pendingToggle(on: 'JAM_ON' | 'PARTITION_ON', off: 'JAM_OFF' | 'PARTITION_OFF', id: string, tick: number, current: boolean): boolean {
-    for (let i = log.length - 1; i >= 0; i--) {
-      const event = log[i];
-      if ((event.type === on || event.type === off) && event.id === id && event.tick > tick) return event.type === on;
-    }
-    return current;
+  /** Whether the toggle will be on at tick `at`: the current state, then every pending on/off for this id up to
+   * `at`, in tick order. (Log order alone is not tick order once an intent can name a later tick with `at`.) */
+  function pendingToggle(on: 'JAM_ON' | 'PARTITION_ON', off: 'JAM_OFF' | 'PARTITION_OFF', id: string, now: number, at: number, current: boolean): boolean {
+    const pending = log.filter(event => (event.type === on || event.type === off) && event.id === id && event.tick > now && event.tick <= at);
+    pending.sort((a, b) => a.tick - b.tick);   // stable: same-tick events keep log order
+    return pending.length ? pending[pending.length - 1].type === on : current;
+  }
+  function centre(value: Vec3 | undefined, fallback: () => Vec3): Vec3 {
+    if (value === undefined) return [...fallback()];
+    if (value.length !== 3 || !value.every(Number.isFinite)) throw new Error('A region centre must be three finite numbers.');
+    return [...value];
   }
 
   function handle(intent: ControlIntent): ControlResult {
@@ -112,7 +119,7 @@ export function createActionController(context: ControlContext) {
       if (at !== undefined && (!Number.isSafeInteger(at) || at <= snapshots.encore.tick)) throw new Error('A timed action must land after the current tick.');
       const tick = at ?? snapshots.encore.tick + 1;
       let event: EnvEvent;
-      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, intent.centre ?? selected(snapshots.encore).pos, killRadius(intent.radius ?? context.params.rClaim)) };
+      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, centre(intent.centre, () => selected(snapshots.encore).pos), killRadius(intent.radius ?? context.params.rClaim)) };
       else if (intent.type === 'kill-selected') event = { type: 'KILL', tick, ids: [selected(snapshots.encore).id] };
       else if (intent.type === 'kill-random') {
         const live = snapshots.encore.drones.filter(drone => drone.alive).map(drone => drone.id);
@@ -121,11 +128,11 @@ export function createActionController(context: ControlContext) {
       else {
         if (!context.radioFaults) throw new Error('Radio fault controls are not connected yet.');
         if (intent.type === 'jam') {
-          const on = pendingToggle('JAM_ON', 'JAM_OFF', jamId, snapshots.encore.tick, snapshots.encore.jams.some(jam => jam.id === jamId));
-          event = on ? { type: 'JAM_OFF', tick, id: jamId } : { type: 'JAM_ON', tick, id: jamId, centre: [...(intent.centre ?? selected(snapshots.encore).pos)], radius: intent.radius ?? context.params.rRadio };
+          const on = pendingToggle('JAM_ON', 'JAM_OFF', jamId, snapshots.encore.tick, tick, snapshots.encore.jams.some(jam => jam.id === jamId));
+          event = on ? { type: 'JAM_OFF', tick, id: jamId } : { type: 'JAM_ON', tick, id: jamId, centre: centre(intent.centre, () => selected(snapshots.encore).pos), radius: intent.radius ?? context.params.rRadio };
           if (event.type === 'JAM_ON' && (!Number.isFinite(event.radius) || event.radius <= 0)) throw new Error('Radius must be positive.');
         } else if (intent.type === 'partition') {
-          const on = pendingToggle('PARTITION_ON', 'PARTITION_OFF', partitionId, snapshots.encore.tick, snapshots.encore.partitions.some(partition => partition.id === partitionId));
+          const on = pendingToggle('PARTITION_ON', 'PARTITION_OFF', partitionId, snapshots.encore.tick, tick, snapshots.encore.partitions.some(partition => partition.id === partitionId));
           event = on ? { type: 'PARTITION_OFF', tick, id: partitionId } : { type: 'PARTITION_ON', tick, id: partitionId, point: [0, 30, 0], normal: [1, 0, 0] };
         } else if (intent.type === 'loss') {
           if (!Number.isFinite(intent.loss) || intent.loss < 0 || intent.loss > 1) throw new Error('Packet loss must be between 0 and 1.');
@@ -148,18 +155,21 @@ export function createActionController(context: ControlContext) {
 /** Panels dispatch DOM intents only; the bootstrap explicitly connects real-world authority here. */
 export function bindControls(host: HTMLElement, context: ControlContext) {
   const controller = createActionController(context);
-  const emit = () => host.dispatchEvent(new CustomEvent('encore:control-status', { detail: controller.status() }));
-  const onIntent = (event: Event) => { controller.handle((event as CustomEvent<ControlIntent>).detail); emit(); };
+  // The status sent straight after an intent carries that intent's result, so a DOM-only sender (the scripted
+  // demo) can tell a failed action from a scheduled one.
+  const emit = (result?: ControlResult) => host.dispatchEvent(new CustomEvent('encore:control-status', { detail: { ...controller.status(), ...(result ? { result } : {}) } }));
+  const onIntent = (event: Event) => { emit(controller.handle((event as CustomEvent<ControlIntent>).detail)); };
+  const onQuery = () => emit();
   host.addEventListener('encore:control', onIntent);
-  host.addEventListener('encore:control-query', emit);
+  host.addEventListener('encore:control-query', onQuery);
   emit();
   return {
     ...controller,
-    handle(intent: ControlIntent) { const result = controller.handle(intent); emit(); return result; },
-    selectDrone(id: number | null) { const result = controller.selectDrone(id); emit(); return result; },
-    refresh: emit,
+    handle(intent: ControlIntent) { const result = controller.handle(intent); emit(result); return result; },
+    selectDrone(id: number | null) { const result = controller.selectDrone(id); emit(result); return result; },
+    refresh: () => emit(),
     dispose() {
-      host.removeEventListener('encore:control', onIntent); host.removeEventListener('encore:control-query', emit);
+      host.removeEventListener('encore:control', onIntent); host.removeEventListener('encore:control-query', onQuery);
       host.dispatchEvent(new CustomEvent('encore:control-status', { detail: { ...controller.status(), available: false, message: 'Real simulation controls unavailable.' } }));
     },
   };
