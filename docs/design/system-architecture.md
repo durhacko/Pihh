@@ -69,12 +69,12 @@ Fixed timestep `dt = 0.05 s` (20 Hz). Rendering runs at display rate and interpo
 2. **Deliver.** Move radio messages due this tick into each live drone's inbox, sorted by (sent tick, sender id, sender sequence).
 3. **Sense.** For each live drone, list drones within sensing range as anonymous relative position and velocity.
 4. **Decide.** Call every live drone's brain, in ascending id, on the state from the end of the previous tick. No drone sees another's output from the same tick.
-5. **Transmit.** For each outgoing message and each live drone within radio range of the sender: check jams and partitions, draw packet loss, schedule delivery after the latency. Log a radio event either way.
+5. **Transmit.** For each outgoing message and each live drone within radio range of the sender: check jams and partitions, draw packet loss, schedule delivery after the latency. Log a radio event either way. Senders are processed in ascending id and receivers in ascending id, whatever order the brains were called in.
 6. **Move.** Clamp each requested acceleration, integrate velocity and position, clamp speed.
 7. **Account.** Record collisions and near-misses from true positions.
 8. **Observe.** Publish the read-only snapshot. The observer updates metrics.
 
-Determinism: one seed per run. The world and radio draw from one seeded stream in the fixed order above. Each brain gets its own stream derived from the seed and its id, kept in its private state. Nothing reads wall-clock time or `Math.random`. Same seed, parameters and event script give the same run on the same JavaScript engine. We do not claim bit-identical results across engines (trigonometric functions may differ), so replay tests compare runs within one host.
+Determinism: one seed per run. The world and radio draw from one seeded stream in the fixed order above (so anything that changes who is alive shifts later radio draws; tests that compare two differing worlds set `loss` to 0 and a fixed latency). Each brain gets its own stream derived from the seed and its id, kept in its private state. Nothing reads wall-clock time or `Math.random`. Same seed, parameters and event script give the same run on the same JavaScript engine. We do not claim bit-identical results across engines (trigonometric functions may differ), so replay tests compare runs within one host.
 
 ## 5. Two worlds, one script
 

@@ -42,7 +42,7 @@ Example: `feat/14-radio-medium`.
 | `[contract]` PR (`src/contracts/**`, contracts doc) | CI green + approval from the contract owner (Arnav) | Arnav |
 | Touches `package.json`, build config, CI, or `src/app/main.ts` | CI green + a skim by the owner of that file (see the plan) | The author, after the skim |
 
-If no review arrives within 15 minutes, ping the team. After 30 minutes with green CI, the author may self-merge a non-contract PR and note it in the PR. Agents never merge without their human saying so.
+Ping the team when the PR opens. After 10 minutes with green CI and no reviewer, the author may self-merge a non-contract PR and note it in the PR. Agents never merge without their human saying so.
 
 ## Answers to the coordination questions
 
@@ -78,6 +78,6 @@ claude    # or your agent of choice
 
 Paste:
 
-> You are a coding agent for <your name> on the Encore project (repo durhacko/Pihh). Follow AGENTS.md exactly. Read AGENTS.md, docs/CURRENT_STATE.md and docs/design/contracts-and-algorithms.md, then run `gh issue view <N> --comments`. Claim issue #<N>, create branch `<type>/<N>-<slug>`, and implement only its acceptance criteria inside its allowed files, with the tests it lists. Never import anything into src/agent or src/baseline except src/contracts and src/score. Run scripts/check.sh, then open a PR with `Closes #<N>` and the handoff block. Ask me before any contract change or anything out of scope. If you're blocked, post a BLOCKED handoff on the issue and stop.
+> You are a coding agent for <your name> on the Encore project (repo durhacko/Pihh). Follow AGENTS.md exactly. Read AGENTS.md, docs/CURRENT_STATE.md and docs/design/contracts-and-algorithms.md, then run `gh issue view <N> --comments`. Claim issue #<N>, create branch `<type>/<N>-<slug>`, and implement only its acceptance criteria inside its allowed files, with the tests it lists. Never import anything into src/agent except src/contracts and src/score. Run scripts/check.sh, then open a PR with `Closes #<N>` and the handoff block. Ask me before any contract change or anything out of scope. If you're blocked, post a BLOCKED handoff on the issue and stop.
 
 To pick up whatever is next instead of a specific issue, replace the issue number with: "run `gh issue list --assignee @me --state open` and take the highest-priority READY one".

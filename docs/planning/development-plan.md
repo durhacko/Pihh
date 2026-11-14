@@ -36,28 +36,28 @@ If a lane has nobody active, its READY issues are free to claim: the orchestrato
 
 | ID | Issue | Lane | Allowed files | Depends on | Fixture | Gate | Priority |
 |---|---|---|---|---|---|---|---|
-| WP-0a | Scaffold: Vite + TS + vitest + lint, `scripts/check.sh`, CI, import-boundary check (#5) | B | repo config, empty `src/*` folders | — | — | G0 | MUST |
-| WP-0b | Contract types, `DEFAULT_PARAMS`, fixtures (`dummyBrain`, `fakeSnapshot`) | A | `src/contracts/**`, `tests/fixtures/**` | WP-0a | — | G0 | MUST |
-| WP-4a | Score: bitmap font, sphere, helix, farthest-point slots, `currentMovement`, `composeNext`, `launchPos` | A | `src/score/**`, `tests/score/**` | WP-0b | — | G1 | MUST |
-| WP-2a | World core: tick loop, physics clamps, sensing grid, radio (range, latency, loss), `KILL`, snapshot, `inspect`, `stateHash`, seeded RNG | B | `src/sim/**`, `tests/sim/**` | WP-0b | `dummyBrain` | G1 | MUST |
-| WP-1a | Steering function and static baseline brain | A | `src/agent/steer.ts`, `src/agent/staticBrain.ts`, `tests/agent/steer*` | WP-0b, WP-4a | — | G1 | MUST |
-| WP-1b | Encore brain: heartbeats, peer table, `canHeal`, scan, claim, commit, duplicate rule, physical yield, belief | A | `src/agent/encoreBrain.ts`, `src/agent/state.ts`, `tests/agent/encore*` | WP-1a | scripted `AgentInput` sequences | G1 | MUST |
-| WP-1c | G1 falsification tests on the real world; tune parameters | A | `tests/g1/**`, `src/contracts/params.ts` (values only) | WP-1b, WP-2a | — | **G1** | MUST |
-| WP-3a | Render slice: `WorldView`, instanced drones, camera rig, snapshot buffer, main loop | C | `src/app/**`, `index.html` | WP-0b | `fakeSnapshot` | G2 | MUST |
-| WP-3b | Integrate: app steps real Encore and static worlds; kill a drone from the console (#6) | A | `src/app/main.ts`, `src/app/worlds.ts` | WP-3a, WP-2a, WP-1a | — | **G2** | MUST |
-| WP-2b | Radio faults and events: jam sphere, partition plane, `SET_LOSS`, `INJECT_SCORE`, radio event log, `idsInSphere`, `randomIds` | B | `src/sim/**`, `tests/sim/**` | WP-2a | — | G3 | MUST |
-| WP-2c | Isolation and determinism tests: differential locality, order independence, replay, observer read-only, pure-jam continuity | B | `tests/isolation/**` | WP-2a, WP-1a | — | G3 | MUST |
-| WP-6a | Brain: score adoption, anti-entropy send with jitter and suppression; tests on partition and reconnection | A | `src/agent/encoreBrain.ts`, `tests/agent/score*` | WP-1b, WP-2b | — | **G4** | MUST |
-| WP-5a | Controls and actions: panel, kill region / random / selected, jam, inject, play / pause / reset / speed / seed; same events to both worlds; UI integration test | C | `src/app/ui/**`, `src/app/actions.ts` | WP-3b | — | G3 | MUST |
-| WP-7a | Observer: metrics per the evaluation doc, `MetricsSample` stream, `slotStatus`, reference formation | B | `src/observer/**`, `tests/observer/**` | WP-2a, WP-4a | — | G5 | MUST |
-| WP-5b | Split view (Encore above, static below) and HUD | C | `src/app/render/WorldView.ts`, `src/app/ui/Hud.ts` | WP-3b, WP-7a | — | G5 | MUST |
-| WP-8a | X-ray: radio layer from `RadioEvent`, jam and partition volumes, belief colours, death marker | C | `src/app/render/layers/{Radio,Zone}Layer.ts`, `colourModes/**` | WP-3b, WP-2b | — | G3, G4 | MUST |
-| WP-7b | Scenarios S0–S5, CLI batch runner, run records, results table generator | B | `src/cli/**`, `src/sim/scenarios.ts`, `results/**` | WP-7a, WP-2b, WP-6a | — | **G5** | MUST |
-| WP-9a | Scripted 90-second demo and captions | C | `src/app/ui/DemoScript.ts` | WP-5a, WP-8a, WP-6a | — | G6 | MUST |
-| WP-8b | Ghost slots (faint target points, vacant ones highlighted) from `Observer.slotStatus`; tethers are SHOULD | C | `src/app/render/layers/GhostSlotLayer.ts` | WP-3b, WP-7a | — | G5 | MUST |
-| WP-8c | Drone inspector from `World.inspect` and `Belief` | C | `src/app/ui/Inspector.ts`, `layers/SelectionLayer.ts` | WP-3b | — | — | SHOULD |
-| WP-9b | Demo plan, 90-second pitch, rehearsals, backup video (#7) | C | `docs/demo/**`, `assets/**` | WP-9a | — | G6 | MUST |
-| WP-9c | README (run steps, frameworks, AI credit, where Encore ties or loses), Devpost submission (#8) | C | `README.md`, `docs/demo/**` | WP-7b | — | **G6** | MUST |
+| WP-0a [#5](https://github.com/durhacko/Pihh/issues/5) | Scaffold: Vite + TS + vitest + lint, `scripts/check.sh`, CI, import-boundary check | B | repo config, empty `src/*` folders | — | — | G0 | MUST |
+| WP-0b [#12](https://github.com/durhacko/Pihh/issues/12) | Contract types, `DEFAULT_PARAMS`, fixtures (`dummyBrain`, `fakeSnapshot`) | A | `src/contracts/**`, `tests/fixtures/**` | WP-0a | — | G0 | MUST |
+| WP-4a [#13](https://github.com/durhacko/Pihh/issues/13) | Score: bitmap font, sphere, helix, farthest-point slots, `currentMovement`, `composeNext`, `launchPos` | A | `src/score/**`, `tests/score/**` | WP-0b | — | G1 | MUST |
+| WP-2a [#14](https://github.com/durhacko/Pihh/issues/14) | World core: tick loop, physics clamps, sensing grid, radio (range, latency, loss, jam sphere via `JAM_ON`/`JAM_OFF`), `KILL`, snapshot, `inspect`, `stateHash`, seeded RNG | B | `src/sim/**`, `tests/sim/**` | WP-0b | `dummyBrain` | G1 | MUST |
+| WP-1a [#15](https://github.com/durhacko/Pihh/issues/15) | Steering function and static baseline brain | A | `src/agent/steer.ts`, `src/agent/staticBrain.ts`, `tests/agent/steer*` | WP-0b, WP-4a | — | G1 | MUST |
+| WP-1b [#16](https://github.com/durhacko/Pihh/issues/16) | Encore brain: heartbeats, peer table, `canHeal`, scan, claim, commit, duplicate rule, physical yield, belief | A | `src/agent/encoreBrain.ts`, `src/agent/state.ts`, `tests/agent/encore*` | WP-1a | scripted `AgentInput` sequences | G1 | MUST |
+| WP-1c [#17](https://github.com/durhacko/Pihh/issues/17) | G1 falsification tests on the real world (nPWC, duplicate slots and slot changes computed inline in the tests; no observer needed); tune parameters | A | `tests/g1/**`, `src/contracts/params.ts` (values only) | WP-1b, WP-2a | — | **G1** | MUST |
+| WP-3a [#18](https://github.com/durhacko/Pihh/issues/18) | Render slice: `WorldView`, instanced drones, camera rig, snapshot buffer, main loop | C | `src/app/**`, `index.html` | WP-0b | `fakeSnapshot` | G2 | MUST |
+| WP-3b [#6](https://github.com/durhacko/Pihh/issues/6) | Integrate: app steps two real worlds; kill a drone from the console | A | `src/app/main.ts`, `src/app/worlds.ts` | WP-3a, WP-2a, WP-1a | `staticBrain` in both worlds until WP-1b merges (one-line swap to `encoreBrain`) | **G2** | MUST |
+| WP-2b [#19](https://github.com/durhacko/Pihh/issues/19) | Radio faults and events: partition groups, `SET_LOSS`, `INJECT_SCORE`, drop reasons in the radio log, `idsInSphere`, `randomIds` | B | `src/sim/**`, `tests/sim/**` | WP-2a | — | G3 | MUST |
+| WP-2c [#20](https://github.com/durhacko/Pihh/issues/20) | Isolation and determinism tests: differential locality, order independence, replay, pure-jam continuity | B | `tests/isolation/**` | WP-2a, WP-1a | — | G3 | MUST |
+| WP-6a [#21](https://github.com/durhacko/Pihh/issues/21) | Brain: score adoption, anti-entropy send with jitter and suppression; tests on partition and reconnection | A | `src/agent/encoreBrain.ts`, `tests/agent/score*` | WP-1b, WP-2b | — | **G4** | MUST |
+| WP-5a [#22](https://github.com/durhacko/Pihh/issues/22) | Controls and actions: panel, kill region / random / selected, jam, inject, play / pause / reset / speed / seed; same events to both worlds; UI integration test | C | `src/app/ui/**`, `src/app/actions.ts` | WP-3b | — | G3 | MUST |
+| WP-7a [#23](https://github.com/durhacko/Pihh/issues/23) | Observer: metrics per the evaluation doc, `MetricsSample` stream, `slotStatus`, reference formation, observer-read-only test | B | `src/observer/**`, `tests/observer/**` | WP-2a, WP-4a | — | G5 | MUST |
+| WP-5b [#24](https://github.com/durhacko/Pihh/issues/24) | Split view (Encore above, static below) and HUD | C | `src/app/render/WorldView.ts`, `src/app/ui/Hud.ts` | WP-3b, WP-7a | — | G5 | MUST |
+| WP-8a [#25](https://github.com/durhacko/Pihh/issues/25) | X-ray: radio layer from `RadioEvent`, jam and partition volumes, belief colours, death marker | C | `src/app/render/layers/{Radio,Zone}Layer.ts`, `colourModes/**` | WP-3b, WP-2b | — | G3, G4 | MUST |
+| WP-7b [#26](https://github.com/durhacko/Pihh/issues/26) | Scenarios S0–S5, CLI batch runner, run records, results table generator | B | `src/cli/**`, `src/sim/scenarios.ts`, `results/**` | WP-7a, WP-2b, WP-6a | — | **G5** | MUST |
+| WP-9a [#27](https://github.com/durhacko/Pihh/issues/27) | Scripted 90-second demo and captions | C | `src/app/ui/DemoScript.ts` | WP-5a, WP-8a, WP-6a | — | G6 | MUST |
+| WP-8b [#28](https://github.com/durhacko/Pihh/issues/28) | Ghost slots (faint target points, vacant ones highlighted) from `Observer.slotStatus`; tethers are SHOULD | C | `src/app/render/layers/GhostSlotLayer.ts` | WP-3b, WP-7a | — | G5 | MUST |
+| WP-8c [#29](https://github.com/durhacko/Pihh/issues/29) | Drone inspector from `World.inspect` and `Belief` | C | `src/app/ui/Inspector.ts`, `layers/SelectionLayer.ts` | WP-3b | — | — | SHOULD |
+| WP-9b [#7](https://github.com/durhacko/Pihh/issues/7) | Demo plan, 90-second pitch, rehearsals, backup video | C | `docs/demo/**`, `assets/**` | WP-9a | — | G6 | MUST |
+| WP-9c [#8](https://github.com/durhacko/Pihh/issues/8) | README (run steps, frameworks, AI credit, where Encore ties or loses), Devpost submission | C | `README.md`, `docs/demo/**` | WP-7b | — | **G6** | MUST |
 
 Shared-file rule for lane C: each layer and panel is its own file, registered by one line in `src/app/render/layers/index.ts` or `src/app/ui/index.ts`. Those two index files are the only ones several issues touch; keep the edits to one line each.
 
@@ -104,7 +104,7 @@ flowchart LR
 
 | When | Lane A | Lane B | Lane C |
 |---|---|---|---|
-| Now | Architecture PR (#4) | **WP-0a** (#5) | Read the experience doc; verify the sponsor brief (#1) |
+| Now | Architecture PR (#4) | **WP-0a** | Read the experience doc; verify the sponsor brief (#1) |
 | After WP-0a | **WP-0b** (30 min) | — | — |
 | After WP-0b | WP-4a, then WP-1a, then WP-1b | WP-2a | WP-3a |
 | After WP-2a | WP-1c (G1), WP-3b (G2) | WP-2b, WP-2c, WP-7a | WP-5a after WP-3b |
@@ -132,3 +132,5 @@ Cut from the top. Never cut agent isolation, real radio lines, or the regional k
 | Round | What was reviewed | Outcome |
 |---|---|---|
 | 0 | First healing draft, by an adversarial sub-agent | 3 fatal, 6 serious flaws; redesigned (ADR-007) |
+| 1 | The four dependent docs, by their own writers against the contract | 10 contract gaps fixed: group-based partition, per-world reference formation, `makeParams`, observer API, yield only in hold |
+| 2 | All docs, by five reviewers (decentralisation, algorithm, consistency, evaluation, delivery), each finding independently verified | 27 confirmed findings, about 16 distinct, all fixed: dependent docs realigned to the contract; G1 jam moved into WP-2a; `Belief.target` and slot positions exposed for the renderer; shape scaling defined; T02 made deterministic; claim-release rule added. **The review loop was stopped by the team after this round; the fixes themselves have not been re-reviewed** |

@@ -17,7 +17,7 @@ Agents do **not** share memory, sessions or filesystems. The only shared state i
 
 ### The three Encore rules (break one and the project's claim is false)
 
-1. **Agent isolation.** Code under `src/agent/` and `src/baseline/` may import only from `src/contracts/` and `src/score/`. A drone's decision function receives only its `AgentInput` and returns an `AgentOutput`. It never sees the world, another drone's state, or ground truth. See [contracts §1](docs/design/contracts-and-algorithms.md).
+1. **Agent isolation.** Code under `src/agent/` (the Encore brain and the static baseline brain) may import only from `src/contracts/` and `src/score/`. A drone's decision function receives only its `AgentInput` and returns an `AgentOutput`. It never sees the world, another drone's state, or ground truth. See [contracts §1](docs/design/contracts-and-algorithms.md).
 2. **The observer never decides.** `src/observer/` and `src/app/` may read everything, but may change the simulation only by scheduling **environment events** (kill, jam, partition, inject a score into one drone, pause). They never set a drone's slot, target or belief.
 3. **Nothing is invented on screen.** Every message spark, belief colour and metric comes from a real simulation event or state.
 
@@ -36,7 +36,7 @@ Need something the contract doesn't give you? Don't work around it locally. Ask 
 | State | How it looks on GitHub |
 |---|---|
 | BACKLOG | Open issue, label `status:blocked` (a dependency isn't merged yet) |
-| READY | Open issue, no status label. Assigned = reserved for that human; unassigned = anyone may claim |
+| READY | Open issue, no status label. Assigned = reserved for that human for 15 minutes after it becomes READY; after that, or if unassigned, anyone may claim |
 | CLAIMED / IN_PROGRESS | Assignee set **and** label `status:in-progress`, with a claim comment naming the branch |
 | BLOCKED | Label `status:blocked` plus a comment saying on what |
 | IN_REVIEW | PR open with `Closes #N`; label `status:in-review` |
@@ -50,7 +50,7 @@ gh issue edit <N> --add-assignee @me --add-label status:in-progress
 gh issue comment <N> --body "STATUS: CLAIMED by <human>'s agent. BRANCH: <type>/<N>-<slug>"
 ```
 
-If an issue is `status:in-progress` but has had no commit, PR or comment for **45 minutes**, comment asking; after 10 more minutes with no reply you may take it over, saying so on the issue.
+**Release rule** (this is what "a lane with nobody active" means): a READY issue that its assignee has not claimed within 15 minutes of becoming READY is free to anyone. An issue that is `status:in-progress` with no commit, PR or comment for 30 minutes is free to anyone. Say so on the issue when you take it.
 
 ## 2. On starting work
 

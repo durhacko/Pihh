@@ -44,33 +44,13 @@ Why it may fail:
 - A claimant must fly through a lattice with `slotSpacingMin` 1.5 m while steering away below `dAvoid` 1.4 m. It may stall or trip the physical yield.
 - Priorities are interleaved in space. A random kill should look alike in both arms; only a regional kill should show a visible gain. If the regional gain is small, the headline comparison is weak.
 
-**How G1 tests it:** the three headless runs in [contracts §8.6](../design/contracts-and-algorithms.md#86-the-first-falsification-test-gate-g1) (null run, clumped kill, silence is not death), on a small roster with heavy packet loss, one seed and then five. They need only `src/contracts`, `src/score`, `src/agent`, `src/sim` and a minimal observer: no app. `claimGap` must be recomputed for the small roster or few drones are eligible to claim. If the clumped-kill run cannot pass by 23:30, take the next step on the fallback ladder in [decisions and risks](../planning/decisions-and-risks.md). Rendering (G2) proceeds in parallel against the static brain, so a G1 failure does not block the 3D slice.
+**How G1 tests it:** the three headless runs in [contracts §8.6](../design/contracts-and-algorithms.md#86-the-first-falsification-test-gate-g1) (null run, clumped kill, silence is not death), on a small roster with heavy packet loss, one seed and then five. They need only `src/contracts`, `src/score`, `src/agent`, `src/sim` with metrics computed inline in the tests: no observer, no app. `claimGap` must be recomputed for the small roster or few drones are eligible to claim. If the clumped-kill run cannot pass by 23:30, take the next step on the fallback ladder in [decisions and risks](../planning/decisions-and-risks.md). Rendering (G2) proceeds in parallel against the static brain, so a G1 failure does not block the 3D slice.
 
 ## 5. MVP scope
 
-**MUST** (each needed for G1–G6):
+Levels (MUST / SHOULD / STRETCH) are defined once, per requirement, in [requirements](../specification/requirements.md). What gets cut first is in the [development plan](../planning/development-plan.md#if-we-fall-behind-cut-order).
 
-- Contract types and `DEFAULT_PARAMS` in `src/contracts`.
-- Score expansion for text and sphere: exactly `n0` slots in farthest-point order.
-- Deterministic world: bodies, anonymous sensing, disc radio, `KILL`, `JAM`, `PARTITION`, `INJECT_SCORE`, seeded replay.
-- Encore brain: heartbeat, `canHeal` gate, local claims, history stack, physical yield.
-- Static brain, and two worlds driven by one seed and one event script.
-- Score dissemination from one drone, with version `{issuedTick, origin}`.
-- Observer: nPWC, coverage, duplicate slots, collisions and near-misses, message counts, version histogram, run records.
-- Headless CLI and the G1 tests.
-- App: audience view, X-ray view from real radio events, Encore beside the static arm, metrics readout.
-- Controls: regional kill, random kill, jam, partition, inject, pause, reset with seed.
-- One scripted demo, an offline build, README (libraries, AI credit), backup video.
-
-**SHOULD:**
-
-- Belief view (colour by score version), ghost slots, drone inspector.
-- Helix recipe.
-- `transitLanes`, only if transitions gridlock.
-- Multi-seed batch with a results table for the pitch.
-- In-app "what is simulated" panel.
-
-**STRETCH:** judge-typed text; the "revisit" rows of contract §12 (gossiped register with tail reassignment, oracle upper bound, animated holds).
+The MVP in one paragraph: about 200 drones, each stepping only on its own `AgentInput`, hold text, sphere and helix formations; after a regional kill the Encore arm repairs locally while a static arm on the same seed keeps the hole; a score injected into one drone spreads by radio and is held back by a jam or a partition; an X-ray view draws the real radio log and each drone's belief; headless runs produce the numbers on screen. The inspector, tethers, judge-typed text and the "revisit" rows of contract §12 are outside the MUST set.
 
 ## 6. Out of scope
 

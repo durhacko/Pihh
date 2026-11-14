@@ -149,6 +149,7 @@ export interface AgentInit {
 /** What a brain believes. Read by the observer, renderer and inspector only. Never fed to another brain. */
 export interface Belief {
   slot: number; heldSince: number;
+  target: Vec3;                    // where I am flying: slot `slot` of my own score's current movement
   version: ScoreVersion;
   deaf: boolean;
   canHeal: boolean;
@@ -256,13 +257,13 @@ export type SlotStatus = 'occupied' | 'inTransit' | 'vacant' | 'contested';
 export interface Observer {
   registerScore(score: Score): void;                     // call for the preloaded score and for every score scheduled with INJECT_SCORE
   sample(snapshot: WorldSnapshot): MetricsSample | null; // call every tick; returns a sample every 5 ticks
-  slotStatus(snapshot: WorldSnapshot): SlotStatus[];     // by slot index, against the reference formation
+  slotStatus(snapshot: WorldSnapshot): { formation: Formation; inHold: boolean; status: SlotStatus[] };   // the reference formation at this tick, and each slot's status by index
   summary(): Record<string, number | null>;
 }
 // createObserver(params: Params): Observer
 ```
 
-**Reference formation.** Each world is measured against the newest registered score that at least one live drone **in that world** believes, at the current movement by the clock. So the static world is always measured against its preloaded score, and is not marked down for a new score it could never receive; that capability difference is reported through the adoption metrics instead. "Occupied" is defined once, in the observer: a live drone within `rOcc` of the slot position.
+**Reference formation.** Each world is measured against the newest registered score that at least one live drone **in that world** believes, at the current movement by the clock. So the static world is always measured against its preloaded score, and is not marked down for a new score it could never receive; that capability difference is reported through the adoption metrics instead. "Occupied" is defined once, in the observer: a live drone within `rOcc` of the slot position. `inTransit`: not occupied, and exactly one live drone's `belief.slot` names it. `contested`: two or more do. `vacant`: none does. The app draws these and never recomputes them.
 
 Metric formulas, tolerances and summary keys are defined once, in [`../validation/evaluation-and-tests.md`](../validation/evaluation-and-tests.md). The inspector shows `inspect().state` generically as a JSON tree and must not import `src/agent`, so a change to brain state cannot break it.
 
@@ -278,7 +279,7 @@ composeNext(score: Score, tick: number, recipe: Recipe, origin: number, n0: numb
 launchPos(id: number, n0: number): Vec3
 ```
 
-**Expansion.** (1) Generate a dense candidate cloud for the shape: about `4·n0` points for slot selection, and about 2000 for `dense`. Text uses a built-in 5×7 bitmap font table (no canvas, so Node and browser agree), supersampling each lit cell 3×3. Sphere uses a Fibonacci lattice. Helix samples two strands. (2) Pick `n0` slots by **farthest-point sampling**: slot 0 is the candidate nearest the centroid; each next slot is the candidate farthest from all slots chosen so far (ties: lowest candidate index). (3) If the closest pair of slots is nearer than `slotSpacingMin`, scale the shape up uniformly about its centre until it isn't. (4) Colour each slot from the palette as a gradient along x.
+**Expansion.** (1) Generate a dense candidate cloud for the shape: about `4·n0` points for slot selection, and about 2000 for `dense`. Text uses a built-in 5×7 bitmap font table (no canvas, so Node and browser agree), supersampling each lit cell 3×3. Sphere uses a Fibonacci lattice. Helix samples two strands. (2) Pick `n0` slots by **farthest-point sampling**: slot 0 is the candidate nearest the centroid; each next slot is the candidate farthest from all slots chosen so far (ties: lowest candidate index). (3) Scale the shape uniformly about its centre, up or down, so that the closest pair of slots is `slotSpacingMin` (times 1.001, so rounding cannot leave it below), then translate it so the centre of `bounds` is (0, 30, 0). Local slot density is therefore the same at every `n0`. Choose each shape's proportions so that `bounds.min.y ≥ 2` at `n0` 40 and 200 (a squat helix, not a tall one). (4) Colour each slot from the palette as a gradient along x.
 
 Why farthest-point order: **any prefix `0…k-1` is an evenly spread k-drone version of the shape.** Low indices carry the coarse outline; high indices add density. So "priority" means "how much of the outline this slot carries", and sacrificing the highest indices thins the image instead of holing it.
 

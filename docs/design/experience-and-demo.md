@@ -8,18 +8,19 @@ Types and parameter values are in [contracts](contracts-and-algorithms.md); rule
 
 | File under `src/app/` | Responsibility (all MUST) |
 |---|---|
-| `main.ts` | Builds both worlds and observers, runs the loop, turns actions into `EnvEvent`s. The only caller of `createWorld`, `step`, `schedule` |
+| `main.ts`, `worlds.ts`, `actions.ts` | Loop; building both worlds and observers; turning actions into `EnvEvent`s. The only callers of `createWorld`, `step`, `schedule` |
 | `render/{WorldView,SnapshotBuffer,CameraRig}.ts` | One view per world (canvas, scene, layers); previous and current snapshot with alpha; one camera shared by both views |
-| `render/Layer.ts` | Interface below and the layer registry |
-| `render/{Env,Drone,Death,GhostSlot,Radio,Zone,Selection}Layer.ts` | One layer per file (§3) |
-| `render/palette.ts`, `render/slotStatus.ts` | Colour modes; slot status (§4). Pure functions |
-| `ui/{ControlPanel,Hud,Inspector,Captions,keys,demoScript}.ts` | DOM only, no Three.js. Emit actions to `main.ts`; never hold a world |
+| `render/Layer.ts` | The interface below |
+| `render/layers/{Env,Drone,Death,GhostSlot,Radio,Zone,Selection}Layer.ts` | One layer per file (§3), registered by one line in `render/layers/index.ts` |
+| `render/colourModes/` | Colour modes (show, belief). Pure functions |
+| `ui/{ControlPanel,Hud,Inspector,Captions,keys,DemoScript}.ts` | DOM only, no Three.js, registered in `ui/index.ts`. Emit actions; never hold a world |
 
 ```ts
 interface Layer {
   id: string;
   init(ctx: { scene: THREE.Scene; camera: THREE.Camera; params: Params }): void;
-  update(f: { prev: WorldSnapshot; curr: WorldSnapshot; alpha: number; dtReal: number }): void;
+  update(f: { prev: WorldSnapshot; curr: WorldSnapshot; alpha: number; dtReal: number;
+              slots?: { formation: Formation; inHold: boolean; status: SlotStatus[] } }): void;   // slots: from Observer.slotStatus
   setVisible(v: boolean): void;
   dispose(): void;
 }
@@ -46,23 +47,22 @@ Two worlds, one script (MUST):
 | Audience | Near-black background, ground grid. Drone colour is exactly `DroneSnap.colour` (× 0.25 in X-ray so overlays read) | MUST |
 | Death | On `alive` true→false: one 0.4 s flash, then hidden. In X-ray a dim `×` stays at the spot | MUST |
 | Ghost slots | Ring per non-occupied slot, by status (§4); smaller for higher slot index | MUST |
-| Tether | Line from a drone to its own target slot while farther than `rOcc` | MUST |
+| Tether | Line from a drone to its own `belief.target` while farther than `rOcc` from it. Never to a reference-formation slot | SHOULD |
 | Radio X-ray | Lines from sender to `RadioEvent.delivered` receivers, 0.3 s fade. Plain `HB`: dim slate, sampled (every 4th broadcast, 3 receivers). `HB` with `claimSlot`: bright cyan. `SCORE`: bright magenta. Highlighted types drawn first, capped per broadcast | MUST |
 | Dropped | Short stub at the sender per non-zero reason: `lost` grey, `jammed` vermilion, `partitioned` yellow. The log holds counts, not receiver ids, so a stub points at nobody | MUST |
 | Honest counter | HUD "radio drawn n / m": links drawn over links logged in the last second. Never more lines than the log | MUST |
 | Belief colours | One colour per score version (`issuedTick:origin`), in order of first appearance; legend with live counts | MUST |
 | Deaf marker | White ring on any drone with `belief.deaf`, in every mode | MUST |
-| Zones | Jam: translucent wire sphere. Partition: translucent plane. Drawn from `snapshot.jams` and `snapshot.partitions`, not UI state | MUST |
+| Zones | Jam: translucent wire sphere. Partition: drones tinted by `partitionSide` (the plane only marks where the split was made; groups stay fixed wherever drones fly). Drawn from `snapshot.jams` and the snapshot's partition data, not UI state | MUST |
 
 ## 4. Requested versus occupied
 
-`slotStatus` is derived by the app from the snapshot and `src/score`; the legend says "observer view". Every live drone holds a slot; there is no unassigned state.
+Slot positions and status come from `Observer.slotStatus` ([contract §5](contracts-and-algorithms.md#5-world-events-snapshot-metrics)); the app never recomputes them. The legend says "observer view". Every live drone holds a slot; there is no unassigned state.
 
 | Status | Rule | Drawn as |
 |---|---|---|
 | Occupied | A live drone within `rOcc` of the slot | Nothing |
 | In transit | A live drone's `belief.slot`, none within `rOcc` | Thin amber ring, tether |
-| Being claimed | Some `belief.claiming` is this slot | Cyan ring (SHOULD) |
 | Vacant | No live drone holds it | Thick vermilion ring |
 | Contested | Two or more live drones hold it | Double magenta ring, slow pulse |
 
@@ -74,18 +74,18 @@ Two worlds, one script (MUST):
 
 ## 6. Drone inspector
 
-Built ONLY from `World.inspect(id)` and that drone's `Belief` (MUST). `Inspector.ts` and `SelectionLayer.ts` never receive a `WorldSnapshot`; an import test checks this (SHOULD).
+The inspector is SHOULD (WP-8c). If built, it is built ONLY from `World.inspect(id)` and that drone's `Belief`. `Inspector.ts` and `SelectionLayer.ts` never receive a `WorldSnapshot` and never import `src/agent`; an import test checks this.
 
 | Source | Fields |
 |---|---|
 | `Belief` | `slot`, `heldSince`, `version`, `deaf`, `canHeal`, `claiming`, `peersKnown`, `log` |
-| `state` (Encore) | `history`, `mvIndex`, `lastTargetChange`, `settledSince`, `lastRx`, `claim` and its window end, `yieldSince`, `scoreSendAt`, watched slots (`emptySince`), top 8 `peers` by `heard`, marked "suspected" past `tSuspect` |
+| `state` | A generic collapsible JSON tree of `inspect().state`. No field names hard-coded, so a change to brain state cannot break the inspector |
 | `input` | `tick`, `pos`, `vel`, inbox count by type, sensed count, nearest sensed distance |
 | `output` | `accel`, `colour`, outbox count by type |
 
-- In-world (MUST): `rSense` sphere, `rRadio` ring, own target slot, a marker on the slot each known peer last declared.
+- In-world: `rSense` sphere, `rRadio` ring, a marker at `belief.target`.
 - Truth column (SHOULD): separate, grey, headed "OBSERVER — not visible to this drone" (for example "peer 17: dead"). The only part fed from the snapshot.
-- Dead drone (MUST): last inspect result, frozen, under a banner. Static drone: belief, input, output.
+- Dead drone: last inspect result, frozen, under a banner. Static drone: belief, input, output.
 
 ## 7. Control panel and HUD
 
@@ -111,7 +111,7 @@ HUD, 4 Hz, from each world's `MetricsSample`:
 
 ## 9. Scripted demo
 
-`demoScript.ts` is a list of `{ tick, event?, view?, caption }` using the same dispatch as the buttons (MUST). Times are sim seconds at 1×, provisional until rehearsed at G2. Captions make no sponsor-fit claims: the theme wording and sponsor briefs are team-reported, not verified ([BRIEF](../competition/BRIEF.md) T1).
+`DemoScript.ts` is a list of `{ tick, event?, view?, caption }` using the same dispatch as the buttons (MUST). Times are sim seconds at 1×, provisional until rehearsed at G2. Captions make no sponsor-fit claims: the theme wording and sponsor briefs are team-reported, not verified ([BRIEF](../competition/BRIEF.md) T1).
 
 **90 seconds (MUST)**
 
@@ -136,8 +136,8 @@ HUD, 4 Hz, from each world's `MetricsSample`:
 3. `KILL` a neighbour of the selected drone: its peer row stays, turns "suspected"; truth column says dead.
 4. `JAM_ON` with no kills, then `JAM_OFF`: slot changes stay flat (silence is not death).
 5. Preloaded sphere movement: slot persistence.
-6. `PARTITION_ON`, then `INJECT_SCORE` on one side: the colour stops at the plane.
-7. `PARTITION_OFF` at inject + `scoreLead`: reconnect, newest version spreads. Left on, drones crossing the plane would carry it over anyway.
+6. `PARTITION_ON`, then `INJECT_SCORE` into one group: the colour stops at the group boundary, and the two groups fly different formations.
+7. `PARTITION_OFF`: reconnect, the newest version spreads, and claims made by the group left behind unwind.
 8. `SET_LOSS` up, `INJECT_SCORE` (text): slower spread, finale, HUD totals.
 
 ## 10. Performance
@@ -153,16 +153,16 @@ HUD, 4 Hz, from each world's `MetricsSample`:
 2. Within 30 s of the regional kill, Encore's nPWC is above static's and the hole is visibly smaller above only.
 3. Drawn links never exceed logged links; the static view draws none; pause freezes lines.
 4. No drone inside the jam at injection changes belief colour before `JAM_OFF`; afterwards one colour remains (target 10 s, measured at G4).
-5. A killed neighbour stays in the inspector's peer list while the truth column says dead.
+5. If the inspector is built: it shows nothing that is not in that drone's `Belief` or `inspect` result.
 6. A no-kill jam adds zero slot changes.
-7. Every off-slot live drone has a tether; no ring at an occupied slot; contested rings equal `dupSlots`.
+7. No ring at an occupied slot; contested rings equal `dupSlots`.
 8. Reset with the same seed gives identical HUD numbers at tick 600; the 90 s script runs unattended twice.
 
 ## 12. Cut order
 
-Cut first, in order: follow camera, auto-orbit, truth column, 3-minute script, being-claimed ring, bloom (keep halo), stacked split (keep toggle), random kill button.
+Cut first, in order: follow camera, auto-orbit, truth column, 3-minute script, inspector depth, tethers, bloom (keep halo), stacked split (keep toggle), random kill button.
 
-Never cut: radio lines from the real log with the n / m counter, the own-knowledge inspector, nPWC for both arms, regional kill with visible repair, the measured collision count, reset.
+Never cut: radio lines from the real log with the n / m counter, nPWC for both arms, regional kill with visible repair, the measured collision count, reset.
 
 Needed by gate: G2 §1, Audience, Death, reset, one camera preset · G3 Radio, Dropped, Zones, deaf marker · G4 belief colours, Compose · G5 HUD numbers equal the CLI's for the same seed · G6 the 90 s script.
 

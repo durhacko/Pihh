@@ -28,7 +28,7 @@ Areas: **core-agent** (`src/agent`), **core-sim** (`src/sim`, `src/contracts`), 
 |---|---|---|---|---|
 | FR-01 | MUST | A brain's `step` reads only its own state and `AgentInput` and returns only `AgentOutput` (I1, I2). It imports only `src/contracts` and `src/score` | Import-boundary check. Locality test: changing a drone A cannot sense or hear leaves A's output identical | core-agent |
 | FR-02 | MUST | Brains use no `Math.random`, `Date`, `performance`, DOM or module-level mutable state. State is plain JSON with its own seeded stream | Source-scan test. A JSON round trip of state mid-run leaves the final `stateHash()` unchanged | core-agent |
-| FR-03 | MUST | Observer, renderer and UI decide nothing. The app changes a world only via `schedule(EnvEvent)` (I6) | Same `stateHash()` at a fixed tick with the app attached and headless | core-sim |
+| FR-03 | MUST | Observer, renderer and UI decide nothing. The app changes a world only via `schedule(EnvEvent)` (I6) | `stateHash()` equal with and without the observer attached (T14) | core-sim |
 
 ### Radio and sensing
 
@@ -43,7 +43,7 @@ Areas: **core-agent** (`src/agent`), **core-sim** (`src/sim`, `src/contracts`), 
 
 | ID | Level | Requirement | Acceptance | Area |
 |---|---|---|---|---|
-| FR-08 | MUST | `expandRecipe` is pure and deterministic: exactly `n0` slots, farthest-point priority order, spacing ≥ `slotSpacingMin` | Per recipe kind: length, spacing, identical output in Node and browser | score |
+| FR-08 | MUST | `expandRecipe` is pure and deterministic: exactly `n0` slots, farthest-point priority order, spacing ≥ `slotSpacingMin` | Per recipe kind: length, spacing, identical output on a second call (T17) | score |
 | FR-09 | MUST | Recipe kinds `text` (A–Z, 0–9, space), `sphere` and `helix` | Each is recognisable at default `n0` from the audience camera | score |
 | FR-10 | MUST | A prefix of the slots is a thinner, evenly spread version of the shape | Demo formations stay readable with the first 90% and 70% of slots (screenshots kept) | score |
 | FR-11 | MUST | Slot persistence: the holder of index `i` flies slot `i` of the current movement. A formation change needs no messages | G1 null run (no kills, one formation change, 60 s): zero slot changes | core-agent |
@@ -89,10 +89,10 @@ Areas: **core-agent** (`src/agent`), **core-sim** (`src/sim`, `src/contracts`), 
 | ID | Level | Requirement | Acceptance | Area |
 |---|---|---|---|---|
 | FR-28 | MUST | Audience view: lit drones, orbit camera, Encore above and static below (fallback: a one-key toggle) | Text legible at default `n0`; both arms show the same kill | app-render |
-| FR-29 | MUST | Radio layer drawn from the real `RadioEvent` log (I8), with jam spheres and partition planes | Every spark maps to a logged event; none crosses an active jam or partition | app-render |
+| FR-29 | MUST | Radio layer drawn from the real `RadioEvent` log (I8), with jam spheres and partition groups | Every spark maps to a logged event; none crosses an active jam or partition | app-render |
 | FR-30 | MUST | Belief layer: drones coloured by `belief.version` | Colour counts match `versions` | app-render |
 | FR-31 | MUST | Ghost layer: unoccupied target slots are marked | Marks match `coverage` | app-render |
-| FR-32 | MUST | Inspector: click a drone to see only what it knows, from its `Belief` and `world.inspect` | Values equal that brain's state; any ground truth shown is labelled as observer data | app-ui |
+| FR-32 | SHOULD | Inspector: click a drone to see only what it knows, from its `Belief` and `world.inspect`; state shown as a generic JSON tree | Values equal that brain's state; any ground truth shown is labelled as observer data | app-ui |
 | FR-33 | MUST | HUD for both arms: alive, nPWC, `dupSlots`, versions, messages, collisions, near-misses | Matches FR-25 | app-ui |
 
 ### Controls and scripted demo (`src/app/ui/**`, DOM only)
@@ -100,7 +100,7 @@ Areas: **core-agent** (`src/agent`), **core-sim** (`src/sim`, `src/contracts`), 
 | ID | Level | Requirement | Acceptance | Area |
 |---|---|---|---|---|
 | FR-34 | MUST | Controls: kill region, jam on/off, inject a recipe into the selected drone, play/pause, reset from seed. SHOULD: partition on/off, random 10% kill, single step | One click or key each; the same `EnvEvent` goes to both worlds | app-ui |
-| FR-35 | MUST | Scripted demo on one key: form, regional kill, recover, jam, inject, partition, reconnect. `Reset` restarts it | Three runs end with the same `stateHash`; fits the [demo plan](../demo/DEMO_PLAN.md) slot | app-ui |
+| FR-35 | MUST | Scripted demo on one key: form, regional kill, recover, jam, inject, reconnect. `Reset` restarts it | Three runs end with the same `stateHash`; fits the [demo plan](../demo/DEMO_PLAN.md) slot | app-ui |
 | FR-36 | SHOULD | A judge types their own word for the injected recipe | Unsupported characters are rejected | app-ui |
 | FR-37 | SHOULD | "What is simulated" panel | One click from the HUD | app-ui |
 | FR-38 | STRETCH | Contract §12 items: gossiped membership, tail reassignment, oracle bound, animated holds | After G5, via a `[contract]` PR | all |
@@ -109,9 +109,9 @@ Areas: **core-agent** (`src/agent`), **core-sim** (`src/sim`, `src/contracts`), 
 
 | ID | Level | Requirement | Acceptance | Area |
 |---|---|---|---|---|
-| NFR-01 | MUST | Performance: both worlds live at 20 Hz simulation, at the frame-rate target of architecture §6 and never below its floor, with split view and radio layer on | Measured on a team laptop at G2, recorded in [CURRENT_STATE](../CURRENT_STATE.md) | app-render |
+| NFR-01 | MUST | Performance: both worlds live at 20 Hz simulation, at the frame-rate target of architecture §6 and never below its floor | Measured on a team laptop at G2 on a single view with both worlds stepping; re-measured at G5 with split view and X-ray on. Recorded in [CURRENT_STATE](../CURRENT_STATE.md) | app-render |
 | NFR-02 | MUST | Scaling: sensing and radio use a uniform spatial grid. No brain solves a global assignment | Tick time at `n0` and at half of it, reported | core-sim |
-| NFR-03 | MUST | Determinism: same seed, parameters and event script give the same run in browser and Node | Replay test on `stateHash()` at a fixed tick; one Node-against-browser check at G2 | core-sim |
+| NFR-03 | MUST | Determinism: same seed, parameters and event script give the same run on the same JavaScript engine | Replay test on `stateHash()` at fixed ticks (T04), within one host | core-sim |
 | NFR-04 | MUST | Offline: static files, no server, no network at runtime | The built app runs with networking off | ops |
 | NFR-05 | MUST | Headless tests: the core has no DOM dependency; unit and G1 tests run in Node with one command | Suite passes before every merge to `main` | ops |
 | NFR-06 | MUST | README lists every public framework and library used (BRIEF R3) | Section matches `package.json` | ops |

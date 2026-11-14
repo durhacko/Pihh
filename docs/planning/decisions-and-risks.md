@@ -40,7 +40,7 @@ P = probability, I = impact. Owners are roles until skills are confirmed.
 | # | Risk | P | I | Owner | Mitigation | Trigger | Fallback |
 |---|---|---|---|---|---|---|---|
 | 1 | Healing oscillates, duplicates or never settles | M | H | Agent-brain owner | G1 falsification tests first, on 40 drones, before any polish; conservative timers | G1 not passed by 23:30 Sat | Fallback ladder below |
-| 2 | Scope too large for ~14 hours | H | H | Arnav | MUST/SHOULD/STRETCH in [feasibility-and-scope](../analysis/feasibility-and-scope.md); feature freeze 08:30 | G2 not reached by 01:30 Sun | Cut in the order listed in the plan |
+| 2 | Scope too large for ~14 hours | H | H | Arnav | MUST/SHOULD/STRETCH per requirement in [requirements](../specification/requirements.md); feature freeze 08:30 | G2 not reached by 01:30 Sun | Cut in the order listed in the plan |
 | 3 | Contracts drift between laptops | M | H | Arnav | Types land in one PR before parallel work; `[contract]` PR rule; contract log check | A PR fails to compile against `main` | Contract owner fixes within 15 min |
 | 4 | Parallel work never integrates | M | H | Arnav | G2 vertical slice by 00:30 using fixtures; PRs under 2 hours | Components "done" but not wired | All three on integration until G2 passes |
 | 5 | Looks like "just particles"; decentralisation invisible | M | H | Experience owner | X-ray and belief views are MUST, with real events; inspector | Judges' first question at a rehearsal | Lead the pitch with the kill + split view |
@@ -82,5 +82,5 @@ Answers after the review rounds recorded in [development-plan.md](development-pl
 | 11 | Is the picture really the simulation? | The renderer reads snapshots; radio lines come from the medium's log, with a "drawn n / m" counter; the inspector shows `World.inspect` and `Belief` only. |
 | 12 | First test that could falsify the thesis? | Contracts §8.6 test 2: clumped kill on 40 drones, headless. |
 | 13 | Can the MVP ship in time? | Tight. The plan protects it with G1 by 23:30, G2 by 00:30 and a cut order. |
-| 14 | What goes first if behind? | In order: follow camera, 3-minute script, truth column, partition plane (keep jam sphere), inspector depth, glow post-processing, split view (toggle instead), 20-seed batch (5 seeds), drone count. Never: real radio lines, agent isolation, the regional kill with repair. |
+| 14 | What goes first if behind? | The [cut order in the plan](development-plan.md#if-we-fall-behind-cut-order). Never: real radio lines, agent isolation, the regional kill with repair. |
 | 15 | Can another agent build from this alone? | That is the acceptance test for the docs: each issue names its contract sections, allowed files, fixtures and tests. |
