@@ -127,6 +127,7 @@ vitest, headless. All MUST except T15 and T16 (SHOULD). "Gate" is the latest gat
 | T15 | Scaling | core-sim | Mean brain step time per drone at `n0 = 300` ≤ 2× that at `n0 = 100`; printed, not stored | G5 |
 | T16 | Version order | core-agent | Scores injected on both sides of a partition: after `PARTITION_OFF` every live drone holds the later `issuedTick` (tie: higher origin) | G4 |
 | T18 | Score relay | core-agent | Three drones in a line, A in range of B, B in range of C, A out of range of C; inject at A. C adopts within 40 ticks at `loss` 0, and within 400 ticks at `loss` 0.2 on seeds 1–5. Same bounds with two extra up-to-date drones beside B (hidden terminal). No drone sends more than one `SCORE` per `scoreResendMin` | G4 |
+| T19 | History and mixed versions | core-agent | More than `historyMax` commits followed by repeated pops ends on the launch slot with `heldSince` 0. A drone holding a claimed slot that hears an earlier holder of the same index on a **different** score version pops back; the same on equal versions | G1 |
 | T17 | Formation invariants | score | Every recipe kind: `n0` slots, closest pair ≥ `slotSpacingMin`, same output on a second call | G1 |
 
 ## 7. Gates
