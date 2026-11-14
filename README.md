@@ -2,7 +2,7 @@
 
 **A drone light show with no central controller.** Encore is a 3D simulation in which every drone decides for itself: the swarm holds a formation, repairs the image when drones fail, and spreads new compositions from drone to drone by radio. Built at DurHack 2026 (theme: Composition) for the Neptune North challenge.
 
-> **Status: architecture approved, implementation starting.** Nothing runs yet. See [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
+> **Status: scaffold available; simulation implementation pending.** See [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
 > **Submission deadline: Sun 15 Nov 2026, 11:00 GMT (Devpost).**
 
 ## What it shows
@@ -41,15 +41,30 @@ tests/  scripts/  assets/  research/
 
 ## Run it
 
-*Added by the scaffold issue (#5).* It will be `npm ci && npm run dev`, with no network needed at run time.
+Install Node.js 22.12+ (CI uses 24.11.0), then:
+
+```bash
+npm ci
+npm run dev
+```
+
+Open the loopback URL printed by Vite. The page currently confirms scaffold readiness; it does not simulate drones yet. On Windows PowerShell use `npm.cmd` if script execution policy blocks `npm`.
+
+Encore always runs in simulation mode. Optional `.env` setting `VITE_SIM_MODE=true` is documented in `.env.example`; setting it to false is rejected. No credentials are needed. Dependency installation needs internet; the app uses local assets at runtime.
+
+Run all checks with `bash scripts/check.sh` (Git Bash on Windows). This performs a clean dependency install, typecheck, lint, import-boundary checks, Node tests, production build and loopback preview smoke check. Alternatively use `npm ci` followed by `npm run check` in PowerShell. The smoke check verifies HTTP delivery of the built page and JS bundle; it does not execute a browser or verify WebGL.
+
+Use `npm run build` then `npm run preview` to serve the production files locally.
 
 ## Built with
 
-*Completed before submission; the event rules require every public framework and library to be listed ([BRIEF R3](docs/competition/BRIEF.md#4-submission-and-rules)).* Planned: TypeScript, Vite, Three.js, vitest.
+TypeScript, Vite, Three.js, Vitest, ESLint and typescript-eslint, with Node.js and TypeScript definitions from `@types/node` and `@types/three`. Exact direct versions and the transitive dependency tree are pinned in `package.json` and `package-lock.json`. Three.js is installed for the upcoming renderer; the scaffold does not render a scene yet.
 
 ## AI use
 
 *Completed before submission; the event rules require AI use to be credited explicitly ([BRIEF R4](docs/competition/BRIEF.md#4-submission-and-rules)).* So far: Claude Code (Anthropic) was used on 14 Nov 2026 to set up the repository and coordination docs, to research the event rules and prior art, and to draft and review the architecture and specification documents under the team's direction. AI coding agents will also write application code; this section will say which parts.
+
+OpenAI Codex implemented the issue #5 scaffold, build and CI configuration, import-boundary checks and their tests under Williams's direction.
 
 ## Where Encore ties or loses
 

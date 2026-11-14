@@ -15,5 +15,13 @@ jobs:
           python-version: "3.12"
       - name: Internal Markdown links resolve
         run: python scripts/check_links.py
-  # Stack-specific jobs (lint, test, build) are added in the M1 "stack scaffold + CI" issue
-  # once the idea and stack are selected. Do not add speculative jobs here before then.
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.0'
+          cache: npm
+      - name: Install, typecheck, lint, test, build, smoke
+        run: bash scripts/check.sh

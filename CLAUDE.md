@@ -16,7 +16,9 @@ Then read [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md), [`docs/design/contra
 
 ```bash
 python scripts/check_links.py      # internal Markdown links (CI runs this)
-scripts/check.sh                   # typecheck + lint + tests + build (exists after issue #5)
+bash scripts/check.sh              # clean install + typecheck + lint + tests + build + smoke
+npm run dev                       # local app (Windows PowerShell: npm.cmd run dev)
+npm run check                     # checks using installed dependencies
 gh issue list --assignee @me       # your work
 gh issue view <N> --comments       # issue context
 git log --oneline -5 origin/main -- src/contracts docs/design/contracts-and-algorithms.md   # did a contract change?
