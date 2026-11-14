@@ -82,7 +82,7 @@ A human teammate may waive the wait for their own issues, and the team lead may 
 1. Run `npm ci` once per clone or worktree, then `bash scripts/check.sh` (typecheck, lint, tests, build, docs links).
 2. Review your own diff (`git diff origin/main...`) for stray files and anything outside your allowed files.
 3. Open a PR with the template. The body must contain `Closes #<N>`, the requirement IDs it covers, and the handoff block. Set the issue to `status:in-review`.
-4. A human other than the author reviews and merges (rules in [`docs/development/WORKFLOW.md`](docs/development/WORKFLOW.md)).
+4. Follow the [merge rules in `WORKFLOW.md`](docs/development/WORKFLOW.md#who-may-merge): the author merges after the required human skim; contract PRs require approval and merge by Arnav. A non-contract PR may use the documented green-CI, 10-minute no-reviewer exception. Agents merge only when directed by their human.
 5. Update `docs/CURRENT_STATE.md` in the same PR **only** if team-visible state changed (a gate passed, a contract changed, a new blocker).
 
 ### Handoff format (PR body, and any issue comment that reports status)
