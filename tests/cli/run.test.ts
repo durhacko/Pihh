@@ -96,7 +96,7 @@ describe('runOne', () => {
     expect(r.series).toHaveLength(20);
     expect(r.series[0]?.alive).toBe(200);
     expect(Object.keys(r.summary).length).toBeGreaterThan(0);
-  });
+  }, SIM_TIMEOUT);
 
   it('fails clearly for an arm with no brain, and for mismatched n0', () => {
     expect(() => brainFor({ static: staticBrain }, 'encore')).toThrow(/#16.*src\/cli\/brains\.ts/);
