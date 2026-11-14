@@ -2,7 +2,10 @@
 // The Markdown results table (evaluation doc §5 step 4): per scenario and metric, median and IQR per arm,
 // median paired delta (Encore - static), win/tie/loss on npwcEnd by the ±0.02 rule, censored tRec count,
 // worst seed. Losses stay in the table, marked LOSS (§1). Pure: records in, Markdown out.
+// A static and an Encore record are paired only when they are a fair pair (§4): same scenario, n0 and seed,
+// AND the same git, paramsHash and events. Anything else is shown as MISMATCH and never counted.
 import type { RunRecord } from '../contracts';
+import { canonicalJson } from './run';
 
 export const WIN_MARGIN = 0.02;
 export type Verdict = 'WIN' | 'TIE' | 'LOSS';
@@ -27,15 +30,19 @@ export function verdict(delta: number): Verdict {
   return 'TIE';
 }
 
-/** Quantile with linear interpolation between order statistics (R type 7, numpy default). */
+/**
+ * Quantile with linear interpolation between order statistics (R type 7, numpy default). +Infinity is allowed
+ * (a censored tRec): interpolating towards it gives +Infinity, landing exactly on a finite value gives that value.
+ */
 export function quantile(values: readonly number[], q: number): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const h = (sorted.length - 1) * q;
   const lo = Math.floor(h);
-  const hi = Math.ceil(h);
   const a = sorted[lo] as number;
-  const b = sorted[hi] as number;
+  if (h === lo) return a;
+  const b = sorted[lo + 1] as number;
+  if (b === Infinity) return Infinity;   // also avoids Infinity - Infinity = NaN
   return a + (h - lo) * (b - a);
 }
 
@@ -45,13 +52,25 @@ export function median(values: readonly number[]): number | null {
 
 export interface Stats { n: number; median: number | null; q1: number | null; q3: number | null; nulls: number }
 
-export function stats(values: readonly (number | null)[]): Stats {
-  const nums = values.filter((v): v is number => v !== null);
-  return { n: nums.length, median: median(nums), q1: quantile(nums, 0.25), q3: quantile(nums, 0.75), nulls: values.length - nums.length };
+/**
+ * Median and IQR of one metric over one arm. Nulls are skipped (counted in `nulls`), except with
+ * `censoredHigh` (tRec): a null is a seed that never recovered, so it ranks above every recovered seed
+ * (+Infinity) instead of being dropped, which would flatter the median.
+ */
+export function stats(values: readonly (number | null)[], censoredHigh = false): Stats {
+  const nulls = values.filter((v) => v === null).length;
+  const nums = censoredHigh
+    ? values.map((v) => (v === null ? Infinity : v))
+    : values.filter((v): v is number => v !== null);
+  return { n: nums.length, median: median(nums), q1: quantile(nums, 0.25), q3: quantile(nums, 0.75), nulls };
 }
+
+/** Metrics whose null means "censored, ranks worst" rather than "not applicable". */
+const CENSORED_HIGH = new Set(['tRec']);
 
 function fmt(x: number | null): string {
   if (x === null) return '—';
+  if (x === Infinity) return 'censored';
   if (Number.isInteger(x)) return String(x);
   if (Math.abs(x) < 0.0005) return '0.000';   // no "-0.000" from floating-point noise
   return x.toFixed(3);
@@ -66,7 +85,9 @@ function nullLabel(key: string): string {
 }
 
 function fmtStats(s: Stats, key: string): string {
-  if (s.n === 0) return s.nulls > 0 ? `${nullLabel(key)} ×${s.nulls}` : '—';
+  // For a censored-high metric n counts the censored values too; otherwise n excludes nulls.
+  const allNull = CENSORED_HIGH.has(key) ? s.n === s.nulls : s.n === 0;
+  if (allNull) return s.nulls > 0 ? `${nullLabel(key)} ×${s.nulls}` : '—';
   const nulls = s.nulls > 0 ? `, ${nullLabel(key)} ×${s.nulls}` : '';
   return `${fmt(s.median)} [${fmt(s.q1)}–${fmt(s.q3)}] (n=${s.n}${nulls})`;
 }
@@ -102,23 +123,49 @@ function groupRecords(records: readonly RunRecord[]): Group[] {
   return [...groups.values()].sort((a, b) => a.scenario.localeCompare(b.scenario) || b.n0 - a.n0);
 }
 
-export interface SeedRow { seed: number; static: number | null | undefined; encore: number | null | undefined; delta: number | null; verdict: Verdict | null }
+/**
+ * 'paired': both arms present and a fair pair (same git, paramsHash and events, §4).
+ * 'mismatch': both present but not a fair pair. 'unpaired': one arm missing.
+ */
+export type PairStatus = 'paired' | 'mismatch' | 'unpaired';
 
-/** Per-seed npwcEnd rows, paired by seed. `verdict` is null when the pair is incomplete or the scenario has none. */
+/** True only if the two records differ in nothing but the brain: same git, paramsHash and events. */
+export function fairPair(a: RunRecord, b: RunRecord): boolean {
+  return a.git === b.git && a.paramsHash === b.paramsHash && canonicalJson(a.events) === canonicalJson(b.events);
+}
+
+export function pairStatus(group: Group, seed: number): PairStatus {
+  const s = group.static.get(seed);
+  const e = group.encore.get(seed);
+  if (s === undefined || e === undefined) return 'unpaired';
+  return fairPair(s, e) ? 'paired' : 'mismatch';
+}
+
+export interface SeedRow {
+  seed: number; status: PairStatus;
+  static: number | null | undefined; encore: number | null | undefined;
+  delta: number | null;            // only for a fair pair with both values numeric
+  verdict: Verdict | null;         // null: not a fair pair, a value missing, or a scenario with no verdicts
+}
+
+/** Per-seed npwcEnd rows. Only fair pairs get a delta and a verdict. */
 export function npwcRows(group: Group): SeedRow[] {
   const seeds = [...new Set([...group.static.keys(), ...group.encore.keys()])].sort((a, b) => a - b);
   return seeds.map((seed) => {
+    const status = pairStatus(group, seed);
     const s = value(group.static.get(seed), 'npwcEnd');
     const e = value(group.encore.get(seed), 'npwcEnd');
-    const delta = typeof s === 'number' && typeof e === 'number' ? e - s : null;
+    const delta = status === 'paired' && typeof s === 'number' && typeof e === 'number' ? e - s : null;
     const v = delta !== null && NO_VERDICT[group.scenario] === undefined ? verdict(delta) : null;
-    return { seed, static: s, encore: e, delta, verdict: v };
+    return { seed, status, static: s, encore: e, delta, verdict: v };
   });
 }
 
+/** Encore − static per fair pair where both values are numbers. Mismatched and unpaired seeds are excluded. */
 function pairedDeltas(group: Group, key: string): number[] {
   const out: number[] = [];
   for (const [seed, s] of group.static) {
+    if (pairStatus(group, seed) !== 'paired') continue;
     const a = value(s, key);
     const b = value(group.encore.get(seed), key);
     if (typeof a === 'number' && typeof b === 'number') out.push(b - a);
@@ -141,24 +188,34 @@ function censored(arm: Map<number, RunRecord>): string {
 
 function renderGroup(g: Group): string[] {
   const all = [...g.static.values(), ...g.encore.values()];
-  const pairs = [...g.static.keys()].filter((s) => g.encore.has(s)).length;
+  const rows = npwcRows(g);
+  const pairs = rows.filter((r) => r.status === 'paired').length;
+  const mismatched = rows.filter((r) => r.status === 'mismatch').length;
+  const unpaired = rows.filter((r) => r.status === 'unpaired').length;
   const out: string[] = [];
   out.push(`### ${g.scenario} (n0 = ${g.n0})`, '');
-  out.push(`Seeds: static ${g.static.size}, encore ${g.encore.size}, paired ${pairs}. Pass lines "out of 20" scale to these counts.`, '');
+  out.push(`Seeds: static ${g.static.size}, encore ${g.encore.size}, fair pairs ${pairs}, mismatched ${mismatched}, unpaired ${unpaired}. Pass lines "out of 20" scale to the fair-pair count.`, '');
 
   // Win/tie/loss on npwcEnd, one row per seed, losses kept and marked.
-  const rows = npwcRows(g);
   const noVerdict = NO_VERDICT[g.scenario];
   const counts = { WIN: 0, TIE: 0, LOSS: 0 };
   for (const r of rows) if (r.verdict) counts[r.verdict]++;
   out.push(noVerdict ? `npwcEnd per seed (${noVerdict}):` : `npwcEnd per seed, Δ = Encore − static, win if Δ > +${WIN_MARGIN}, loss if Δ < −${WIN_MARGIN}:`, '');
   out.push('| Seed | static | encore | Δ | Verdict |', '|---:|---:|---:|---:|---|');
   for (const r of rows) {
-    const label = r.verdict === 'LOSS' ? '**LOSS**' : r.verdict ?? (noVerdict ? 'n/a' : r.delta === null ? 'UNPAIRED' : 'n/a');
+    const label = r.status === 'mismatch' ? '**MISMATCH** (git, params or events differ: not counted)'
+      : r.status === 'unpaired' ? 'UNPAIRED'
+        : r.verdict === 'LOSS' ? '**LOSS**'
+          : r.verdict ?? 'n/a';
     out.push(`| ${r.seed} | ${fmt(r.static ?? null)} | ${fmt(r.encore ?? null)} | ${fmt(r.delta)} | ${label} |`);
   }
   out.push('');
-  if (!noVerdict) out.push(`Win/tie/loss: **${counts.WIN} / ${counts.TIE} / ${counts.LOSS}** of ${pairs} paired seeds.`);
+  if (!noVerdict) {
+    const counted = counts.WIN + counts.TIE + counts.LOSS;
+    const noValue = pairs - counted;
+    out.push(`Win/tie/loss: **${counts.WIN} / ${counts.TIE} / ${counts.LOSS}** of ${pairs} fair pairs. ` +
+      `No verdict: ${rows.length - counted} seeds (${mismatched} mismatched, ${unpaired} unpaired, ${noValue} with a null npwcEnd).`);
+  }
   const paired = rows.filter((r) => r.delta !== null);
   if (paired.length > 0) {
     const worst = paired.reduce((w, r) => ((r.delta as number) < (w.delta as number) ? r : w));
@@ -177,8 +234,9 @@ function renderGroup(g: Group): string[] {
   // Every summary metric.
   out.push('| Metric | static median [IQR] | encore median [IQR] | median Δ (E − S) |', '|---|---|---|---|');
   for (const key of orderedKeys(all)) {
-    const s = stats([...g.static.values()].map((r) => value(r, key)).filter((v): v is number | null => v !== undefined));
-    const e = stats([...g.encore.values()].map((r) => value(r, key)).filter((v): v is number | null => v !== undefined));
+    const high = CENSORED_HIGH.has(key);
+    const s = stats([...g.static.values()].map((r) => value(r, key)).filter((v): v is number | null => v !== undefined), high);
+    const e = stats([...g.encore.values()].map((r) => value(r, key)).filter((v): v is number | null => v !== undefined), high);
     const d = pairedDeltas(g, key);
     out.push(`| \`${key}\` | ${fmtStats(s, key)} | ${fmtStats(e, key)} | ${d.length ? `${fmt(median(d))} (${d.length} pairs)` : '—'} |`);
   }
@@ -194,7 +252,7 @@ export function buildReport(records: readonly RunRecord[]): string {
   const hashes = [...new Set(records.map((r) => r.paramsHash))].sort();
   out.push(`Records: ${records.length}. git: ${gits.map((g) => `\`${g}\``).join(', ')}. paramsHash: ${hashes.map((h) => `\`${h.slice(0, 12)}\``).join(', ')}.`);
   if (gits.length > 1 || hashes.length > 1) out.push('', '**WARNING: records come from more than one commit or parameter set; they are not one frozen revision (§5).**');
-  out.push('', 'Medians and IQRs skip null values, counted separately: `n/a` = not applicable (e.g. `npwcDeficitSec` with no event), `censored` = `tRec` not recovered, `—` = key absent (e.g. `tRec` without a KILL). `npwc` is priority-weighted by our own slot order: read it beside `coverage`, `sfMean` and `sfMax`.', '');
+  out.push('', 'Medians and IQRs skip null values, counted separately: `n/a` = not applicable (e.g. `npwcDeficitSec` with no event), `—` = key absent (e.g. `tRec` without a KILL). Exception: a censored `tRec` (not recovered) ranks above every recovered seed, and a quantile that lands on one prints `censored`. Deltas and win/tie/loss use fair pairs only (same git, paramsHash and events); other pairs are listed as MISMATCH. `npwc` is priority-weighted by our own slot order: read it beside `coverage`, `sfMean` and `sfMax`.', '');
   for (const g of groupRecords(records)) out.push(...renderGroup(g));
   return out.join('\n');
 }
