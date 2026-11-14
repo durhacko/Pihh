@@ -29,11 +29,11 @@ On `main`: `npm ci`, then `bash scripts/check.sh` passes: typecheck, lint with t
 
 | Who | Now | Next |
 |---|---|---|
-| Arnav's agents (lane A) | #16 Encore brain, #17 G1 tests (orchestrator workers); #6 integration (session `durhack-0c`) | #21 score gossip with relay test T18; brain swap in #6 |
-| Williams's team (`wpimento`) | #19, #20, #22, #23, #25 in PRs; follow-ups #46, #64 | #26 scenarios and batch runner is unowned and theirs to claim |
-| Haris (`sirahmo`) | Readiness done (#34). Documentation review: raised #55, #57 (both decided and merged), #56 (merged), #58 (needs Arnav) | #1 sponsor brief and theme wording; #7 pitch and demo plan; #8 README and Devpost draft |
+| Arnav's agents (lanes A and B) | #16 Encore brain, #17 G1 tests (orchestrator workers); #6 and #22 integration pass (session `durhack-0c`); #26 scenarios and batch runner (session `durhack-5b`); #64 world follow-ups (session `durhack-48`) | #21 score gossip with relay test T18; #46 per-tick radio evidence; #65 Encore isolation tests; brain swap in #6 |
+| Williams (`wpimento`) | **Paused development (21:20 Sat).** No issues assigned; his merged work (world, radio faults, render slice, X-ray, controls, observer, isolation tests) stays | — |
+| Haris (`sirahmo`) | Readiness done (#34). Documentation review: raised #55, #57 (both decided and merged), #56 (merged), #58 (needs Arnav) | #1 sponsor brief and theme wording; #7 pitch and demo plan; #8 README and Devpost draft; then #24 split view and HUD (continue draft PR #69) and #27 scripted demo |
 
-Unowned: #24 split view and HUD, #27 scripted demo, #26 scenarios and batch runner; optional #28 ghost slots, #29 inspector.
+Unowned and optional: #28 ghost slots, #29 inspector.
 
 ## Decisions waiting for a human
 
