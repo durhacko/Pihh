@@ -4,7 +4,8 @@
 // plug in through src/cli/brains.ts. No wall-clock value enters the record (it would break replay equality).
 import { createHash } from 'node:crypto';
 import { makeParams } from '../contracts';
-import type { MetricsSample, Params, RunRecord } from '../contracts';
+import type { MetricsSample, Params, RunRecord, Score, WorldSnapshot } from '../contracts';
+import { currentMovement, expandRecipe } from '../score';
 import { createWorld } from '../sim';
 import { brainFor, type Arm, type BrainMap } from './brains';
 import type { ObserverFactory } from './observer';
@@ -46,6 +47,30 @@ export function resolveParams(n0: number | undefined, params: Params | undefined
   return resolved;
 }
 
+/** Share of live drones that must be on their slot when the first KILL lands (static arm). */
+export const ARRIVAL_MIN = 0.95;
+
+/**
+ * Fraction of live drones within rOcc of slot `belief.slot` of `score`'s current movement at the snapshot's
+ * tick. Ground truth from the snapshot; used only as a guard, never fed to a brain or the record.
+ */
+export function onSlotFraction(snapshot: WorldSnapshot, score: Score, params: Params): number {
+  const slots = expandRecipe(currentMovement(score, snapshot.tick).movement.recipe, params.n0, params).slots;
+  const live = snapshot.drones.filter((d) => d.alive);
+  if (live.length === 0) return 0;
+  const r2 = params.rOcc * params.rOcc;
+  let on = 0;
+  for (const d of live) {
+    const slot = slots[d.belief.slot];
+    if (slot === undefined) continue;
+    const dx = d.pos[0] - slot.pos[0];
+    const dy = d.pos[1] - slot.pos[1];
+    const dz = d.pos[2] - slot.pos[2];
+    if (dx * dx + dy * dy + dz * dz <= r2) on++;
+  }
+  return on / live.length;
+}
+
 export function runOne(options: RunOptions): RunRecord {
   const params = resolveParams(options.n0, options.params);
   const brain = brainFor(options.brains, options.arm);
@@ -64,9 +89,27 @@ export function runOne(options: RunOptions): RunRecord {
     observer.recordEvent(event);
   }
 
+  // Guard on the scenario design (evaluation doc §3): kills must land after the formation has physically
+  // arrived, not just after A's hold started on the score clock. Checked in the static arm only, whose drones
+  // never change slot; a later change to timing or steering that breaks this fails the run loudly.
+  const firstKill = options.arm === 'static'
+    ? scenario.events.find((e) => e.type === 'KILL')?.tick ?? null
+    : null;
+
   const series: MetricsSample[] = [];
   for (let t = 0; t < ticks; t++) {
-    const sample = observer.sample(world.step());
+    const snapshot = world.step();
+    if (snapshot.tick === firstKill) {
+      const share = onSlotFraction(snapshot, scenario.score, params);
+      if (share < ARRIVAL_MIN) {
+        throw new Error(
+          `${scenario.id} seed ${options.seed} n0=${params.n0}: at the first KILL (tick ${firstKill}) only ` +
+          `${(share * 100).toFixed(1)}% of live static drones are within rOcc of their slot (need >= ${ARRIVAL_MIN * 100}%). ` +
+          'Formation A has not physically arrived; the scenario timing no longer holds.',
+        );
+      }
+    }
+    const sample = observer.sample(snapshot);
     if (sample !== null) series.push(sample);
   }
 

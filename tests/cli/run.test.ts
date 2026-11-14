@@ -4,8 +4,9 @@ import type { EnvEvent, MetricsSample, Observer, Score, WorldSnapshot } from '..
 import { staticBrain } from '../../src/agent/staticBrain';
 import { BRAINS, brainFor } from '../../src/cli/brains';
 import { getObserverFactory } from '../../src/cli/observer';
-import { canonicalJson, paramsHash, runOne } from '../../src/cli/run';
-import { buildScenario } from '../../src/cli/scenarios';
+import { ARRIVAL_MIN, canonicalJson, onSlotFraction, paramsHash, runOne } from '../../src/cli/run';
+import { buildEvalScore, buildScenario } from '../../src/cli/scenarios';
+import { createWorld } from '../../src/sim';
 
 interface StubLog { scores: Score[]; events: EnvEvent[]; ticks: number[] }
 
@@ -32,6 +33,9 @@ function newLog(): StubLog {
   return { scores: [], events: [], ticks: [] };
 }
 
+/** These tests step a 200-drone world for 400-1400 ticks; under the parallel full suite that exceeds the 5 s default. */
+const SIM_TIMEOUT = 30_000;
+
 describe('runOne', () => {
   it('produces a replayable RunRecord: equal stateHash and summary on a second run, events equal to the scenario', () => {
     const logA = newLog();
@@ -49,7 +53,7 @@ describe('runOne', () => {
     expect(JSON.parse(JSON.stringify(a))).toEqual(a);
     const c = runOne({ scenario: 'S2', seed: 2, arm: 'static', n0: 200, brains: BRAINS, makeObserver: () => stubObserver(newLog()), ticks: 450 });
     expect(c.stateHash).not.toBe(a.stateHash);
-  });
+  }, SIM_TIMEOUT);
 
   it('calls recordEvent once per scripted event and registerScore for the preloaded and the injected score', () => {
     const log = newLog();
@@ -69,7 +73,23 @@ describe('runOne', () => {
     expect(e.paramsHash).toBe(s.paramsHash);
     expect(e.stateHash).toBe(s.stateHash);
     expect(e.arm).toBe('encore');
-  });
+  }, SIM_TIMEOUT);
+
+  it('guards physical arrival: static drones are on their slots at the first KILL, and a slow swarm fails loudly', () => {
+    const params = makeParams(200);
+    const world = createWorld({ seed: 1, params, brain: staticBrain, score: buildEvalScore(params) });
+    let snap = world.step();
+    expect(onSlotFraction(snap, buildEvalScore(params), params)).toBeLessThan(0.05);   // tick 1: still on the launch grid
+    while (snap.tick < 400) snap = world.step();
+    expect(onSlotFraction(snap, buildEvalScore(params), params)).toBeGreaterThanOrEqual(ARRIVAL_MIN);
+    // aMax does not enter the authoring formula, so the score still builds, but the drones arrive too late.
+    const slow = makeParams(200, { aMax: 0.2 });
+    expect(() => runOne({ scenario: 'S1', seed: 1, arm: 'static', params: slow, brains: BRAINS, makeObserver: () => stubObserver(newLog()), ticks: 400 }))
+      .toThrow(/first KILL \(tick 400\).*within rOcc/);
+    // S0 has no KILL, so the guard does not apply.
+    expect(() => runOne({ scenario: 'S0', seed: 1, arm: 'static', params: slow, brains: BRAINS, makeObserver: () => stubObserver(newLog()), ticks: 400 }))
+      .not.toThrow();
+  }, SIM_TIMEOUT);
 
   it('works with the real observer', () => {
     const r = runOne({ scenario: 'S0', seed: 1, arm: 'static', n0: 200, brains: BRAINS, makeObserver: getObserverFactory(), ticks: 100 });
