@@ -1,0 +1,32 @@
+name: Research
+description: Timeboxed investigation producing a written, comparable finding (idea, sponsor, prior art, UX).
+labels: ["type:research"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question to answer
+    validations: { required: true }
+  - type: input
+    id: timebox
+    attributes:
+      label: Timebox
+      placeholder: "e.g. 45 min, report by 16:30 Sat"
+    validations: { required: true }
+  - type: textarea
+    id: output
+    attributes:
+      label: Output location and format
+      description: Where the finding is committed (e.g. research/concepts/C03-*.md using the template) and what it must contain.
+    validations: { required: true }
+  - type: textarea
+    id: sources
+    attributes:
+      label: Starting sources
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Done when
+      value: |
+        - [ ] Findings committed via PR with sources and a confidence level
+        - [ ] Summary comment on this issue

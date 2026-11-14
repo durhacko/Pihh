@@ -1,0 +1,24 @@
+name: Bug
+description: Something on main or the demo path is broken.
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened vs what was expected
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations: { required: true }
+  - type: dropdown
+    id: demo
+    attributes:
+      label: Does it break the demo path?
+      options: ["Yes, P0", "No"]
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots / commit

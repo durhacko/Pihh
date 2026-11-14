@@ -1,0 +1,45 @@
+name: Task (feature / docs)
+description: An implementation or documentation task one person (plus their agent) can finish and PR independently.
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: One or two sentences. What outcome, for whom.
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkable bullets. This is the definition of done.
+      value: |
+        - [ ]
+        - [ ] Checks pass; PR opened with `Closes #` and handoff block
+    validations: { required: true }
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and expected files
+      description: In scope / out of scope. Which dirs/files you expect to touch (helps avoid collisions).
+    validations: { required: true }
+  - type: textarea
+    id: refs
+    attributes:
+      label: References
+      description: Architecture/interface docs, ADRs, designs.
+  - type: textarea
+    id: deps
+    attributes:
+      label: Depends on / blocks
+      description: "e.g. Depends on #12 (or mock it). Blocks #15."
+  - type: textarea
+    id: tests
+    attributes:
+      label: Test requirements
+      description: What must be demonstrated/tested before merge.
+  - type: input
+    id: branch
+    attributes:
+      label: Target branch name
+      placeholder: feat/<issue#>-<slug>
