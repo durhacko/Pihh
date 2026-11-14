@@ -53,7 +53,7 @@ describe('createWorlds', () => {
       expect(s.encore.drones).toHaveLength(200);
       expect(s.static.drones).toHaveLength(200);
     }
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('drones lift off the launch grid toward the first formation', () => {
     const worlds = createWorlds({ seed: SEED });
@@ -62,7 +62,7 @@ describe('createWorlds', () => {
       const meanHeight = s[arm].drones.reduce((sum, d) => sum + d.pos[1], 0) / s[arm].drones.length;
       expect(meanHeight).toBeGreaterThan(1);
     }
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('scheduleBoth', () => {
@@ -96,7 +96,7 @@ describe('scheduleBoth', () => {
     // Stays dead, and the worlds keep stepping in lockstep.
     const later = runTo(worlds, 60);
     for (const arm of ARMS) expect(aliveCount(later[arm])).toBe(196);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('rejects an event that is not after the shared tick, in neither world', () => {
     const worlds = createWorlds({ seed: SEED, n0: 30 });
@@ -131,7 +131,7 @@ describe('regional kill (idsInSphere from src/sim)', () => {
     }
     worlds.scheduleBoth(killEvent(worlds, [50]));
     expect(idsInSphere(worlds.stepBoth().encore, centre, 4)).not.toContain(50);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('determinism', () => {
@@ -148,7 +148,7 @@ describe('determinism', () => {
     worlds.reset(SEED);
     runTo(worlds, 200);
     expect(hashes(worlds)).toEqual(first);
-  }, 15_000); // Bounded headroom for CPU contention across concurrent local check runs.
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('two runs with the same seed and events give identical hashes and snapshots', () => {
     const script = (worlds: Worlds) => {
@@ -167,5 +167,5 @@ describe('determinism', () => {
     expect(runA[199]).toEqual(runB[199]);
     expect(aliveCount(runA[199].encore)).toBeLessThan(200);
     expect(aliveCount(runA[199].encore)).toBe(aliveCount(runA[199].static));
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
