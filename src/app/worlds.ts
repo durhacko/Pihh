@@ -3,7 +3,7 @@
 // built from the same seed, params, preloaded score and scripted events. Only `brain` differs. They step in
 // lockstep, so they always share a tick. The app changes a world only by scheduling EnvEvents and stepping;
 // it never sets a drone's slot, target or belief. Pure TypeScript: no DOM, no clock, no randomness.
-import { makeParams } from '../contracts';
+import { DT, makeParams } from '../contracts';
 import type { AgentBrain, EnvEvent, MetricsSample, Observer, Params, Recipe, Score, World, WorldSnapshot } from '../contracts';
 import { staticBrain } from '../agent/staticBrain';
 import { createObserver } from '../observer';
@@ -131,10 +131,17 @@ export function createWorlds(options: WorldsOptions): Worlds {
       latest = next;
       // Every tick, exactly once per snapshot: the observer keeps per-tick evidence and returns a sample
       // only every fifth tick (and null on a repeated tick), so the non-null result must be kept here.
+      // Both observers see the tick even if one throws, so one bad tick cannot break the other observer.
+      let failure: { error: unknown } | null = null;
       for (const arm of ARMS) {
-        const sample = observers[arm].sample(next[arm]);
-        if (sample) { latestSamples[arm] = sample; series[arm].push(sample); }
+        try {
+          const sample = observers[arm].sample(next[arm]);
+          if (sample) { latestSamples[arm] = sample; series[arm].push(sample); }
+        } catch (error) {
+          failure ??= { error };
+        }
       }
+      if (failure) throw failure.error;
       return next;
     },
     scheduleBoth(event) {
@@ -189,3 +196,57 @@ export const viewModeDisplay: NonNullable<ControlContext['display']> = {
   toggleXray: () => { setViewMode({ xray: !readViewMode().xray }); },
   toggleBelief: () => { setViewMode({ beliefColours: !readViewMode().beliefColours }); },
 };
+
+/** What the comparison HUD (#24) is fed: both observers' latest samples plus view telemetry. After a reset the
+ *  samples are null, so the HUD shows "waiting" at once instead of the old run's numbers. */
+export function hudPayload(worlds: Pick<Worlds, 'samples' | 'params' | 'worlds'>, view: { fps: number | null; layout: Arm | 'split' }) {
+  return {
+    ...worlds.samples(), rosterSize: worlds.params.n0, fps: view.fps, layout: view.layout,
+    brainKinds: { encore: worlds.worlds.encore.config.brain.kind, static: worlds.worlds.static.config.brain.kind },
+  };
+}
+
+// --- Frame loop: fixed simulation step, rendering once per animation frame.
+export const MAX_STEPS_PER_FRAME = 5;
+export interface FrameHooks {
+  /** One simulation tick of both worlds. */
+  advance(): void;
+  /** Draw the frame; alpha is the interpolation between the last two ticks. */
+  render(alpha: number, dtReal: number, steps: number, now: number): void;
+  /**
+   * A tick or the render threw: the transport is already paused. `phase` says which: after a 'tick' failure
+   * the worlds may be half-stepped, so only a reset recovers; after a 'render' failure the worlds are intact.
+   */
+  onError(error: unknown, phase: 'tick' | 'render'): void;
+  /** Schedule the next frame (requestAnimationFrame in the app). Always called, even after a throw. */
+  request(frame: (now: number) => void): void;
+}
+/**
+ * `acc += min(frameDt, 0.1) * speed`; step while `acc >= DT`, at most MAX_STEPS_PER_FRAME per frame (the
+ * backlog is then dropped, never faked). A throw from a tick or the render pauses the transport and reports,
+ * and the loop keeps running, so the app recovers with a reset instead of a page reload.
+ */
+export function createFrameLoop(transport: { playing: boolean; speed: number }, hooks: FrameHooks, start: number) {
+  let previous = start;
+  let accumulator = 0;
+  function frame(now: number): void {
+    let phase: 'tick' | 'render' = 'tick';
+    try {
+      const dtReal = Math.max(0, (now - previous) / 1000);
+      previous = now;
+      if (transport.playing) accumulator += Math.min(dtReal, 0.1) * transport.speed;
+      let steps = 0;
+      while (accumulator >= DT && steps < MAX_STEPS_PER_FRAME) { hooks.advance(); accumulator -= DT; steps++; }
+      if (steps === MAX_STEPS_PER_FRAME) accumulator = Math.min(accumulator, DT);
+      phase = 'render';
+      hooks.render(accumulator / DT, dtReal, steps, now);
+    } catch (error) {
+      transport.playing = false;
+      accumulator = 0;
+      try { hooks.onError(error, phase); } catch { /* reporting must never stop the loop */ }
+    } finally {
+      hooks.request(frame);
+    }
+  }
+  return { frame };
+}
