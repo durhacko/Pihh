@@ -13,12 +13,15 @@ import { bindControls, type ControlIntent, type ControlResult } from './actions'
 import { CameraRig, type CameraPreset } from './render/CameraRig';
 import { resetViewMode, setViewMode } from './render/colourModes/viewMode';
 import type { LayerFrame } from './render/Layer';
+import { createSlotStatusFeed, type SlotStatusFeed } from './render/layers/GhostSlotLayer';
 import { interpolateDrone, SnapshotBuffer } from './render/SnapshotBuffer';
 import { WorldView } from './render/WorldView';
 import { createPanels } from './ui';
 import { createDock } from './ui/Dock';
 import { h } from './ui/dom';
 import { HudModel } from './ui/Hud';
+import { connectInspector } from './ui/Inspector';
+import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend } from './ui/Legend';
 import { createDisrupt, createHelp, createLenses, createMetrics, type PopoverContext } from './ui/popovers';
@@ -26,7 +29,7 @@ import { createReadout } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
 import { createToasts } from './ui/Toasts';
-import { ARMS, controlContext, createFrameLoop, createTickPipeline, createWorlds, encoreBrainIsFixture, hudPayload, killEvent, type Arm, type Pair } from './worlds';
+import { ARMS, controlContext, createFrameLoop, createTickPipeline, createWorlds, hudPayload, killEvent, type Arm, type Pair } from './worlds';
 import './ui/styles.css';
 
 const root = document.querySelector<HTMLElement>('#app');
@@ -38,10 +41,9 @@ const query = new URLSearchParams(window.location.search);
 const requestedSeed = Number(query.get('seed') ?? 1);
 const initialSeed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 0xffffffff ? requestedSeed : 1;
 const initialView: ViewMode = query.get('split') === '1' ? 'split' : query.get('arm') === 'static' ? 'static' : 'encore';
-const store = new Store({
-  ...defaultUIState({ quality: query.get('q') === 'low' ? 'low' : 'auto', reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false }),
-  view: initialView,
-});
+const initialState = defaultUIState({ quality: query.get('q') === 'low' ? 'low' : 'auto', reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false });
+// Tethers start on: the selected drone's tether is part of its neighbourhood (all tethers still need X-ray).
+const store = new Store({ ...initialState, view: initialView, lenses: { ...initialState.lenses, tethers: true } });
 resetViewMode();   // render view state is a module singleton (#25): every load and HMR reload starts from defaults
 
 // ---------- worlds ----------
@@ -73,6 +75,15 @@ try {
 }
 rig.attach(stage);
 const viewOf = (arm: Arm): WorldView => views.find(v => v.arm === arm)!.view;
+// Ghost slots (#102): one throttled Observer.slotStatus feed per world (at most 4 Hz), read only while the lens is on.
+const slotFeeds: Pair<SlotStatusFeed> = { encore: createSlotStatusFeed(() => worlds.observers.encore), static: createSlotStatusFeed(() => worlds.observers.static) };
+function applyLayerLenses(): void {
+  for (const { view } of views) for (const layer of view.layers) {
+    if (layer.id === 'ghost-slots') layer.setVisible(store.state.lenses.ghosts);
+    if (layer.id === 'tethers') layer.setVisible(store.state.lenses.tethers);
+  }
+}
+applyLayerLenses();
 for (const { arm, view } of views) view.ingest(first[arm]);
 const pipeline = createTickPipeline(worlds, buffers, () => views.map(({ arm, view }) => ({ arm, ingest: (s: WorldSnapshot) => view.ingest(s), reset: () => view.reset() })));
 /** Newest snapshots, read-only (never steps). After a reset whose first tick failed, the last drawn ones. */
@@ -106,8 +117,7 @@ layoutViews(initialView);
 // ---------- chrome ----------
 const toaster = createToasts();
 const brand = h('div', { class: 'brand chrome' },
-  h('div', { class: 'wordmark' }, 'ENCORE', h('span', {}, 'swarm stage')),
-  encoreBrainIsFixture ? h('button', { type: 'button', class: 'tag proto badge-proto', title: 'The Encore brain has not merged yet: both arms fly the static baseline. Open Help.', onclick: () => surfaces.open('help') }, 'Static brain in both arms') : null);
+  h('div', { class: 'wordmark' }, 'ENCORE', h('span', {}, 'swarm stage')));
 const readout = createReadout(() => surfaces.toggle('metrics'));
 const legend = createLegend();
 const pickbar = h('div', { class: 'pickbar surface', hidden: true, role: 'status' });
@@ -315,7 +325,7 @@ const panels = createPanels({ host: root });   // modules that register themselv
 // ---------- store reactions ----------
 let hintTimer: ReturnType<typeof setTimeout> | undefined;
 const offStore = store.subscribe((s, changed) => {
-  if (changed.includes('lenses')) setViewMode({ xray: s.lenses.xray, beliefColours: s.lenses.colour === 'belief' });
+  if (changed.includes('lenses')) { setViewMode({ xray: s.lenses.xray, beliefColours: s.lenses.colour === 'belief' }); applyLayerLenses(); }
   if (changed.includes('view')) layoutViews(s.view);
   if (changed.includes('reducedMotion')) root.classList.toggle('reduced', s.reducedMotion);
   if (changed.includes('chromeHidden')) {
@@ -357,7 +367,7 @@ const unbindKeys = bindShortcuts({
   partition: () => run({ type: 'partition' }),
   xray: () => run({ type: 'xray' }, true),
   belief: () => run({ type: 'belief' }, true),
-  ghosts: later('Ghost slots', '#91'),
+  ghosts: () => store.lens('ghosts', !store.state.lenses.ghosts),
   view: cycleView,
   metrics: () => surfaces.toggle('metrics'),
   hide: () => store.set({ chromeHidden: !store.state.chromeHidden }),
@@ -366,16 +376,26 @@ const unbindKeys = bindShortcuts({
   timeline: later('The show timeline', '#94'), console: later('The console', '#93'), demo: later('The scripted demo', '#94'),
 }, () => { handleEscape(store, surfaces, () => controls.selectDrone(null)); refreshChrome(); });
 
-// ---------- hooks reserved for #91 (selection layers, ghost slots, inspector; durhack-01) ----------
-// When #91 merges, its PR body has the exact snippet. It goes here and in frameFor() below, nowhere else:
-//   const slotFeeds = { encore: createSlotStatusFeed(...), static: createSlotStatusFeed(...) };
-//   connectInspector({ agent, truth, select, arm });
-/** The single place a view's LayerFrame is built (#91 adds `slots: slotFeeds[arm].read(frame.curr)` here). */
+// ---------- #102 hooks: ghost slots in the frame, and the drone inspector ----------
+/** The single place a view's LayerFrame is built. Ghost slots ride on it while their lens is on. */
 function frameFor(arm: Arm, alpha: number, dtReal: number): LayerFrame {
-  return buffers[arm].frame(alpha, dtReal);
+  const frame = buffers[arm].frame(alpha, dtReal);
+  return store.state.lenses.ghosts ? { ...frame, slots: slotFeeds[arm].read(frame.curr) } : frame;
 }
+// The inspector's agent section gets only inspect() + Belief; the observer box a pre-labelled truth object.
+connectInspector({
+  agent: (id, arm) => { const drone = snapshots()[arm].drones[id]; return drone ? { id, inspect: worlds.worlds[arm].inspect(id), belief: drone.belief } : null; },
+  truth: (id, arm) => observerTruth(snapshots()[arm], slotFeeds[arm].latest(), params, id),
+  select: id => { controls.selectDrone(id); },
+});
 
 // ---------- 4 Hz chrome refresh ----------
+function ghostCounts(arm: Arm): { vacant: number; inTransit: number; contested: number; inHold: boolean } | null {
+  const reading = store.state.lenses.ghosts ? slotFeeds[arm].latest() : null;
+  if (!reading) return null;
+  const count = (status: string) => reading.slots.status.filter(s => s === status).length;
+  return { vacant: count('vacant'), inTransit: count('inTransit'), contested: count('contested'), inHold: reading.slots.inHold };
+}
 function feedHud(): void { hudModel.update(hudPayload(worlds, { fps: lastFps, layout: store.state.view })); }
 function refreshChrome(): void {
   const samples = worlds.samples();
@@ -395,10 +415,11 @@ function refreshChrome(): void {
     xray: store.state.lenses.xray, belief: store.state.lenses.colour === 'belief',
     versions: samples[legendArm]?.versions ?? null, radio: radioTally(legendArm),
     deaf: snaps[legendArm].drones.filter(d => d.alive && d.belief.deaf).length, partitions: snaps[legendArm].partitions.length,
+    ghosts: ghostCounts(legendArm),
   });
   const label = (name: string, desc: string, sample: MetricsSample | null) => [h('span', { class: 'name' }, name), h('span', { class: 'desc' }, desc), h('span', { class: 'num' }, `nPWC ${sample?.npwc === null || sample?.npwc === undefined ? '—' : sample.npwc.toFixed(3)}`)];
   if (view === 'split') {
-    vpTop.replaceChildren(...label('▲ ENCORE', encoreBrainIsFixture ? 'static brain until #16' : 'decentralised, self-healing', samples.encore));
+    vpTop.replaceChildren(...label('▲ ENCORE', 'decentralised, self-healing', samples.encore));
     vpBottom.replaceChildren(...label('▼ STATIC', 'pre-programmed baseline · sends no radio', samples.static));
   } else if (view === 'static') vpTop.replaceChildren(...label('STATIC', 'pre-programmed baseline · sends no radio', samples.static));
   if (surfaces.isOpen('metrics')) metrics.render();
@@ -483,6 +504,7 @@ if (import.meta.hot) import.meta.hot.dispose(() => {
   toaster.dispose();
   legend.dispose();
   delete window.encore;
+  connectInspector(null);
   resetViewMode();
   for (const panel of panels) panel.dispose();
   rig.dispose();

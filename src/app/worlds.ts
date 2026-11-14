@@ -5,6 +5,7 @@
 // it never sets a drone's slot, target or belief. Pure TypeScript: no DOM, no clock, no randomness.
 import { DT, makeParams } from '../contracts';
 import type { AgentBrain, EnvEvent, MetricsSample, Observer, Params, Recipe, Score, World, WorldSnapshot } from '../contracts';
+import { encoreBrain } from '../agent/encoreBrain';
 import { staticBrain } from '../agent/staticBrain';
 import { createObserver } from '../observer';
 import { composeNext, makeScore } from '../score';
@@ -12,15 +13,12 @@ import { createWorld } from '../sim';
 import type { ControlContext } from './actions';
 import { readViewMode, setViewMode } from './render/colourModes/viewMode';
 
-// G2 fixture: the Encore brain (#16) is not on this branch yet, so BOTH arms fly the static brain.
-const ENCORE_BRAIN: AgentBrain = staticBrain; // swap to encoreBrain when #16 merges
+// The Encore arm flies the decentralised Encore brain (#16); the static arm the pre-programmed baseline.
+const ENCORE_BRAIN: AgentBrain = encoreBrain as AgentBrain;
 
 export type Arm = 'encore' | 'static';
 export const ARMS: readonly Arm[] = ['encore', 'static'];
 export interface Pair<T> { encore: T; static: T }
-
-/** True while the Encore arm still runs a stand-in brain, so the UI can say so instead of implying otherwise. */
-export const encoreBrainIsFixture: boolean = ENCORE_BRAIN.kind !== 'encore';
 
 export const DEFAULT_N0 = 200;
 export const DEFAULT_RECIPES: readonly Recipe[] = [{ kind: 'text', text: 'ENCORE' }, { kind: 'sphere' }, { kind: 'helix' }];

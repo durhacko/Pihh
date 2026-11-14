@@ -17,6 +17,8 @@ export interface LegendInput {
   radio: { drawn: number; observed: number } | null;
   deaf: number;
   partitions: number;
+  /** Ghost-slot counts from the observer's slot status (Observer.slotStatus), or null while the lens is off. */
+  ghosts: { vacant: number; inTransit: number; contested: number; inHold: boolean } | null;
 }
 export type LegendItem =
   | { kind: 'title'; text: string }
@@ -45,6 +47,12 @@ export function legendItems(input: LegendInput): LegendItem[] {
       items.push({ kind: 'ring', text: `v${key}${origin === -1 ? ' preloaded' : ''}`, colour: css(versionColour({ issuedTick, origin })), count });
     }
   }
+  if (input.ghosts) {
+    items.push({ kind: 'title', text: `Slots · observer truth${input.ghosts.inHold ? '' : ' (in transition)'}` },
+      { kind: 'ring', text: 'In transit (thin ring)', colour: 'var(--transit)', count: input.ghosts.inTransit },
+      { kind: 'ring', text: 'Vacant (thick ring)', colour: 'var(--vacant)', count: input.ghosts.vacant },
+      { kind: 'ring', text: 'Contested (double ring)', colour: 'var(--contested)', count: input.ghosts.contested });
+  }
   if (input.deaf > 0) items.push({ kind: 'ring', text: 'Deaf: heard no radio for 2 s', colour: '#ffffff', count: input.deaf });
   if (input.partitions > 0 && input.xray) items.push({ kind: 'line', text: 'Partition active (groups fixed at split)', colour: 'var(--partition)' });
   return items;
@@ -54,9 +62,9 @@ export interface Legend { readonly el: HTMLElement; update(input: LegendInput): 
 
 export function createLegend(): Legend {
   const el = h('div', { class: 'legend surface chrome', hidden: true, 'aria-label': 'Legend' });
-  // The X-ray layers (#25) draw their own fixed counter and belief legend; this legend carries both, next to
-  // the key that qualifies them, so those are hidden while the shell is mounted.
-  const hideDuplicates = h('style', {}, '[data-radio-counter],[data-belief-legend]{display:none!important}');
+  // The X-ray layers (#25) and the ghost-slot layer (#102) draw their own fixed counter / legends; this legend
+  // carries all of them, next to the key that qualifies them, so those are hidden while the shell is mounted.
+  const hideDuplicates = h('style', {}, '[data-radio-counter],[data-belief-legend],[data-ghost-legend]{display:none!important}');
   document.head.append(hideDuplicates);
   return {
     el,

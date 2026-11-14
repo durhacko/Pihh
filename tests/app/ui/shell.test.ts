@@ -41,7 +41,12 @@ describe('readout', () => {
 });
 
 describe('legend', () => {
-  const off = { xray: false, belief: false, versions: { '0:-1': 200 }, radio: { drawn: 3, observed: 120 }, deaf: 0, partitions: 0 };
+  const off = { xray: false, belief: false, versions: { '0:-1': 200 }, radio: { drawn: 3, observed: 120 }, deaf: 0, partitions: 0, ghosts: null };
+  it('ghost slots show the observer slot-status counts by ring shape', () => {
+    const items = legendItems({ ...off, ghosts: { vacant: 5, inTransit: 2, contested: 1, inHold: true } });
+    expect(items[0]).toEqual({ kind: 'title', text: 'Slots · observer truth' });
+    expect(items.filter(i => i.kind === 'ring').map(i => (i.kind === 'ring' ? [i.text, i.count] : null))).toEqual([['In transit (thin ring)', 2], ['Vacant (thick ring)', 5], ['Contested (double ring)', 1]]);
+  });
   it('appears only while something needs a key', () => {
     expect(legendItems(off)).toEqual([]);
     expect(legendItems({ ...off, partitions: 1 })).toEqual([]);   // the partition plane is drawn only with X-ray

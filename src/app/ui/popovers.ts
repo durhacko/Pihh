@@ -106,13 +106,13 @@ export function createLenses(ctx: PopoverContext): Popover {
       h('section', {},
         sw('Radio X-ray', 'Real messages from the radio log, jam spheres and the partition plane; dims the show', 'X', lenses.xray, () => ctx.run({ type: 'xray' })),
         sw('Belief colours', 'Colour each drone by the score version it holds', 'C', lenses.colour === 'belief', () => ctx.run({ type: 'belief' })),
-        sw('Ghost slots', 'Observer view: vacant, in-transit, contested', 'G', false, () => {}, true, '#91'),
-        sw('Tethers', 'Line to where each drone believes it should be', '', false, () => {}, true, 'later')),
+        sw('Ghost slots', 'Observer view: vacant, in-transit, contested', 'G', lenses.ghosts, () => ctx.store.lens('ghosts', !ctx.store.state.lenses.ghosts)),
+        sw('Tethers', 'Line to where a drone believes it should be (selected drone; all with X-ray)', '', lenses.tethers, () => ctx.store.lens('tethers', !ctx.store.state.lenses.tethers))),
       h('section', {},
         h('div', { class: 'row' }, h('span', { class: 'eyebrow grow' }, 'Camera'),
           ...(['audience', 'quarter', 'top'] as const).map((p, i) => h('button', { type: 'button', class: 'btn small', onclick: () => ctx.camera(p) }, p === 'quarter' ? '¾' : p === 'audience' ? 'Front' : 'Top', h('kbd', {}, String(i + 1))))),
         h('div', { class: 'row' },
-          h('button', { type: 'button', class: 'btn small ghost', onclick: () => { if (lenses.xray) ctx.run({ type: 'xray' }); if (lenses.colour === 'belief') ctx.run({ type: 'belief' }); render(); } }, 'Reset to performance view'),
+          h('button', { type: 'button', class: 'btn small ghost', onclick: () => { if (lenses.xray) ctx.run({ type: 'xray' }); if (lenses.colour === 'belief') ctx.run({ type: 'belief' }); ctx.store.lens('ghosts', false); render(); } }, 'Reset to performance view'),
           h('span', { class: 'grow' }),
           h('button', { type: 'button', class: 'btn small ghost', onclick: () => { ctx.surfaces.close('lenses', false); ctx.store.set({ chromeHidden: true }); } }, 'Hide UI', h('kbd', {}, 'H')))),
     );
@@ -200,7 +200,7 @@ export function createHelp(ctx: PopoverContext): Popover {
   const keys: [string, string][] = [
     ['Space', 'Play / pause'], ['.', 'Step one tick'], ['[ ]', 'Slower / faster'], ['R', 'Reset from seed'],
     ['1 2 3', 'Camera: front, ¾, top'], ['K', 'Destroy a region'], ['J', 'Jam / lift jam'], ['P', 'Partition / reconnect'],
-    ['X', 'Radio X-ray'], ['C', 'Belief colours'], ['B', 'Encore → split → static'], ['M', 'Metrics'],
+    ['X', 'Radio X-ray'], ['C', 'Belief colours'], ['G', 'Ghost slots (observer)'], ['B', 'Encore → split → static'], ['M', 'Metrics'],
     ['H', 'Hide all controls'], ['?', 'This help'], ['Esc', 'Close / cancel / deselect'], ['F T / I', 'Compose, show, console (#93, #94)'],
   ];
   function render(): void {
