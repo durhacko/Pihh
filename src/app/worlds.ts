@@ -10,6 +10,7 @@ import { createObserver } from '../observer';
 import { composeNext, makeScore } from '../score';
 import { createWorld } from '../sim';
 import type { ControlContext } from './actions';
+import { readViewMode, setViewMode } from './render/colourModes/viewMode';
 
 // G2 fixture: the Encore brain (#16) is not on this branch yet, so BOTH arms fly the static brain.
 const ENCORE_BRAIN: AgentBrain = staticBrain; // swap to encoreBrain when #16 merges
@@ -189,3 +190,13 @@ export function controlContext(worlds: Worlds, shell: ShellHooks): ControlContex
     onScheduledEvent: event => worlds.recordEvent(event),
   };
 }
+
+/**
+ * The display adapter for the controls (#22): X-ray, belief colours and the selected drone are view state only,
+ * held by the X-ray layers' viewMode module (#25). It never touches a world.
+ */
+export const viewModeDisplay: NonNullable<ControlContext['display']> = {
+  setSelected: id => { setViewMode({ selectedDroneId: id }); },
+  toggleXray: () => { setViewMode({ xray: !readViewMode().xray }); },
+  toggleBelief: () => { setViewMode({ beliefColours: !readViewMode().beliefColours }); },
+};

@@ -2,10 +2,11 @@ import { DT } from '../contracts';
 import type { EnvEvent, MetricsSample, Vec3, WorldSnapshot } from '../contracts';
 import { bindControls } from './actions';
 import { CameraRig, type CameraPreset } from './render/CameraRig';
+import { resetViewMode } from './render/colourModes/viewMode';
 import { SnapshotBuffer } from './render/SnapshotBuffer';
 import { WorldView } from './render/WorldView';
 import { createPanels } from './ui';
-import { ARMS, controlContext, createWorlds, encoreBrainIsFixture, idsInRegion, killEvent, type Arm, type Pair } from './worlds';
+import { ARMS, controlContext, createWorlds, encoreBrainIsFixture, idsInRegion, killEvent, viewModeDisplay, type Arm, type Pair } from './worlds';
 import './style.css';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -32,6 +33,7 @@ const seedLabel = app.querySelector<HTMLElement>('.seed')!;
 
 // The only place the app holds worlds. It changes them only through stepBoth / scheduleBoth / reset.
 const worlds = createWorlds({ seed: initialSeed });
+resetViewMode();   // view state is a module singleton (#25); start every load (and HMR reload) from defaults
 const params = worlds.params;
 const transport = { playing: true, speed: 1 };
 const first = worlds.stepBoth();
@@ -110,6 +112,7 @@ const controls = bindControls(app, controlContext(worlds, {
   setPlaying,
   setSpeed,
   reset,
+  display: viewModeDisplay,   // X / C keys and panel toggles drive the X-ray and belief layers (#25)
 }));
 refreshControls = () => controls.refresh();
 

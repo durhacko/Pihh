@@ -1,11 +1,12 @@
 // tests/app/wiring.test.ts
 // WP-3b pass 2 (#6): the app's real ControlContext (controlContext from src/app/worlds.ts) driving the real
 // controls adapter (#22) against two real worlds. Headless: no DOM, no WebGL.
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentBrain, ScoreVersion, WorldSnapshot } from '../../src/contracts';
 import { createObserver } from '../../src/observer';
 import { createActionController, type ControlIntent } from '../../src/app/actions';
-import { ARMS, controlContext, createWorlds, type ShellHooks, type Worlds } from '../../src/app/worlds';
+import { readViewMode, resetViewMode } from '../../src/app/render/colourModes/viewMode';
+import { ARMS, controlContext, createWorlds, viewModeDisplay, type ShellHooks, type Worlds } from '../../src/app/worlds';
 
 function shell(worlds: Worlds, extra: Partial<ShellHooks> = {}): ShellHooks {
   const transport = { playing: true, speed: 1 };
@@ -141,5 +142,29 @@ describe('observers', () => {
     while (worlds.tick < 10) worlds.stepBoth();   // sample() throws without a registered preloaded score
     expect(worlds.series().encore.map(s => s.tick)).toEqual([5, 10]);
     expect(worlds.series().static.map(s => s.tick)).toEqual([5, 10]);
+  });
+});
+
+describe('display adapter (X-ray, belief colours, selection)', () => {
+  afterEach(() => resetViewMode());
+
+  it('X-ray, belief and select intents change the X-ray layers\' view mode; reset clears the selection', () => {
+    resetViewMode();
+    const worlds = createWorlds({ seed: 5, n0: 40 });
+    worlds.stepBoth();
+    const controller = createActionController(controlContext(worlds, shell(worlds, { display: viewModeDisplay })));
+    expect(controller.status().display).toBe(true);
+    expect(readViewMode()).toEqual({ xray: false, beliefColours: false, selectedDroneId: null });
+    expect(controller.handle({ type: 'xray' }).ok).toBe(true);
+    expect(readViewMode().xray).toBe(true);
+    expect(controller.handle({ type: 'belief' }).ok).toBe(true);
+    expect(readViewMode().beliefColours).toBe(true);
+    controller.handle({ type: 'select', id: 7 });
+    expect(readViewMode().selectedDroneId).toBe(7);
+    controller.handle({ type: 'xray' });
+    controller.handle({ type: 'belief' });
+    expect(readViewMode()).toMatchObject({ xray: false, beliefColours: false });
+    controller.handle({ type: 'reset', seed: 5 });
+    expect(readViewMode().selectedDroneId).toBeNull();
   });
 });
