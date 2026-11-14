@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseArgs, parseSeeds, recordFileName } from '../../src/cli/main';
+import { overwriteConflicts, parseArgs, parseSeeds, recordFileName } from '../../src/cli/main';
 
 describe('CLI arguments', () => {
   it('parses seed lists and ranges', () => {
@@ -25,6 +25,19 @@ describe('CLI arguments', () => {
     expect(() => parseArgs(['--scenario', 'S0', '--seeds', '1', '--arms', 'oracle'])).toThrow(/Unknown arm 'oracle'/);
     expect(() => parseArgs(['--scenaro', 'S0'])).toThrow(/Unknown flag --scenaro/);
     expect(() => parseArgs(['--seeds', '1'])).toThrow(/Missing --scenario/);
+  });
+
+  it('refuses to overwrite a record from another git or paramsHash, allows a replay', () => {
+    const files: Record<string, string> = {
+      'same.json': JSON.stringify({ git: 'g1', paramsHash: 'p1' }),
+      'otherGit.json': JSON.stringify({ git: 'g0', paramsHash: 'p1' }),
+      'otherParams.json': JSON.stringify({ git: 'g1', paramsHash: 'p0' }),
+      'broken.json': '{',
+    };
+    const read = (f: string) => files[f] ?? null;
+    expect(overwriteConflicts(['same.json', 'missing.json'], 'g1', 'p1', read)).toEqual([]);
+    const conflicts = overwriteConflicts(Object.keys(files), 'g1', 'p1', read);
+    expect(conflicts.map((c) => c.split(':')[0])).toEqual(['otherGit.json', 'otherParams.json', 'broken.json']);
   });
 
   it('names one file per scenario, n0, arm and seed', () => {

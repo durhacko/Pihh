@@ -4,13 +4,13 @@
 //   npm run eval -- --report results/ [--report-out results/RESULTS.md]
 // Writes one RunRecord JSON per (scenario, arm, seed) and prints a one-line summary for each.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { RunRecord } from '../contracts';
 import { BRAINS, brainFor, isArm, type Arm } from './brains';
 import { getObserverFactory } from './observer';
 import { buildReport } from './report';
-import { runOne } from './run';
+import { paramsHash, resolveParams, runOne } from './run';
 import { isScenarioId, SCENARIO_IDS, type ScenarioId } from './scenarios';
 
 const USAGE = `Usage:
@@ -108,11 +108,45 @@ function runReport(dir: string, outFile: string | null): void {
   }
 }
 
+/**
+ * Evidence protection: a record file may be overwritten only by a run from the same git and paramsHash
+ * (a replay). Returns one line per file that would be clobbered by a different revision.
+ */
+export function overwriteConflicts(files: readonly string[], git: string, hash: string, read: (file: string) => string | null): string[] {
+  const conflicts: string[] = [];
+  for (const file of files) {
+    const text = read(file);
+    if (text === null) continue;
+    let old: Partial<RunRecord>;
+    try {
+      old = JSON.parse(text) as Partial<RunRecord>;
+    } catch {
+      conflicts.push(`${file}: exists and is not valid JSON`);
+      continue;
+    }
+    if (old.git !== git || old.paramsHash !== hash) {
+      conflicts.push(`${file}: from git ${old.git} paramsHash ${String(old.paramsHash).slice(0, 12)}, this run is git ${git} paramsHash ${hash.slice(0, 12)}`);
+    }
+  }
+  return conflicts;
+}
+
+function readIfExists(file: string): string | null {
+  return existsSync(file) ? readFileSync(file, 'utf8') : null;
+}
+
 function runBatch(args: CliArgs): void {
   // Fail before running anything if an arm has no brain, so a long batch never stops half way.
   for (const arm of args.arms) brainFor(BRAINS, arm);
   const makeObserver = getObserverFactory();
   const git = gitDescribe();
+  const hash = paramsHash(resolveParams(args.n0, undefined));
+  const targets = args.scenarios.flatMap((scenario) => args.seeds.flatMap((seed) => args.arms.map((arm) =>
+    join(args.out, recordFileName({ scenario, n0: args.n0, arm, seed })))));
+  const conflicts = overwriteConflicts(targets, git, hash, readIfExists);
+  if (conflicts.length > 0) {
+    throw new Error(`Refusing to overwrite run records from a different commit or parameter set (move them or use another --out):\n  ${conflicts.join('\n  ')}`);
+  }
   mkdirSync(args.out, { recursive: true });
   for (const scenario of args.scenarios) {
     for (const seed of args.seeds) {
