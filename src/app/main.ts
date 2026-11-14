@@ -70,15 +70,26 @@ function advance(): Pair<WorldSnapshot> {
   return snapshots;
 }
 
+// The control binder (if any) only re-sends its status after an intent; the simulation moving on (a drone
+// dying at the tick its KILL lands, a reset or pause from the console) must push a fresh one too.
+let refreshControls = (): void => {};
+
 function reset(seed: number): void {
   worlds.reset(seed);
   advance();
   seedLabel.textContent = String(worlds.seed);
+  refreshControls();
 }
 
 function setSpeed(speed: number): void {
   if (!Number.isFinite(speed) || speed <= 0 || speed > 8) throw new RangeError('Speed must be in (0, 8]');
   transport.speed = speed;
+  refreshControls();
+}
+
+function setPlaying(playing: boolean): void {
+  transport.playing = playing;
+  refreshControls();
 }
 
 function current(): Pair<WorldSnapshot> {
@@ -106,7 +117,7 @@ interface ControlContext {
   composeScore?: (score: Score, tick: number, recipe: Recipe, origin: number, n0: number, params: Params) => Score;
   radioFaults?: boolean;
 }
-type ControlBinder = (host: HTMLElement, context: ControlContext) => { dispose(): void };
+type ControlBinder = (host: HTMLElement, context: ControlContext) => { dispose(): void; refresh?(): void };
 const controlModules = import.meta.glob<{ bindControls?: ControlBinder }>('./actions.ts', { eager: true });
 const bindControls = Object.values(controlModules)[0]?.bindControls;
 const controls = bindControls?.(app, {
@@ -115,12 +126,13 @@ const controls = bindControls?.(app, {
   getSnapshots: current,
   getScore: () => worlds.score,
   getTransport: () => ({ ...transport, seed: worlds.seed }),
-  setPlaying: playing => { transport.playing = playing; },
+  setPlaying,
   setSpeed,
   reset,
   composeScore: composeNext,
   radioFaults: false,   // partitions, SET_LOSS and INJECT_SCORE are WP-2b (#19), not in the world yet
 });
+if (controls?.refresh) refreshControls = () => controls.refresh?.();
 
 // --- Console handle for manual checks. Only schedules KILL events, steps or resets; never edits a drone.
 interface EncoreDebug {
@@ -147,7 +159,7 @@ window.encore = {
   alive: () => { const s = current(); return { encore: s.encore.drones.filter(d => d.alive).length, static: s.static.drones.filter(d => d.alive).length }; },
   stateHashes: () => ({ encore: worlds.worlds.encore.stateHash(), static: worlds.worlds.static.stateHash() }),
   tick: () => worlds.tick,
-  setPlaying: playing => { transport.playing = playing; },
+  setPlaying,
   setSpeed,
 };
 
@@ -169,6 +181,7 @@ let accumulator = 0;
 let measuredTime = 0;
 let measuredFrames = 0;
 let animation = 0;
+let lastControlRefresh = 0;
 function draw(now: number) {
   const dtReal = Math.max(0, (now - previousTime) / 1000);
   previousTime = now;
@@ -176,6 +189,7 @@ function draw(now: number) {
   let steps = 0;
   while (accumulator >= DT && steps < 5) { advance(); accumulator -= DT; steps++; }
   if (steps === 5) accumulator = Math.min(accumulator, DT);   // fell behind: drop the backlog, never fake ticks
+  if (steps > 0 && now - lastControlRefresh >= 200) { refreshControls(); lastControlRefresh = now; }   // ≤ 5 Hz
   for (const { arm, view } of views) view.render(buffers[arm].frame(accumulator / DT, dtReal));
   measuredTime += dtReal;
   measuredFrames++;
