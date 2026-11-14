@@ -1,0 +1,33 @@
+name: Technical spike
+description: Throwaway experiment to prove or kill a technical assumption. Code lives in research/experiments/ and is not production code.
+labels: ["type:spike"]
+body:
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+      placeholder: "We can stream X from Y at >= 30 fps on a laptop."
+    validations: { required: true }
+  - type: input
+    id: timebox
+    attributes:
+      label: Timebox
+      placeholder: "e.g. 60 min"
+    validations: { required: true }
+  - type: textarea
+    id: kill
+    attributes:
+      label: Success / kill criteria
+      description: What result means go, what result means drop or fall back.
+    validations: { required: true }
+  - type: textarea
+    id: resources
+    attributes:
+      label: Hardware, APIs or credentials needed
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Done when
+      value: |
+        - [ ] Result (go / no-go / fallback) written in research/experiments/<issue#>-<slug>/README.md
+        - [ ] Verdict comment on this issue

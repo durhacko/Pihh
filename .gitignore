@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+*.log
+
+# Large demo media (upload to the release / drive and link to it instead)
+*.mp4
+*.mov
+
+# Local agent worktrees, if created inside the repo by mistake
+Pihh-wt/
