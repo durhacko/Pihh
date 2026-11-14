@@ -4,7 +4,7 @@ export function bindKeyboard(host: HTMLElement, readStatus: () => ControlStatus 
   function onKey(event: KeyboardEvent) {
     const status = readStatus();
     if (!status?.available || event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
-    if ((event.target as HTMLElement | null)?.closest('input,textarea,select,button,[contenteditable=true]')) return;
+    if (event.target instanceof Element && event.target.closest('input,textarea,select,button,[contenteditable=true]')) return;
     const key = event.key.toLowerCase();
     let intent: ControlIntent | undefined;
     if (key === ' ') intent = { type: 'play' };
