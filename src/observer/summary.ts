@@ -1,8 +1,9 @@
 import { DT } from '../contracts';
 import type { EnvEvent, MetricsSample, ScoreVersion } from '../contracts';
 
-/** Internal only while the zero-survivor fidelity contract is being clarified. */
-export type SummaryMetrics = Omit<MetricsSample, 'sfMean' | 'sfMax'> & {
+/** Mirrors the owner-approved empty-swarm metrics while remaining independently testable. */
+export type SummaryMetrics = Omit<MetricsSample, 'npwc' | 'sfMean' | 'sfMax'> & {
+  npwc: number | null;
   sfMean: number | null;
   sfMax: number | null;
 };
@@ -41,8 +42,9 @@ const RECOVERY_SAMPLES = 12;
 const key = (version: ScoreVersion): string => `${version.issuedTick}:${version.origin}`;
 const versionCount = (versions: Readonly<Record<string, number>>): number => Object.values(versions).filter(count => count > 0).length;
 function mean(values: readonly (number | null)[]): number | null {
-  if (!values.length || values.some(value => value === null || !Number.isFinite(value))) return null;
-  return (values as number[]).reduce((sum, value) => sum + value, 0) / values.length;
+  const measured = values.filter((value): value is number => value !== null);
+  if (!measured.length || measured.some(value => !Number.isFinite(value))) return null;
+  return measured.reduce((sum, value) => sum + value, 0) / measured.length;
 }
 function median(values: readonly number[]): number | null {
   if (!values.length) return null;
@@ -55,12 +57,12 @@ function recovery(samples: readonly SummarySample[], killTick: number): number |
   const postKill = samples.filter(sample => sample.metrics.tick >= killTick);
   const hold = postKill.filter(sample => sample.inHold);
   if (!hold.length) return null;
-  if (hold.every(sample => sample.metrics.npwc >= 0.95)) return 0;
+  if (hold.every(sample => sample.metrics.npwc !== null && sample.metrics.npwc >= 0.95)) return 0;
   let start: number | null = null;
   let previous: number | null = null;
   let streak = 0;
   for (const sample of postKill) {
-    if (!sample.inHold || sample.metrics.npwc < 0.95 || !Number.isFinite(sample.metrics.npwc)) {
+    if (!sample.inHold || sample.metrics.npwc === null || sample.metrics.npwc < 0.95 || !Number.isFinite(sample.metrics.npwc)) {
       start = null; previous = null; streak = 0;
       continue;
     }
@@ -98,6 +100,7 @@ export function calculateSummary(context: SummaryContext): Record<string, number
   const windowA = hold.filter(entry => entry.metrics.tick >= 800 && entry.metrics.tick <= 899);
   const windowEnd = hold.filter(entry => entry.metrics.tick >= 1700 && entry.metrics.tick <= 1799);
   const firstEvent = events[0]?.tick;
+  const deficitSamples = firstEvent === undefined ? [] : hold.filter(entry => entry.metrics.tick >= firstEvent && entry.metrics.npwc !== null);
   const lastSample = samples.at(-1)?.metrics;
   const counts = new Map<number, number>();
   for (const change of context.slotChanges) if (change.tick <= context.tick) counts.set(change.id, (counts.get(change.id) ?? 0) + 1);
@@ -114,7 +117,7 @@ export function calculateSummary(context: SummaryContext): Record<string, number
     sfMaxEndA: mean(windowA.map(entry => entry.metrics.sfMax)),
     capacityLoss: mean(windowEnd.map(entry => entry.capacityLoss)),
     coordLoss: mean(windowEnd.map(entry => entry.coordLoss)),
-    npwcDeficitSec: firstEvent === undefined ? null : hold.filter(entry => entry.metrics.tick >= firstEvent).reduce((sum, entry) => sum + (1 - entry.metrics.npwc) * SAMPLE_SECONDS, 0),
+    npwcDeficitSec: deficitSamples.length ? deficitSamples.reduce((sum, entry) => sum + (1 - entry.metrics.npwc!) * SAMPLE_SECONDS, 0) : null,
     slotChanges: [...counts.values()].reduce((sum, count) => sum + count, 0),
     slotChangesMaxDrone: Math.max(0, ...counts.values()),
     lateSlotChanges: context.slotChanges.filter(change => change.tick <= context.tick && change.tick > context.tick - 200).length,

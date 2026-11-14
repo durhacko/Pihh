@@ -101,10 +101,28 @@ describe('pure run summary', () => {
     expect(calculateSummary(base({ tick: 710, timeline: ticks(700, 710) })).tVersion).toBeNull();
     expect(calculateSummary(base({ tick: 710, events: [off], timeline: ticks(700, 710, {}, 0) })).tVersion).toBeNull();
   });
-  it('propagates unmeasurable fidelity rather than hiding zero-survivor samples in an average', () => {
-    const summary = calculateSummary(base({ samples: [sample(1700, { sfMean: 1, sfMax: 3 }), sample(1705, { sfMean: null, sfMax: null, alive: 0 })] }));
-    expect(summary.sfMeanEnd).toBeNull(); expect(summary.sfMaxEnd).toBeNull();
-    expect(summary.sfMaxEndA).toBeNull(); expect(calculateSummary(base()).npwcEnd).toBeNull();
+  it('skips owner-approved nullable samples in mixed windows and returnsnull for an all-null metric window', () => {
+    const empty = { npwc: null, sfMean: null, sfMax: null, alive: 0 };
+    const summary = calculateSummary(base({ samples: [sample(1700, { npwc: 0.8, sfMean: 1, sfMax: 3 }), sample(1705, empty), sample(1710, { npwc: 1, sfMean: 3, sfMax: 7 })] }));
+    expect(summary.npwcEnd).toBeCloseTo(0.9); expect(summary.sfMeanEnd).toBe(2); expect(summary.sfMaxEnd).toBe(5);
+    const allNull = calculateSummary(base({ samples: [sample(800, empty), sample(1700, empty), sample(1705, empty)] }));
+    expect(allNull.npwcEndA).toBeNull(); expect(allNull.sfMaxEndA).toBeNull();
+    expect(allNull.npwcEnd).toBeNull(); expect(allNull.sfMeanEnd).toBeNull(); expect(allNull.sfMaxEnd).toBeNull();
+    expect(calculateSummary(base()).npwcEnd).toBeNull();
+  });
+  it('treats null recovery samples as gaps and censors an empty swarm rather than claiming recovery', () => {
+    const good = Array.from({ length: 18 }, (_, index) => sample(405 + index * 5, { npwc: 1 }));
+    const context = base({ events: [kill], samples: [sample(400, { npwc: 0.5 }), ...good] });
+    expect(calculateSummary(context).tRec).toBe(0.25);
+    expect(calculateSummary({ ...context, samples: context.samples.map(entry => entry.metrics.tick === 440 ? sample(440, { npwc: null, alive: 0 }) : entry) }).tRec).toBeNull();
+    expect(calculateSummary(base({ events: [kill], samples: [sample(400, { npwc: null, alive: 0 }), sample(405, { npwc: null, alive: 0 })] })).tRec).toBeNull();
+    const afterGap = [sample(400, { npwc: null, alive: 0 }), ...Array.from({ length: 12 }, (_, index) => sample(405 + index * 5, { npwc: 1 }))];
+    expect(calculateSummary(base({ events: [kill], samples: afterGap })).tRec).toBe(0.25);
+  });
+  it('skips null nPWC deficits without treating an empty swarm as complete coordination failure', () => {
+    const summary = calculateSummary(base({ events: [kill], samples: [sample(400, { npwc: 0.5 }), sample(405, { npwc: null, alive: 0 }), sample(410, { npwc: 0.75 })] }));
+    expect(summary.npwcDeficitSec).toBeCloseTo(0.1875);
+    expect(calculateSummary(base({ events: [kill], samples: [sample(400, { npwc: null, alive: 0 })] })).npwcDeficitSec).toBeNull();
   });
   it('is replay-stable, independent of input order, and never changes the supplied evidence', () => {
     const context = base({ events: [inject, kill], samples: [sample(1705), sample(1700)], timeline: ticks(1, 10), slotChanges: [{ tick: 2, id: 1 }], adoptions: [{ tick: 420, id: 1, version: '400:1' }] });
