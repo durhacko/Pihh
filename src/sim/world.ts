@@ -60,6 +60,7 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
   function schedule(event: EnvEvent) {
     if (!Number.isInteger(event.tick) || event.tick <= tick) throw new Error('Events must be scheduled after the current tick');
     if (event.type === 'JAM_ON' && (!Number.isFinite(event.radius) || event.radius < 0)) throw new Error('Invalid jam radius');
+    if (event.type === 'JAM_ON' && !event.centre.every(Number.isFinite)) throw new Error('Invalid jam centre');
     if (event.type === 'SET_LOSS' && (!Number.isFinite(event.loss) || event.loss < 0 || event.loss > 1)) throw new Error('Invalid packet loss');
     if (event.type === 'PARTITION_ON' && (!event.normal.every(Number.isFinite) || event.normal.every(v => v === 0) || !event.point.every(Number.isFinite))) throw new Error('Invalid partition plane');
     if (event.type === 'INJECT_SCORE' && (!Number.isInteger(event.droneId) || event.droneId < 0 || event.droneId >= params.n0)) throw new Error('Invalid injection target');

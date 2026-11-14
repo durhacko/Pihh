@@ -130,6 +130,16 @@ describe('scheduled loss, jam and injection', () => {
     expect(() => instance.schedule({ type: 'PARTITION_ON', tick: 1, id: 'p', point: [0, 0, 0], normal: [0, 0, 0] })).toThrow();
     expect(() => instance.schedule({ type: 'INJECT_SCORE', tick: 1, droneId: 4, score })).toThrow();
   });
+  it('rejects a JAM_ON with a non-finite centre, as PARTITION_ON rejects a non-finite point', () => {
+    const instance = world();
+    for (const centre of [[NaN, 0, 0], [0, Infinity, 0], [0, 0, -Infinity]] as Vec3[]) {
+      expect(() => instance.schedule({ type: 'JAM_ON', tick: 1, id: 'j', centre, radius: 1 })).toThrow('Invalid jam centre');
+    }
+    expect(() => instance.schedule({ type: 'PARTITION_ON', tick: 1, id: 'p', point: [NaN, 0, 0], normal: [1, 0, 0] })).toThrow();
+    expect(() => createWorld({ ...instance.config, events: [{ type: 'JAM_ON', tick: 1, id: 'j', centre: [NaN, 0, 0], radius: 1 }] })).toThrow('Invalid jam centre');
+    instance.schedule({ type: 'JAM_ON', tick: 1, id: 'j', centre: [0, 0, 0], radius: 100 });
+    expect(instance.step().radio.every(event => event.jammed === 3)).toBe(true);
+  });
 });
 
 describe('explicit shared kill selection helpers', () => {
