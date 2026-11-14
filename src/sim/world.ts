@@ -1,4 +1,4 @@
-import { DT } from '../contracts';
+import { DT, OPERATOR } from '../contracts';
 import type { AgentInput, AgentOutput, EnvEvent, Message, RadioEvent, Vec3, World, WorldConfig, WorldSnapshot } from '../contracts';
 import { SpatialGrid } from './grid';
 import { clampLength, distanceSquared, launchPosition, subtract } from './math';
@@ -11,6 +11,7 @@ interface Body {
 }
 interface Pending { receiver: number; message: Message }
 type Jam = WorldSnapshot['jams'][number];
+type Partition = WorldSnapshot['partitions'][number] & { groups: (0 | 1)[] };
 type TestOptions = { reverseStepOrder?: boolean; freezeInputs?: boolean };
 /** Contracts contain only plain JSON data. Avoid structuredClone's per-call overhead
  * on the thousands of small sensing/radio vectors produced by a tick. */
@@ -36,7 +37,7 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
   if (!Number.isInteger(params.n0) || params.n0 < 1) throw new Error('n0 must be a positive integer');
   if (params.rSense <= 0 || params.rRadio <= 0) throw new Error('Sensing and radio radii must be positive');
   if (!Number.isInteger(params.latencyMin) || !Number.isInteger(params.latencyMax) || params.latencyMin < 1 || params.latencyMax < params.latencyMin) throw new Error('Invalid radio latency');
-  if (params.loss < 0 || params.loss > 1) throw new Error('Invalid packet loss');
+  if (!Number.isFinite(params.loss) || params.loss < 0 || params.loss > 1) throw new Error('Invalid packet loss');
   const score = freeze(clone(source.score));
   const brain = Object.freeze({ ...source.brain });
   const config = Object.freeze({ seed: source.seed, params, score, brain, events: freeze(clone(source.events ?? [])) });
@@ -50,13 +51,18 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
   const events = new Map<number, EnvEvent[]>();
   const pending = new Map<number, Pending[]>();
   const jams = new Map<string, Jam>();
+  const partitions = new Map<string, Partition>();
+  let loss = params.loss;
+  let operatorSeq = 0;
   let collisionPairs = new Set<string>();
   let nearPairs = new Set<string>();
 
   function schedule(event: EnvEvent) {
     if (!Number.isInteger(event.tick) || event.tick <= tick) throw new Error('Events must be scheduled after the current tick');
-    if (!['KILL', 'JAM_ON', 'JAM_OFF'].includes(event.type)) throw new Error(`${event.type} is not implemented in WP-2a`);
     if (event.type === 'JAM_ON' && (!Number.isFinite(event.radius) || event.radius < 0)) throw new Error('Invalid jam radius');
+    if (event.type === 'SET_LOSS' && (!Number.isFinite(event.loss) || event.loss < 0 || event.loss > 1)) throw new Error('Invalid packet loss');
+    if (event.type === 'PARTITION_ON' && (!event.normal.every(Number.isFinite) || event.normal.every(v => v === 0) || !event.point.every(Number.isFinite))) throw new Error('Invalid partition plane');
+    if (event.type === 'INJECT_SCORE' && (!Number.isInteger(event.droneId) || event.droneId < 0 || event.droneId >= params.n0)) throw new Error('Invalid injection target');
     const queue = events.get(event.tick) ?? [];
     queue.push(clone(event));
     events.set(event.tick, queue);
@@ -65,6 +71,7 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
 
   function step(): WorldSnapshot {
     tick++;
+    const uplinks: Pending[] = [];
     // 1. Environment events affect sensing and transmission on this same tick.
     for (const event of events.get(tick) ?? []) {
       if (event.type === 'KILL') for (const id of event.ids) {
@@ -73,11 +80,24 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
       }
       if (event.type === 'JAM_ON') jams.set(event.id, { id: event.id, centre: clone(event.centre), radius: event.radius });
       if (event.type === 'JAM_OFF') jams.delete(event.id);
+      if (event.type === 'PARTITION_ON') {
+        const groups: (0 | 1)[] = bodies.map(body => {
+          const rel = subtract(body.pos, event.point);
+          return rel[0] * event.normal[0] + rel[1] * event.normal[1] + rel[2] * event.normal[2] < 0 ? 0 : 1;
+        });
+        partitions.set(event.id, { id: event.id, point: clone(event.point), normal: clone(event.normal), groups });
+      }
+      if (event.type === 'PARTITION_OFF') partitions.delete(event.id);
+      if (event.type === 'SET_LOSS') loss = event.loss;
+      if (event.type === 'INJECT_SCORE') uplinks.push({ receiver: event.droneId, message: freeze({
+        type: 'SCORE', from: OPERATOR, seq: operatorSeq++, sentTick: tick, score: clone(event.score),
+      }) });
     }
     events.delete(tick);
     const live = bodies.filter(b => b.alive).map(b => b.id);
     // 2. In-flight messages survive sender death. Dead receivers discard delivery.
     const inboxes: Message[][] = bodies.map(() => []);
+    for (const delivery of uplinks) if (bodies[delivery.receiver].alive) inboxes[delivery.receiver].push(delivery.message);
     for (const delivery of pending.get(tick) ?? []) if (bodies[delivery.receiver].alive) inboxes[delivery.receiver].push(delivery.message);
     pending.delete(tick);
     for (const inbox of inboxes) inbox.sort((a, b) => a.sentTick - b.sentTick || a.from - b.from || a.seq - b.seq);
@@ -106,6 +126,7 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     // 5. Sender/receiver ordering is independent of the brain invocation order.
     const radio: RadioEvent[] = [];
     const activeJams = [...jams.values()];
+    const activePartitions = [...partitions.values()];
     const isJammed = bodies.map(body => activeJams.some(j => distanceSquared(body.pos, j.centre) <= j.radius ** 2));
     for (const id of live) for (const message of outputs.get(id)!.outbox) {
       if (message.from !== id || message.sentTick !== tick) throw new Error('Brain broadcast must identify its actual sender and current tick');
@@ -116,7 +137,8 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
       for (const receiver of grid.within(bodies[id].pos, params.rRadio)) {
         if (receiver === id) continue;
         if (isJammed[id] || isJammed[receiver]) { log.jammed++; continue; }
-        if (rng() < params.loss) { log.lost++; continue; }
+        if (activePartitions.some(partition => partition.groups[id] !== partition.groups[receiver])) { log.partitioned++; continue; }
+        if (rng() < loss) { log.lost++; continue; }
         const latency = params.latencyMin + Math.floor(rng() * (params.latencyMax - params.latencyMin + 1));
         const queue = pending.get(tick + latency) ?? [];
         queue.push({ receiver, message: packet });
@@ -153,8 +175,8 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     return {
       tick, drones: bodies.map(body => ({
         id: body.id, alive: body.alive, diedTick: body.diedTick, pos: clone(body.pos), vel: clone(body.vel), colour: clone(body.colour),
-        partitionSide: null, belief: clone(brain.belief(body.state)),
-      })), radio, jams: clone([...jams.values()]), partitions: [], collisions, nearMisses,
+        partitionSide: activePartitions.length === 1 ? activePartitions[0].groups[body.id] : null, belief: clone(brain.belief(body.state)),
+      })), radio, jams: clone([...jams.values()]), partitions: activePartitions.map(({ id, point, normal }) => ({ id, point: clone(point), normal: clone(normal) })), collisions, nearMisses,
     };
   }
   return {

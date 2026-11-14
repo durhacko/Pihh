@@ -1,0 +1,124 @@
+// src/app/worlds.ts
+// Two worlds, one script (docs/design/experience-and-demo.md §1): an Encore arm and a static baseline arm,
+// built from the same seed, params, preloaded score and scripted events. Only `brain` differs. They step in
+// lockstep, so they always share a tick. The app changes a world only by scheduling EnvEvents and stepping;
+// it never sets a drone's slot, target or belief. Pure TypeScript: no DOM, no clock, no randomness.
+import { makeParams } from '../contracts';
+import type { AgentBrain, EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
+import { staticBrain } from '../agent/staticBrain';
+import { makeScore } from '../score';
+import { createWorld } from '../sim';
+
+// G2 fixture: the Encore brain (#16) is not on this branch yet, so BOTH arms fly the static brain.
+const ENCORE_BRAIN: AgentBrain = staticBrain; // swap to encoreBrain when #16 merges
+
+export type Arm = 'encore' | 'static';
+export const ARMS: readonly Arm[] = ['encore', 'static'];
+export interface Pair<T> { encore: T; static: T }
+
+/** True while the Encore arm still runs a stand-in brain, so the UI can say so instead of implying otherwise. */
+export const encoreBrainIsFixture: boolean = ENCORE_BRAIN.kind !== 'encore';
+
+export const DEFAULT_N0 = 200;
+export const DEFAULT_RECIPES: readonly Recipe[] = [{ kind: 'text', text: 'ENCORE' }, { kind: 'sphere' }, { kind: 'helix' }];
+
+export interface WorldsOptions {
+  seed: number;
+  n0?: number;            // default 200; must equal params.n0 when both are given
+  params?: Params;        // default makeParams(n0)
+  score?: Score;          // default makeScore(ENCORE, sphere, helix)
+  events?: EnvEvent[];    // scripted events, scheduled into both worlds at build time
+}
+
+export interface Worlds {
+  readonly params: Params;
+  readonly score: Score;
+  readonly seed: number;
+  /** The current pair. A reset replaces both, so read this again after reset() rather than keeping it. */
+  readonly worlds: Pair<World>;
+  /** The shared tick of both worlds: 0 before the first step. */
+  readonly tick: number;
+  /** The snapshots returned by the last stepBoth(), or null before the first step after a build or reset. */
+  latest(): Pair<WorldSnapshot> | null;
+  /** Advances both worlds by exactly one tick and returns both snapshots. */
+  stepBoth(): Pair<WorldSnapshot>;
+  /** Schedules the SAME event object into both worlds. Its tick must be later than the shared tick. */
+  scheduleBoth(event: EnvEvent): void;
+  /** Rebuilds both worlds from `seed` (default: the current seed) with the same params, score and scripted events. */
+  reset(seed?: number): void;
+}
+
+function checkSeed(seed: number): number {
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffffffff) throw new RangeError(`Seed must be an unsigned 32-bit integer, got ${seed}`);
+  return seed;
+}
+
+export function createWorlds(options: WorldsOptions): Worlds {
+  const n0 = options.n0 ?? options.params?.n0 ?? DEFAULT_N0;
+  const params = options.params ?? makeParams(n0);
+  if (params.n0 !== n0) throw new RangeError(`n0 (${n0}) does not match params.n0 (${params.n0})`);
+  const score = options.score ?? makeScore([...DEFAULT_RECIPES], n0, params);
+  const scripted = options.events ?? [];
+  let seed = checkSeed(options.seed);
+  let pair: Pair<World>;
+  let latest: Pair<WorldSnapshot> | null;
+  let tick: number;
+
+  function build(): void {
+    // createWorld deep-copies params, score and events, so both arms may share these inputs.
+    pair = {
+      encore: createWorld({ seed, params, score, brain: ENCORE_BRAIN, events: scripted }),
+      static: createWorld({ seed, params, score, brain: staticBrain, events: scripted }),
+    };
+    latest = null;
+    tick = 0;
+  }
+  build();
+
+  return {
+    params, score,
+    get seed() { return seed; },
+    get worlds() { return pair; },
+    get tick() { return tick; },
+    latest: () => latest,
+    stepBoth() {
+      const next = { encore: pair.encore.step(), static: pair.static.step() };
+      if (next.encore.tick !== next.static.tick || next.encore.tick !== tick + 1) {
+        throw new Error(`Worlds left lockstep: encore ${next.encore.tick}, static ${next.static.tick}, expected ${tick + 1}`);
+      }
+      tick = next.encore.tick;
+      latest = next;
+      return next;
+    },
+    scheduleBoth(event) {
+      // Checked here first so a bad tick cannot reach one world and not the other. The remaining checks in
+      // World.schedule do not depend on the brain, so both worlds accept or reject the same event.
+      if (!Number.isInteger(event.tick) || event.tick <= tick) throw new Error(`Event tick ${event.tick} must be after the current tick ${tick}`);
+      pair.encore.schedule(event);
+      pair.static.schedule(event);
+    },
+    reset(next = seed) {
+      seed = checkSeed(next);
+      build();
+    },
+  };
+}
+
+/** Live drones whose position lies within `radius` of `centre`, ascending id (the contract's idsInSphere). */
+export function idsInRegion(snapshot: WorldSnapshot, centre: Vec3, radius: number): number[] {
+  if (!Number.isFinite(radius) || radius <= 0) throw new RangeError('Radius must be a positive number');
+  if (centre.length !== 3 || !centre.every(Number.isFinite)) throw new RangeError('Centre must be three finite numbers');
+  const r2 = radius * radius;
+  return snapshot.drones
+    .filter(d => d.alive && (d.pos[0] - centre[0]) ** 2 + (d.pos[1] - centre[1]) ** 2 + (d.pos[2] - centre[2]) ** 2 <= r2)
+    .map(d => d.id)
+    .sort((a, b) => a - b);
+}
+
+/** A KILL for the next tick with explicit, validated, sorted, de-duplicated ids. */
+export function killEvent(worlds: Pick<Worlds, 'tick' | 'params'>, ids: readonly number[]): Extract<EnvEvent, { type: 'KILL' }> {
+  for (const id of ids) {
+    if (!Number.isInteger(id) || id < 0 || id >= worlds.params.n0) throw new RangeError(`Drone id ${id} is not in this roster (0..${worlds.params.n0 - 1})`);
+  }
+  return { type: 'KILL', tick: worlds.tick + 1, ids: [...new Set(ids)].sort((a, b) => a - b) };
+}

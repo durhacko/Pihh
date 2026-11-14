@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { performance } from 'node:perf_hooks';
 import { makeParams } from '../../src/contracts';
 import type { AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Params, Score, Vec3 } from '../../src/contracts';
-import { createWorld } from '../../src/sim';
+import { agentSeed, createWorld } from '../../src/sim';
 import { launchPosition } from '../../src/sim/math';
 import { dummyBrain } from '../fixtures/dummyBrain';
 
@@ -101,10 +101,10 @@ describe('world tick and isolation', () => {
     const world = createWorld(config(4, {}, brain));
     expect(world.step().drones.map(d => d.pos)).toEqual(Array.from({ length: 4 }, (_, id) => launchPosition(id, 4)));
   });
-  it('rejects scheduling into the past and unsupported WP-2b events explicitly', () => {
+  it('rejects scheduling into the past and invalid packet-loss events', () => {
     const world = createWorld(config());
     expect(() => world.schedule({ type: 'KILL', tick: 0, ids: [] })).toThrow();
-    expect(() => world.schedule({ type: 'SET_LOSS', tick: 1, loss: 0.3 })).toThrow('WP-2a');
+    expect(() => world.schedule({ type: 'SET_LOSS', tick: 1, loss: 1.3 })).toThrow('Invalid packet loss');
   });
 });
 
@@ -193,6 +193,19 @@ describe('radio medium', () => {
 });
 
 describe('replay and accounting', () => {
+  it('exports exactly the seed derivation passed into each brain init', () => {
+    const world = createWorld(config(4));
+    world.step();
+    const seeds: number[] = [];
+    for (let id = 0; id < 4; id++) {
+      const actual = (world.inspect(id)!.state as State).seed;
+      expect(actual).toBe(agentSeed(101, id));
+      expect(agentSeed(101, id)).toBe(agentSeed(101, id));
+      expect(agentSeed(102, id)).not.toBe(actual);
+      seeds.push(actual);
+    }
+    expect(new Set(seeds).size).toBe(4);
+  });
   it('same seed and reversed brain order reproduce hashes at tick 400; another seed differs', () => {
     const first = createWorld(config());
     const second = createWorld(config());
@@ -223,5 +236,5 @@ describe('replay and accounting', () => {
     const start = performance.now();
     for (let tick = 0; tick < 200; tick++) world.step();
     console.log(`200-drone dummyBrain (radio enabled) benchmark: ${((performance.now() - start) / 200).toFixed(3)} ms/tick`);
-  });
+  }, 15_000); // Bounded headroom for CPU contention across concurrent local check runs.
 });
