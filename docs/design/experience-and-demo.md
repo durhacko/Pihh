@@ -57,7 +57,7 @@ Two worlds, one script (MUST):
 
 ## 4. Requested versus occupied
 
-Slot positions and status come from `Observer.slotStatus` ([contract §5](contracts-and-algorithms.md#5-world-events-snapshot-metrics)); the app never recomputes them. The legend says "observer view". Every live drone holds a slot; there is no unassigned state.
+Slot positions and status come from `Observer.slotStatus` ([contract §5](contracts-and-algorithms.md#5-world-events-snapshot-metrics)); the app never recomputes them. The legend says "observer view". Every live drone holds a slot; there is no unassigned state. Render the single status returned for each slot; the app does not choose between overlapping occupancy and holder-count predicates. The HUD still reports `dupSlots` independently, so its count need not equal the number of contested rings.
 
 | Status | Rule | Drawn as |
 |---|---|---|
@@ -123,9 +123,9 @@ HUD, 4 Hz, from each world's `MetricsSample`:
 | 20 | `KILL{ids}`: `idsInSphere` over one letter, about 10% of `n0` | Ghosts | Same hole in both arms |
 | 20–44 | None: drones act | — | Above: claim heartbeats, tethers, hole refilling from its rim, nPWC rising. Below: unchanged |
 | 44 | Preloaded movement 1 (helix) | Split off | Survivors re-form with no messages |
-| 54 | `JAM_ON`, upper third | Belief colours | Jam sphere, deaf rings, nobody moves |
-| 58 | `INJECT_SCORE` (sphere), one un-jammed drone | Speed 0.5× | New colour spreads along `SCORE` lines, stops at the jam |
-| 58 + `scoreLead` | New movement starts | Speed 1× | Two formations at once: jammed drones keep the old score |
+| 54 | `JAM_ON`, upper third | Belief colours | Jam sphere, deaf rings; drones keep flying their score |
+| 58 | `INJECT_SCORE` (sphere), one un-jammed drone | Speed 0.5× | New colour spreads along real `SCORE` lines; the jam blocks sends involving drones currently inside it |
+| 58 + `scoreLead` | New movement starts | Speed 1× | Still-isolated drones keep the old score; drones that leave the geometric jam may receive and adopt the new score |
 | 68 | `JAM_OFF` | — | Colour crosses; late adopters join by the clock |
 | 82 | — | Audience | Sphere, final HUD |
 
@@ -152,10 +152,10 @@ HUD, 4 Hz, from each world's `MetricsSample`:
 1. Someone not told the word reads it from an Audience screenshot.
 2. Within 30 s of the regional kill, Encore's nPWC is above static's and the hole is visibly smaller above only.
 3. Drawn links never exceed logged links; the static view draws none; pause freezes lines.
-4. No drone inside the jam at injection changes belief colour before `JAM_OFF`; afterwards one colour remains (target 10 s, measured at G4).
+4. For a score injected outside the jam, drones continuously inside it from injection remain on the old version until radio becomes available. Check adoption against actual delivered messages: drones that leave the geometric jam may adopt before `JAM_OFF`, and messages eligible at send time may arrive after a drone enters the jam. A fixed partition, instead, isolates its groups wherever they fly. After radio reconnects, one colour remains (target 10 s, measured at G4).
 5. If the inspector is built: it shows nothing that is not in that drone's `Belief` or `inspect` result.
 6. A no-kill jam adds zero slot changes.
-7. No ring at an occupied slot; contested rings equal `dupSlots`.
+7. No ring for an `occupied` entry from `Observer.slotStatus`; the number of double magenta rings equals the number of `contested` entries in that same observer output. The HUD reports `dupSlots` separately, without requiring its count to equal the rendered contested-ring count.
 8. Reset with the same seed gives identical HUD numbers at tick 600; the 90 s script runs unattended twice.
 
 ## 12. Cut order
