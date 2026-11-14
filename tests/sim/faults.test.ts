@@ -55,6 +55,8 @@ describe('fixed partition groups', () => {
     instance.step();
     const both = instance.step();
     expect(both.partitions.map(p => p.id)).toEqual(['x', 'z']);
+    // With several partitions active, partitionSide is the group in the oldest one ('x'), not 'z' ([0, 0, 1, 1]).
+    expect(both.drones.map(d => d.partitionSide)).toEqual([0, 1, 0, 1]);
     expect(both.radio.every(event => event.partitioned === 3 && event.delivered.length === 0)).toBe(true);
     instance.schedule({ type: 'PARTITION_OFF', tick: 3, id: 'z' });
     const one = instance.step();

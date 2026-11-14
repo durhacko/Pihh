@@ -172,10 +172,11 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     collisionPairs = nowCollision;
     nearPairs = nowNear;
     // 8. Snapshot vectors and beliefs never alias a body or brain state.
+    // partitionSide reports the oldest active partition (Map insertion order; a replaced id keeps its place).
     return {
       tick, drones: bodies.map(body => ({
         id: body.id, alive: body.alive, diedTick: body.diedTick, pos: clone(body.pos), vel: clone(body.vel), colour: clone(body.colour),
-        partitionSide: activePartitions.length === 1 ? activePartitions[0].groups[body.id] : null, belief: clone(brain.belief(body.state)),
+        partitionSide: activePartitions.length ? activePartitions[0].groups[body.id] : null, belief: clone(brain.belief(body.state)),
       })), radio, jams: clone([...jams.values()]), partitions: activePartitions.map(({ id, point, normal }) => ({ id, point: clone(point), normal: clone(normal) })), collisions, nearMisses,
     };
   }
