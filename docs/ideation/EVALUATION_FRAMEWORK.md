@@ -27,7 +27,7 @@ The weights were **adjusted from the handoff's starting weights** to cover the o
 
 **Weighted total = Σ(score × weight)**, max 5.0.
 
-- If the theme turns out **not** to be judged, move criterion 1's weight to criteria 2 and 3, and log the change in [`../DECISIONS.md`](../DECISIONS.md).
+- If the theme turns out **not** to be judged, move criterion 1's weight to criteria 2 and 3, and log the change in [`../planning/decisions-and-risks.md`](../planning/decisions-and-risks.md).
 - Re-score criterion 6 once sponsor briefs are captured. Until then it's capped at 3 because no brief is verified.
 
 ## Step 3: Confidence and dissent

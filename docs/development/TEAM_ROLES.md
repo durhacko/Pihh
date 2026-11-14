@@ -1,27 +1,29 @@
 # Team roles
 
-Purpose: who is accountable for what. These lanes are **provisional** and will be re-cut once the idea is selected (issue: decision gate). Lanes are defaults for picking work, not limits.
+Purpose: who is accountable for what. Lanes are **proposed, not confirmed**: the team's skills and availability have not been recorded, and neither Haris nor Williams has yet acted on GitHub. A lane becomes real when its owner claims an issue. Lanes are defaults for picking work, not limits.
 
-| Human | GitHub | Agent role | Lane | Main outputs |
-|---|---|---|---|---|
-| Arnav Chitriv | `reverez` (verified) | Architect / Integrator | Architecture, requirements synthesis, interface contracts, integration, CI, release, doc coherence, cross-component tests | Architecture docs, contracts, integration PRs, decision facilitation |
-| Haris | `sirahmo` (**inferred**, please confirm) | Product / Research | Idea research, sponsor alignment, user experience, visual design, demo narrative, presentation, submission | Research write-ups, UI/UX features, demo and pitch assets |
-| Williams (William Pimentel) | `wpimento` (inferred from profile name, please confirm) | Systems / Validation | Feasibility spikes, core implementation (backend, simulation, devices), test harnesses, performance, reliability, packaging | Core components, tests, spike results |
+| Human | GitHub | Lane (see [development plan](../planning/development-plan.md#lanes)) | Owns these shared files |
+|---|---|---|---|
+| Arnav Chitriv | `reverez` (verified) | **A. Brain and contracts**: `src/contracts`, `src/score`, `src/agent`; integration; runs the orchestrator | `src/contracts/**`, the contracts doc |
+| Williams (William Pimentel) | `wpimento` (inferred from profile name) | **B. World and evidence**: `src/sim`, `src/observer`, `src/cli`, build and CI | `package.json`, build config, `scripts/check.sh`, CI |
+| Haris | `sirahmo` (inferred by elimination) | **C. Experience**: `src/app/**`, demo, pitch, submission | `src/app/main.ts`, `index.html`, README |
 
-## Agent identity
+## Agents
 
-Each human may run one or more AI agents. **Agents act under their human's GitHub account and accountability.** There are no bot accounts. An issue assigned to `wpimento` means "Williams, or Williams's agent under Williams's supervision".
+Each human may run one or more AI agents, which act under that human's GitHub account and accountability. There are no bot accounts. An issue assigned to `wpimento` means "Williams, or Williams's agent under Williams's supervision".
+
+Arnav's session also runs an **orchestrator** with local sub-agents. It keeps issues and labels in sync and can pick up unclaimed READY issues in any lane, one worktree per issue. It cannot reach agents on other laptops.
 
 ## Single points of failure
 
-- **Integration and merging**: if Arnav is unavailable for more than 30 minutes, Williams acts as integrator.
-- **Demo and pitch**: Haris owns them, but all three must be able to run the demo from `docs/demo/DEMO_PLAN.md` by M4.
-- **Hardware**, if used: whoever holds the device documents its setup in `docs/development/ENVIRONMENT.md` so someone else can take over.
+- **Contracts and integration:** Arnav. If unreachable for 30 minutes, Williams acts as integrator and may approve `[contract]` PRs.
+- **Demo and pitch:** Haris owns them, but all three must be able to run the scripted demo by 08:30 Sun.
+- **Any lane with nobody active:** its READY issues are open to anyone; say so on the issue.
 
-## Skills inventory (to fill at the decision meeting)
+## Skills inventory (fill in on first contact; it decides the final lanes)
 
-| Human | Strong at | Wants to avoid | Hardware/laptop constraints |
-|---|---|---|---|
-| Arnav | | | |
-| Haris | | | |
-| Williams | | | |
+| Human | TypeScript | Three.js / graphics | Testing / tooling | Laptop OS, Node version | Awake overnight? |
+|---|---|---|---|---|---|
+| Arnav | | | | | |
+| Haris | | | | | |
+| Williams | | | | | |

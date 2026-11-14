@@ -1,0 +1,48 @@
+# Machine-readable project identity. Human-readable state lives in docs/CURRENT_STATE.md.
+project: Encore
+repo: durhacko/Pihh
+event: DurHack 2026 (14-15 Nov 2026, Durham)
+theme: Composition            # team-reported; not verified online (docs/competition/BRIEF.md T1)
+primary_challenge: Neptune North   # brief team-reported; not verified online (BRIEF P7)
+one_liner: >
+  A 3D simulation of a drone light show in which every drone decides for itself:
+  the swarm holds a formation, repairs it when drones fail, and spreads new
+  compositions by radio gossip, with no central controller.
+
+deadlines_gmt:
+  hard_submission: "2026-11-15T11:00"
+  internal_submission_target: "2026-11-15T10:15"
+  feature_freeze: "2026-11-15T08:30"
+
+phase: architecture   # architecture -> implementation -> polish -> submission
+stack:
+  language: TypeScript (strict)
+  build: Vite
+  rendering: Three.js
+  tests: vitest
+  runtime: browser (app) and Node 20+ (headless simulation and batch runs)
+
+team:   # GitHub handles for Haris and Williams are inferred, not confirmed
+  - { name: Arnav, github: reverez, lane: "integration lead; owns shared contracts; agent brain" }
+  - { name: Haris, github: sirahmo, lane: "3D experience, demo, submission (provisional)" }
+  - { name: Williams, github: wpimento, lane: "simulation world, radio, validation (provisional)" }
+
+source_of_truth:
+  current_state: docs/CURRENT_STATE.md
+  docs_index: docs/INDEX.md
+  agent_protocol: AGENTS.md
+  workflow: docs/development/WORKFLOW.md
+  requirements: docs/specification/requirements.md
+  architecture: docs/design/system-architecture.md
+  contracts: docs/design/contracts-and-algorithms.md   # CONTRACT - changes need a [contract] PR
+  experience: docs/design/experience-and-demo.md
+  validation: docs/validation/evaluation-and-tests.md
+  plan: docs/planning/development-plan.md
+  decisions_and_risks: docs/planning/decisions-and-risks.md
+  event_rules: docs/competition/BRIEF.md
+  task_board: https://github.com/durhacko/Pihh/issues
+
+known_gaps:
+  - research handoff packet not received (docs/context/research-handoff.md)
+  - Neptune North brief and theme wording not verified (issue 1)
+  - team skills and Node/TypeScript experience not recorded

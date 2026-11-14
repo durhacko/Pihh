@@ -1,72 +1,83 @@
-# Development workflow
+# Development workflow and cross-laptop coordination
 
-Purpose: how work moves from idea to `main` for three humans plus their AI agents. Agent-specific rules are in [`AGENTS.md`](../../AGENTS.md).
+Purpose: how work moves from an issue to `main` for three humans on three laptops, each driving AI agents. Agent rules are in [`AGENTS.md`](../../AGENTS.md); this file covers the human side, merging and recovery. What to build, and in what order, is in [`../planning/development-plan.md`](../planning/development-plan.md).
+
+## How the laptops coordinate
+
+- **GitHub is the only channel between laptops.** No agent can start, message or control an agent on another laptop. Each human starts their own agent sessions.
+- Arnav's session also runs an **orchestrator** that creates issues, keeps labels in sync and spawns local sub-agents. Those sub-agents exist only on Arnav's machine. They work through issues and PRs like everyone else.
+- While a session is active, an agent re-checks GitHub at natural stopping points (before starting, before opening a PR, when blocked): `gh issue list --assignee @me`, `gh pr list`, and the contract log command in `AGENTS.md`.
 
 ## The loop
 
-1. **Pick** an issue from the board (Issues filtered by milestone + `P0` first). It must have exactly one assignee (the human accountable).
-2. **Check dependencies**: the issue's "Depends on" list must be closed or explicitly mocked.
-3. **Claim**: add `status:in-progress`, comment with your branch name.
-4. **Branch** from fresh `main`: `<type>/<issue#>-<slug>`.
-5. **Build** the scope, nothing more.
-6. **Check**: run the checks that exist.
-7. **PR** with the template, `Closes #N`, handoff at the bottom. Label the issue `status:in-review`.
-8. **Review**: any one other human skims the diff (≤10 min). Agents can pre-review, but a human clicks merge.
-9. **Merge**: squash-merge into `main`. Delete the branch.
-10. **Update**: the issue auto-closes. If state changed, edit `docs/CURRENT_STATE.md` in the same PR.
+1. **Pick** a READY issue (no `status:` label) in your lane, P0 first. Dependencies must be closed, or the issue names a fixture to build against.
+2. **Claim** it: assign yourself, add `status:in-progress`, comment with the branch name.
+3. **Branch** from fresh `main`: `<type>/<issue#>-<slug>`.
+4. **Build** only what the acceptance criteria ask, inside the issue's allowed files.
+5. **Check**: `scripts/check.sh` and `python scripts/check_links.py`.
+6. **PR** with the template: `Closes #N`, requirement IDs, evidence, handoff block. Label the issue `status:in-review`.
+7. **Review and merge** (rules below). Squash-merge, delete the branch.
+8. **Verify**: the integrator runs the checks and the demo path on `main` and adds `status:verified`.
 
-Target PR size is under about 400 changed lines and under about 3 hours of work. Integrate small and often. A branch older than 4 hours is a risk.
+Keep PRs under about 400 changed lines and 2 hours of work. A branch older than 3 hours is a risk: split it or merge what works behind a flag.
 
 ## Branch names
 
-| Prefix | Use |
-|---|---|
-| `feat/` | new behaviour |
-| `fix/` | bug fix |
-| `research/` | idea research, candidate write-ups |
-| `spike/` | throwaway feasibility experiments (`research/experiments/`) |
-| `docs/` | documentation only |
-| `test/` | tests or demo harness |
-| `chore/` | tooling, CI, deps |
+`feat/` new behaviour · `fix/` bug fix · `docs/` documentation · `test/` tests or harness · `chore/` tooling, CI, deps · `spike/` throwaway experiment under `research/experiments/`.
 
-Example: `feat/24-audio-engine`, `research/3-candidate-feasibility`.
+Example: `feat/14-radio-medium`.
 
 ## Branching strategy
 
-- `main` = **known-good, demoable**. Nothing merges that breaks the demo path.
-- Short-lived feature branches only. No `develop` branch, no release branches.
-- Tag demo milestones: `git tag m2-first-e2e && git push --tags`.
-- **Branch protection is not available** (private repo on a free org plan, API returns 403). So the "PR only, no direct pushes to `main`" rule is enforced by convention. Exception: a 1-line hotfix during the final hour, announced in chat first.
+- `main` is **always buildable and demoable**. Nothing merges that breaks `scripts/check.sh` or the demo path.
+- Short-lived branches only. No `develop`, no stacked PRs more than one deep.
+- **Branch protection is not available** (private repo on a free org plan; the API returns 403). "PR-only" is a convention. The manual fallback: nobody pushes to `main`, and CI must be green before merging.
+- CODEOWNERS is not used: two of the three GitHub handles are still unconfirmed.
 
-## Review rules (fast)
+## Who may merge
 
-- Reviewer checks: does it do what the issue says, does `main` still run, are there secrets, are any contracts changed?
-- If a review takes more than 15 minutes to arrive, the author pings the team. If 30 minutes pass with no review and checks are green, the author may self-merge **non-contract** PRs and note it in the PR.
-- PRs titled `[contract]` need an approving comment from each affected component owner.
+| PR type | Needs | Who merges |
+|---|---|---|
+| Normal PR inside one work package | CI green + a skim by any human other than the author | The author, after the skim |
+| `[contract]` PR (`src/contracts/**`, contracts doc) | CI green + approval from the contract owner (Arnav) | Arnav |
+| Touches `package.json`, build config, CI, or `src/app/main.ts` | CI green + a skim by the owner of that file (see the plan) | The author, after the skim |
 
-## Merge conflicts and disputes
+Ping the team when the PR opens. After 10 minutes with green CI and no reviewer, the author may self-merge a non-contract PR and note it in the PR. Agents never merge without their human saying so.
 
-1. **Prevent**: one issue = one owner; issues list the files/dirs they expect to touch; check `gh pr list` before editing shared files.
-2. **Resolve**: the author of the *later* PR rebases and resolves. If the conflict involves someone else's logic, pair for 5 minutes (call or chat) rather than guessing.
-3. **Contract disagreements**: Arnav (integration lead) makes the call within 15 minutes, recorded in `docs/DECISIONS.md`.
-4. **Product/scope disagreements**: 5-minute discussion. If there's no consensus, use the evaluation framework, then a majority vote. Record it in `docs/DECISIONS.md`.
+## Answers to the coordination questions
 
-## Integration (post-selection)
+| Question | Answer |
+|---|---|
+| How do I learn an upstream contract changed? | Contract changes only happen in `[contract]` PRs. The owner comments on every dependent open issue after merging. Agents also run the contract log command (`AGENTS.md` §0) before each session and each PR. |
+| How do I tell others I'm blocked? | Handoff comment on the issue with `STATUS: BLOCKED`, add `status:blocked`, and @-mention the human who can unblock. |
+| Who resolves conflicting implementations? | Inside a work package: its owner. Across packages or on contracts: Arnav, within 15 minutes, recorded in [`decisions-and-risks.md`](../planning/decisions-and-risks.md). |
+| Who may merge? | See the table above. |
+| How is half-finished work handed over? | Push the branch, post the handoff block on the issue, remove `status:in-progress` if you're stopping for good. |
+| How are tests and failures reported? | In the PR's "Tests run" section with exact commands. A failure on `main` becomes a `type:bug` issue labelled P0 if it breaks the demo path. |
+| What if the orchestrator is unavailable? | Nothing depends on it. Issues, labels and docs carry the state; humans create issues from the templates and keep going. Williams is backup integrator if Arnav is unreachable for 30 minutes. |
+| How is the final working version protected? | After each verified end-to-end run, the integrator tags `demo-good-<n>` and pushes the tag. Feature freeze is 08:30 Sun: after that only fixes merge. The submission is built from a tag, and the last `demo-good` tag is the fallback. |
 
-- **First goal at M2 is a thin end-to-end slice**: minimal input → core behaviour → visible output, even if every part is stubbed.
-- Every component ships with a **mock/simulated mode** for any hardware or external API, so the demo never depends on one live dependency.
-- Integrate into the running app **before** polishing any component.
-- Keep a **known-good demo path** documented in `docs/demo/DEMO_PLAN.md` and re-run it after every merge to `main` once M2 is reached.
+## Merge conflicts
 
-## Launching your agent on an issue
+1. **Prevent:** each issue lists its allowed files, and work packages own separate directories.
+2. **Resolve:** the author of the later PR rebases. If the conflict is in someone else's logic, talk for five minutes instead of guessing.
+3. **Revert fast:** if `main` breaks, revert the offending squash commit first and fix on a branch.
 
-From your clone (or a worktree, see `AGENTS.md` §4):
+## Integration rule
+
+Get the thin end-to-end slice working first (gate G2 in the plan), then widen. A feature isn't done until it runs inside the integrated app in sim mode. Don't polish a component that isn't wired in.
+
+## Starting your agent on an issue (bootstrap prompt)
+
+From your clone (or a worktree, see `AGENTS.md` §5):
 
 ```bash
 git checkout main && git pull
 claude    # or your agent of choice
 ```
 
-Then paste:
+Paste:
 
-> You are working on durhacko/Pihh issue #<N> for <your name>. Follow AGENTS.md exactly: read AGENTS.md, docs/CURRENT_STATE.md and `gh issue view <N> --comments`, claim the issue, create branch `<type>/<N>-<slug>`, implement only the acceptance criteria, run checks, open a PR with `Closes #<N>` and the handoff block. Ask me before any product decision, contract change, or anything outside scope.
+> You are a coding agent for <your name> on the Encore project (repo durhacko/Pihh). Follow AGENTS.md exactly. Read AGENTS.md, docs/CURRENT_STATE.md and docs/design/contracts-and-algorithms.md, then run `gh issue view <N> --comments`. Claim issue #<N>, create branch `<type>/<N>-<slug>`, and implement only its acceptance criteria inside its allowed files, with the tests it lists. Never import anything into src/agent except src/contracts and src/score. Run scripts/check.sh, then open a PR with `Closes #<N>` and the handoff block. Ask me before any contract change or anything out of scope. If you're blocked, post a BLOCKED handoff on the issue and stop.
+
+To pick up whatever is next instead of a specific issue, replace the issue number with: "run `gh issue list --assignee @me --state open` and take the highest-priority READY one".

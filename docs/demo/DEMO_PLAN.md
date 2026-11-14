@@ -1,6 +1,6 @@
 # Demo plan
 
-> Status: **skeleton.** Owner: Haris. Filled in after idea selection (M1), rehearsed from M3. Judging is in person; the format and pitch length are unknown ([BRIEF S6, J4](../competition/BRIEF.md#3-judging)).
+> Status: **skeleton for Encore.** Owner: Haris (issue #7). The scripted demo, its beats and the fallbacks are specified in [`../design/experience-and-demo.md`](../design/experience-and-demo.md); this file holds the spoken pitch, the judging traceability and the rehearsal record. Judging is in person; the format and pitch length are unknown ([BRIEF S6, J4](../competition/BRIEF.md#3-judging)).
 
 ## 60–90 second table pitch
 

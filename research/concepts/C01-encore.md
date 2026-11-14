@@ -1,6 +1,6 @@
 # C01: Encore, a drone light show with no central controller
 
-> Status: candidate. Source: prior team brainstorming, expanded by the bootstrap research agent (2026-11-14). Confidence: low (desk research only). No privileged ranking.
+> Status: **selected** (2026-11-14). The authoritative design is now in `docs/design/`; this file is the original candidate write-up. Source: prior team brainstorming, expanded by the bootstrap research agent (2026-11-14). Confidence: low (desk research only). No privileged ranking.
 
 **One-liner:** A swarm of drones forms light-show shapes on its own. Each drone picks its place by agreeing with its neighbours, and the show repairs itself when drones fail or messages are lost.
 
