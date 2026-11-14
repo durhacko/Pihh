@@ -1,50 +1,65 @@
 # Docs index
 
-Start here. **Level A** docs are kept current. **B** docs are created when decisions are made. **C** docs are reference material.
+The map of the canonical documentation for **Encore**. One fact lives in one place; other docs link to it. New agent? Read [`../AGENTS.md`](../AGENTS.md), then [`CURRENT_STATE.md`](CURRENT_STATE.md), then the contracts doc, then your issue.
 
 ## Start here
-| Doc | Level | What |
-|---|---|---|
-| [CURRENT_STATE.md](CURRENT_STATE.md) | A | **Canonical snapshot**: phase, timeline, active issues, blockers |
-| [../AGENTS.md](../AGENTS.md) | A | Protocol every AI agent follows (humans too) |
-| [development/WORKFLOW.md](development/WORKFLOW.md) | A | Branching, PRs, reviews, conflicts, integration, launching an agent |
-| [development/TEAM_ROLES.md](development/TEAM_ROLES.md) | A | Who owns what; GitHub handles |
-| [DECISIONS.md](DECISIONS.md) | A | One-line decision log |
 
-## Competition
-| Doc | Level | What |
-|---|---|---|
-| [competition/BRIEF.md](competition/BRIEF.md) | A | **Single source of truth** for schedule, theme, judging, rules, prizes and sources, with verification status |
+| Doc | What |
+|---|---|
+| [CURRENT_STATE.md](CURRENT_STATE.md) | **Snapshot**: phase, gate times, what's open, blockers |
+| [../AGENTS.md](../AGENTS.md) | Protocol for every AI agent: the three Encore rules, task states, claiming, handoff format |
+| [development/WORKFLOW.md](development/WORKFLOW.md) | Cross-laptop coordination, merging, recovery, the agent bootstrap prompt |
+| [planning/development-plan.md](planning/development-plan.md) | Gates, lanes, the work table (one row = one issue = one PR), dependencies, cut order |
+| [project-manifest.yaml](project-manifest.yaml) | Machine-readable identity and source-of-truth pointers |
 
-## Ideation (M0)
-| Doc | Level | What |
-|---|---|---|
-| [ideation/IDEA_BACKLOG.md](ideation/IDEA_BACKLOG.md) | A | Candidate registry (one file per candidate in `research/concepts/`) |
-| [ideation/EVALUATION_FRAMEWORK.md](ideation/EVALUATION_FRAMEWORK.md) | A | Gates, weights, decision meeting |
-| [ideation/CANDIDATE_COMPARISON.md](ideation/CANDIDATE_COMPARISON.md) | A | Scores and shortlist |
-| [ideation/SELECTION_DECISION.md](ideation/SELECTION_DECISION.md) | A | The decision record (**pending**) |
+## Specification and design
 
-## Build (M1+; filled in after selection)
-| Doc | Level | What |
+| Doc | What | Status |
 |---|---|---|
-| [product/MVP_SCOPE.md](product/MVP_SCOPE.md) | A | MVP, journey, must/should/cut |
-| [architecture/OVERVIEW.md](architecture/OVERVIEW.md) | A | Architecture checklist |
-| `architecture/INTERFACES.md` (created at M1) | B | **Contracts** between components |
-| [architecture/adr/](architecture/adr/) | B | Architecture decision records ([template](architecture/adr/0000-template.md)) |
-| [quality/TEST_STRATEGY.md](quality/TEST_STRATEGY.md) | A | Lightweight test layers |
-| [quality/RISK_REGISTER.md](quality/RISK_REGISTER.md) | A | Risks, owners, fallbacks |
+| [specification/requirements.md](specification/requirements.md) | Requirements FR/NFR with acceptance criteria; claims we must not make | Approved |
+| [design/system-architecture.md](design/system-architecture.md) | Components, information rules I1–I8, the tick, two-world comparison | Approved |
+| [design/contracts-and-algorithms.md](design/contracts-and-algorithms.md) | **CONTRACT.** Types, parameters, messages, composition format, healing algorithm, motion, baseline | Approved; change by `[contract]` PR only |
+| [design/experience-and-demo.md](design/experience-and-demo.md) | 3D views, layers, controls, inspector, scripted demo, performance | Approved |
+| [validation/evaluation-and-tests.md](validation/evaluation-and-tests.md) | Metrics, scenarios S0–S5, baseline fairness, test list, gate evidence | Approved; thresholds pre-registered |
+| [planning/decisions-and-risks.md](planning/decisions-and-risks.md) | ADR-001…010, decision log, risks, fallback ladder, red-team answers | Living |
+
+## Context
+
+| Doc | What |
+|---|---|
+| [competition/BRIEF.md](competition/BRIEF.md) | Event facts with sources and verification status: deadline, rules, judging, prizes |
+| [context/evidence-and-assumptions.md](context/evidence-and-assumptions.md) | Evidence register, prior art, simplifying assumptions, open questions |
+| [context/research-handoff.md](context/research-handoff.md) | The original research packet. **Not received yet**: placeholder |
+| [analysis/feasibility-and-scope.md](analysis/feasibility-and-scope.md) | Feasibility, MVP boundary (MUST / SHOULD / STRETCH), alternatives considered |
+| [development/TEAM_ROLES.md](development/TEAM_ROLES.md) | People, GitHub handles, lanes |
 
 ## Demo and submission
-| Doc | Level | What |
-|---|---|---|
-| [demo/DEMO_PLAN.md](demo/DEMO_PLAN.md) | A | Pitch, demo path, fallbacks, judging traceability, Q&A |
-| [demo/SUBMISSION_CHECKLIST.md](demo/SUBMISSION_CHECKLIST.md) | A | Devpost and README requirements |
 
-## Reference
-| Location | Level | What |
-|---|---|---|
-| [../research/concepts/](../research/concepts/) | C | Candidate write-ups |
-| [../research/experiments/](../research/experiments/) | B | Spikes (go/no-go) |
-| [handoffs/INITIAL_SYNTHESIS.md](handoffs/INITIAL_SYNTHESIS.md) | C | Bootstrap handoff: what was set up and why |
+| Doc | What |
+|---|---|
+| [demo/DEMO_PLAN.md](demo/DEMO_PLAN.md) | Pitch, known-good demo path, fallbacks, judging traceability |
+| [demo/SUBMISSION_CHECKLIST.md](demo/SUBMISSION_CHECKLIST.md) | Devpost and README requirements |
 
-**Deliberately not created** (to avoid empty docs): separate THEME/CHALLENGES/RULES/SOURCES files (merged into `BRIEF.md`), TASK_BOARD.md (GitHub Issues is the board), separate agent COORDINATION/TASK_PROTOCOL/HANDOFF files (all in `AGENTS.md`), REQUIREMENTS/USER_JOURNEYS/SUCCESS_CRITERIA (merged into `MVP_SCOPE.md`), ENVIRONMENT.md and INTERFACES.md (created at M1 when there's content).
+## History
+
+| Location | What |
+|---|---|
+| [ideation/](ideation/SELECTION_DECISION.md) | How Encore was chosen; archived alternatives |
+| [../research/concepts/](../research/concepts/) | Original candidate write-ups |
+| [handoffs/INITIAL_SYNTHESIS.md](handoffs/INITIAL_SYNTHESIS.md) | Repo bootstrap handoff |
+
+## How this maps to the architecture directive's layout
+
+The directive proposed a `Documentation/` tree. The repo already had `docs/` with issues linking into it, so the same documents live here under these paths:
+
+| Directive | Here |
+|---|---|
+| `00-index.md`, `project-manifest.yaml` | `docs/INDEX.md`, `docs/project-manifest.yaml` |
+| `Context/*` | `docs/context/*` plus `docs/competition/BRIEF.md` |
+| `Analysis/feasibility-and-scope.md` | `docs/analysis/feasibility-and-scope.md` |
+| `Specification/requirements.md` | `docs/specification/requirements.md` |
+| `Design/*` | `docs/design/*` |
+| `Validation/evaluation-and-tests.md` | `docs/validation/evaluation-and-tests.md` |
+| `Planning/development-plan.md`, `decisions-and-risks.md` | `docs/planning/*` |
+| `Planning/agent-coordination.md` | `AGENTS.md` + `docs/development/WORKFLOW.md` (not duplicated) |
+| `Operations/demo-and-submission.md` | `docs/demo/DEMO_PLAN.md` + `docs/demo/SUBMISSION_CHECKLIST.md` |

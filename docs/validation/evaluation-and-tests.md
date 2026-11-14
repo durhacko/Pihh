@@ -1,0 +1,163 @@
+# Evaluation and tests
+
+Purpose: how Encore is measured, compared with the static baseline, tested and gated. Status: accepted at G0; thresholds are pre-registered here and frozen with the parameters. Owner: validation lead (lane B, world and evidence).
+
+Types and parameters: [contracts](../design/contracts-and-algorithms.md). Rules I1–I8: [architecture](../design/system-architecture.md). FR/NFR ids: [requirements](../specification/requirements.md). "BRIEF S3, R3, R4" are event facts in the [brief](../competition/BRIEF.md), not scenarios.
+
+## 1. Principles
+
+- **MUST observer-only.** Metrics come from `WorldSnapshot` and the reference score; nothing computed here reaches a brain (I6).
+- **MUST pre-registration.** Scenarios, thresholds and the win rule are fixed before any evaluation seed runs.
+- **MUST losses reported.** Ties and losses stay in the table, marked `TIE` or `LOSS`.
+- **MUST split the loss.** *Capacity loss* is what dead drones cost under any algorithm. *Coordination loss* is what a better arrangement of the survivors would win back. Encore can only reduce the second.
+
+## 2. Metrics
+
+- **Reference score:** the newest score delivered by an `INJECT_SCORE` so far, else the preloaded one; same rule in both arms. `p_i` is slot `i` of its current movement.
+- **Occupied:** `occ_i = 1` if any live drone's true position is within `rOcc` of `p_i`, whatever slot it believes it holds. `rOcc < slotSpacingMin / 2`, so one drone cannot occupy two slots.
+- **Weights:** `w_i = 2(n0 − i) / (n0(n0 + 1))`, sum 1. `P*(M) = Σ_{i<M} w_i`: the best `pwc` that `M` survivors could reach with a global reassignment.
+- **Hold sample:** a sample taken while the reference score is in hold. Summaries use hold samples only; collision counts cover the whole run.
+
+`MetricsSample` (every 5 ticks):
+
+| Field | Formula | Unit |
+|---|---|---|
+| `alive` | `M`, live drones | count |
+| `coverage` | `Σ occ_i / n0`; ceiling `M / n0` in both arms | 0–1 |
+| `pwc`, `npwc` | `Σ w_i · occ_i`; `pwc / P*(M)` | 0–1 |
+| `sfMean`, `sfMax` | Distance from each `dense` point of the reference formation to the nearest live drone: mean, max. Label-independent | m |
+| `dupSlots` | Slots named as `belief.slot` by two or more live drones | count |
+| `versions` | Live drones per `belief.version` | count |
+| `msgs` | Cumulative from `RadioEvent`: `hb`, `score` broadcasts; `delivered` receivers; `lost`; `blocked = jammed + partitioned` | count |
+| `collisions`, `nearMisses` | Cumulative pair-entry events from the snapshot | count |
+| `slotChanges` | Cumulative: a live drone's `belief.slot` differs from the tick before | count |
+
+Capacity loss `= 1 − P*(M)`. Coordination loss `= P*(M) − pwc`.
+
+`RunRecord.summary` keys. `endA` = ticks 800–899; `end` = ticks 1700–1799. Wall-clock timings never enter a record (they would break replay equality).
+
+| Key | Meaning | Unit |
+|---|---|---|
+| `npwcEndA`, `npwcEnd` | Mean `npwc` over `endA`, over `end` | 0–1 |
+| `coverageEnd`, `sfMeanEnd`, `sfMaxEnd` | Means over `end` | 0–1, m, m |
+| `capacityLoss`, `coordLoss` | Loss split, mean over `end` | 0–1 |
+| `tRec` | Time from the first `KILL` to the start of the first 3 s of hold samples all with `npwc ≥ 0.95`. `0` if never below; `null` if not recovered (censored); absent without a `KILL` | s |
+| `npwcDeficitSec` | `Σ (1 − npwc) · 0.25 s` over hold samples after the first event | s |
+| `slotChanges`, `slotChangesMaxDrone` | Run total; largest for one drone | count |
+| `lateSlotChanges` | Slot changes in the last 200 ticks | count |
+| `dupSlotSec`, `dupSlotsEnd` | `Σ dupSlots · 0.25 s`; value at the last sample | slot·s, count |
+| `collisions`, `nearMisses` | Run totals | count |
+| `msgsPerDroneSec`, `deliveryRatio` | `(hb + score) / (mean alive · run seconds)`; `delivered / (delivered + lost + blocked)` | 1/s, 0–1 |
+| `adoptP50`, `adoptMax`, `unadopted` | Time from `INJECT_SCORE` to adoption over live adopters; live drones not on the reference version at the end | s, s, count |
+| `splitSec` | Time with two or more keys in `versions` | s |
+| `tVersion` | Time from the last `PARTITION_OFF` until `versions` keeps one key; `0` if already one; `null` if never | s |
+
+## 3. Scenarios
+
+MUST. `n0 = 200`, 1800 ticks, default `Params`. Preloaded score `EVAL`, version `{0, OPERATOR}`: movement A = text `ENCORE` at tick 0, movement B = sphere at tick 900, `transitionTicks` by the contract's authoring formula. The runner asserts A's `holdStart + holdGrace ≤ 380` and B's `holdStart ≤ 1300`; if that fails, shorten the text before the freeze.
+
+A pure builder in `src/sim/scenarios.ts` returns `{ score, events }` from `(id, seed, params)`. It draws from its own seeded stream and resolves kills to explicit ids from formation-A slot positions (launch slot = id), never from live positions. Plane `P`: point `[0, 30, 0]`, normal `[1, 0, 0]`.
+
+| ID | Events (tick) |
+|---|---|
+| S0 null | none |
+| S1 random kill | `KILL` 400: 20 ids from `randomIds` |
+| S2 regional kill | `KILL` 400: the 20 ids whose slots are nearest slot `c`, `c` uniform in `[0, n0)` |
+| S3 radio cut, no kills | `PARTITION_ON` 400 `P`; `PARTITION_OFF` 1000; `JAM_ON` 1300 centre `[0, 30, 0]` radius 12; `JAM_OFF` 1600 |
+| S4 partition plus failures | `PARTITION_ON` 300 `P`; `KILL` 400 as S2, `c` drawn from slots within 5 m of `P`; `PARTITION_OFF` 700 |
+| S5 inject, split, reconnect | `PARTITION_ON` 300 `P`; `INJECT_SCORE` 400 into `d` (lowest id whose slot has `x < −10`) with `composeNext(EVAL, 400, text BRAVO, d, n0, params)`, so the new movement starts at `400 + scoreLead`; `PARTITION_OFF` 700 |
+
+Win rule on `npwcEnd`, paired by seed: win if Δ (Encore − static) `> +0.02`, loss if `< −0.02`, else tie.
+
+| ID | Pre-registered pass, out of 20 eval seeds | Honest expectation |
+|---|---|---|
+| S0 | Encore `slotChanges = 0` and both arms `npwcEnd ≥ 0.98` in ≥ 19 | Tie on the image. Encore loses on messages: static sends none |
+| S1 | Δ ≥ −0.02, `lateSlotChanges = 0`, `dupSlotsEnd = 0`, `slotChanges ≤ 60` in ≥ 18 | Looks similar in both arms: random holes in farthest-point order are already an even thinning. Tie on `coverage`, `sfMean`, `sfMax`. Any `npwc` gain rests on our own priority labels. Encore loses on messages, slot changes, near-misses |
+| S2 | Win in ≥ 15; `sfMaxEnd` below static in ≥ 15; median `tRec ≤ 20 s`, at most 5 censored | Where Encore should be visibly ahead: static keeps the hole, Encore thins the neighbourhood. `coverage` ties. `npwc` stays below 1 (local, greedy repair). Some seeds may not recover |
+| S3 | Encore `slotChanges = 0` and tie in ≥ 19 | Tie at best; Encore only adds blocked messages |
+| S4 | Δ ≥ −0.02 in ≥ 18; win in ≥ 10; `dupSlots = 0` from tick 900 in ≥ 18 | Smaller gain than S2. Claimants on opposite sides cannot hear each other: duplicates until physical yield or reconnection, more slot changes and near-misses, losses on some seeds |
+| S5 | ≥ 99% of drones with `x < 0` at tick 400 adopt by tick 600; no far-side adoption before the first adopter crosses `P`; one version at the end in 20; median `tVersion ≤ 10 s`; `dupSlotsEnd = 0` | Two versions fly at once, probably for less than the partition window: the new slots lie on both sides, so adopters carry the score across physically. Far-side drones near `P` may claim slots that adopters left; these revert on radio contact and are counted. Static cannot adopt: a capability difference, no win/tie/loss |
+| All | `collisions`, `nearMisses` reported for both arms; no threshold | Encore ≥ static |
+
+SHOULD: S0–S2 again at `n0 = 100`.
+
+## 4. Baseline fairness
+
+MUST be identical in both arms: seed, `n0`, score, slot order, `Params`, `steer`, world, observer, and a deep-equal `events` array with explicit ids. Only `WorldConfig.brain` differs.
+
+Inherent differences, stated and not "fixed":
+
+- Static sends nothing and never changes slot: it is the floor for messages, slot changes and repair traffic.
+- Static is not degraded by jams or partitions; it never needed radio.
+- Static ignores injection, so its S5 metrics against the reference score collapse by construction.
+
+STRETCH central baseline, after G5 only. An assignment with instant global knowledge may be labelled **"oracle upper bound"** and nothing else. A competitor would need a positioned ground station under the same `rRadio`, `loss`, jams and partitions.
+
+## 5. Procedure
+
+1. **Tune** on dev seeds 101–105 only; they never appear in reported results.
+2. **Freeze:** commit the `Params` used. `paramsHash` hashes its canonical JSON; every evaluation record carries the same `paramsHash` and `git`.
+3. **Run** eval seeds 1–20 on S0–S5 for both arms, paired by seed: 240 records in `results/`.
+4. **Report** per scenario and metric: median and IQR per arm, median paired Δ, win/tie/loss counts, censored count, worst seed.
+5. **A later parameter change** is a new revision: rerun everything and keep the old table, labelled superseded.
+
+Budget: 15 minutes wall-clock for the matrix. If over, cut in this order and record the cut: `n0` 200 → 150 → 100 for the whole matrix (kills stay 10% of `n0`, `claimGap` by its formula); then S4; then seeds 1–10. Floor: S0, S1, S2, S3, S5 on 5 seeds.
+
+## 6. Automated tests
+
+vitest, headless. All MUST except T15 and T16 (SHOULD). "Gate" is the latest gate by which the test is green.
+
+| ID | Test | Area | Pass condition | Gate |
+|---|---|---|---|---|
+| T01 | Import boundary | core-agent | `src/agent/**` imports only `src/contracts`, `src/score` and itself; no `Math.random`, `Date`, `performance`, DOM globals | G1 |
+| T02 | Differential locality | core-sim | Two worlds differ only by a `KILL` beyond `rRadio` of drone `a`: `inspect(a)` input and output deep-equal at the kill tick and the next; brain inputs deep-frozen | G3 |
+| T03 | Order independence | core-sim | Calling brains in descending id gives the same `stateHash()` after 400 ticks | G3 |
+| T04 | Deterministic replay | core-sim | Same seed, params, events: equal `stateHash()` every 100 ticks in two runs; another seed differs | G3 |
+| T05 | Pure-jam continuity | core-sim | Static under a jam covering the formation: same `stateHash()` as static S0 | G3 |
+| T06 | Packet loss | core-sim | `loss` 0: every in-range live receiver, latency in `latencyMin…latencyMax`; `loss` 1: none; `loss` 0.3 over 10 000 candidates: 0.67–0.73 delivered; beyond `rRadio`: none | G1 |
+| T07 | Partition and jam | core-sim | While on: no delivery across the plane or through the sphere, `partitioned` and `jammed` counted; after off: deliveries resume | G3 |
+| T08 | G1 null run | core-agent | [Contract §8.6](../design/contracts-and-algorithms.md#86-the-first-falsification-test-gate-g1) test 1 | G1 |
+| T09 | G1 clumped kill | core-agent | §8.6 test 2, all five conditions | G1 |
+| T10 | G1 silence is not death | core-agent | §8.6 test 3 | G1 |
+| T11 | Recovery stability | observer | S1 and S2 on dev seeds: `slotChanges ≤ 3 × kills`, at most 3 per drone, every commit lowers the slot index, `lateSlotChanges = 0`, no slot duplicated for more than 3 s | G5 |
+| T12 | Collision accounting | core-sim | Two scripted drones passing head-on at 2 m/s closing speed: exactly one near-miss entry and one collision entry; dead drones never counted | G1 |
+| T13 | UI event to simulation | app-ui | The kill-10% action schedules one `KILL` with the same `0.1 · n0` ids into both worlds; next snapshot shows them dead in both; the app's event log replayed headless gives the same `stateHash()` | G3 |
+| T14 | Observer read-only | observer | `stateHash()` equal with and without the observer; snapshots deep-frozen | G3 |
+| T15 | Scaling | core-sim | Mean brain step time per drone at `n0 = 300` ≤ 2× that at `n0 = 100`; printed, not stored | G5 |
+| T16 | Version order | core-agent | Scores injected on both sides of a partition: after `PARTITION_OFF` every live drone holds the later `issuedTick` (tie: higher origin) | G4 |
+| T17 | Formation invariants | score | Every recipe kind: `n0` slots, closest pair ≥ `slotSpacingMin`, same output on a second call | G1 |
+
+## 7. Gates
+
+What happens on a miss: [development plan](../planning/development-plan.md); for G1, the [fallback ladder](../planning/decisions-and-risks.md#fallback-ladder-if-healing-fails-g1).
+
+| Gate | Target (GMT) | Pass evidence |
+|---|---|---|
+| G0 design accepted | Sat 20:30 | Contract, architecture, requirements and this file merged; contract types compile in `src/contracts`; link check passes |
+| G1 core mechanism feasibility | Sat 23:30 | T08–T10 green on seed 101, then on 101–105; T01, T06, T12, T17 green; one headless command |
+| G2 minimum 3D vertical slice | Sun 00:30 | Browser shows both worlds stepped by real brains; one scheduled kill lowers `alive` in both; roster size and frame rate recorded in [CURRENT_STATE](../CURRENT_STATE.md); one Node-against-browser `stateHash()` match |
+| G3 communications resilience | Sun 02:30 | T02–T05, T07, T13, T14 green; S3 on seed 101: zero Encore slot changes, `msgs.blocked > 0`; every drawn radio spark maps to a `RadioEvent` (I8) |
+| G4 composition and dissemination | Sun 03:30 | S5 on seed 101: injection into one drone, two keys in `versions` during the split, no far-side adoption before a crossing, one key at the end; the belief layer shows the same |
+| G5 validation | Sun 06:30 | T11 green; frozen `paramsHash`; the §5 matrix in `results/`; generated table with win/tie/loss, censored counts and `LOSS` rows; one record per scenario re-run with equal `stateHash` and `summary` |
+| G6 demo and submission | Freeze 08:30, video 09:00, submit 10:15, hard 11:00 (BRIEF S3) | Backup video of the scripted demo from a fixed seed; README lists libraries (R3), credits AI use (R4) and has "Where Encore ties or loses"; every quoted number traces to a `RunRecord`; Devpost timestamp |
+
+## 8. Bias risks and reporting wording
+
+- **Own labels.** `npwc` uses our slot order, and farthest-point order makes a prefix good on `sfMax` by construction. Always show `coverage`, `sfMean`, `sfMax` beside it and say "priority-weighted by our own slot order".
+- **Weight shape** sets the size of any win. It is fixed here; a second weighting is a STRETCH sensitivity check.
+- **`coverage` cannot favour Encore.** Say so.
+- **`P*(M)` assumes a global reassignment.** `npwc < 1` after local repair is expected.
+- **`tRec` includes suspicion, contention and flight time.** Never call it detection latency.
+- **Collisions are sampled at 20 Hz.** Closing speed can reach `2 · vMax · DT` = 0.8 m per tick, more than `dCollide`: counts are lower bounds unless the world uses swept closest approach (SHOULD).
+- **Kill sets come from slot geometry.** If an Encore drone changed slot before the kill, the region differs between arms; S0 guards this.
+- **Medians hide failures.** Print censored counts and the worst seed.
+- **Model limits** (vanishing dead drones, disc radio, shared clock, ideal sensing, one process): state them, see [assumptions](../context/evidence-and-assumptions.md).
+
+Wording to use:
+
+- "In simulation, `n0` = 200, 20 seeded paired runs: median final nPWC X (IQR Y) for Encore, Z for static. Encore ahead on a seeds, level on b, behind on c; not recovered on k."
+- "N collision events (closer than `dCollide`) and M near-misses in R runs." With none: "0 observed in R runs."
+- "Reached nPWC ≥ 0.95 after X s, flight time included", or "did not recover on k of 20 seeds".
+- "The two sides flew different versions for X s; one version remained Y s after reconnection."
+- Phrases to avoid and their replacements: [requirements §5](../specification/requirements.md#5-claims-we-must-not-make).
+- The theme wording and the Neptune North brief are team-reported and not verified online (BRIEF T1, P7): never word a result as meeting either.
