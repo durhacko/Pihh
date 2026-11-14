@@ -1,6 +1,6 @@
 # Submission checklist
 
-Owner: Haris. **Hard deadline: Sun 15 Nov 11:00 GMT on Devpost** ([BRIEF S3](../competition/BRIEF.md#1-schedule-gmt)). Target: a minimal submission in by **10:00**, then improve it until 10:50.
+Owner: Haris. **Hard deadline: Sun 15 Nov 11:00 GMT on Devpost** ([BRIEF S3](../competition/BRIEF.md#1-schedule-gmt)). Target: a minimal submission in by **10:15** (gate G6), then improve it until 10:50.
 
 ## Before 08:00 Sun
 - [ ] Check the Devpost form fields early (video required? [R8](../competition/BRIEF.md#4-submission-and-rules)) and create a draft submission

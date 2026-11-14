@@ -222,9 +222,9 @@ export interface World {
 
 World behaviour that other packages rely on:
 
-- **Launch:** drone `i` starts at rest at `launchPos(i, n0)` (imported from `src/score`, one implementation) with `initialSlot = i`. The grid: `cols = ceil(sqrt(n0))`, `rows = ceil(n0 / cols)`, `x = (i % cols - (cols - 1) / 2) * 1.5`, `y = 0`, `z = (floor(i / cols) - (rows - 1) / 2) * 1.5`.
+- **Launch:** drone `i` starts at rest at `launchPos(i, n0)` with `initialSlot = i`. `launchPos` lives in `src/score`; the world may import only `src/contracts`, so `src/sim/math.ts` keeps an identical copy, `launchPosition`, and a test must assert the two agree. The grid: `cols = ceil(sqrt(n0))`, `rows = ceil(n0 / cols)`, `x = (i % cols - (cols - 1) / 2) * 1.5`, `y = 0`, `z = (floor(i / cols) - (rows - 1) / 2) * 1.5`.
 - **Sensing** never includes the drone itself. A dead drone's `DroneSnap.belief` is its last belief.
-- **Seeds:** `AgentInit.seed` comes from `agentSeed(runSeed, id)`, defined once in `src/sim` and exported, so tests can rebuild the same stream.
+- **Seeds:** `AgentInit.seed` comes from `agentSeed(runSeed, id)`, defined once in `src/sim` (`hashSeed` in `random.ts`) and exported under that name, so tests can rebuild the same stream.
 - **Events:** `SET_LOSS` replaces `loss` for every broadcast sent from that tick on. A `JAM_ON` or `PARTITION_ON` whose `id` is already active replaces it. `schedule()` throws if the event's tick is not later than the current tick.
 - **Kill:** the drone becomes `alive: false` at that tick and is removed from sensing and radio immediately (it falls out of the show). Messages it had already sent are still delivered. A drone that fails by hovering dark in place is not modelled (§12).
 - **Radio:** for each broadcast, every live drone within `rRadio` of the sender at send time is a candidate. It is `jammed` if sender or receiver is inside an active jam sphere at send time, `partitioned` if the two drones are in different groups of an active partition, `lost` with probability `loss`, otherwise delivered after a uniform `latencyMin…latencyMax` ticks.
@@ -280,7 +280,7 @@ Metric formulas, tolerances and summary keys are defined once, in [`../validatio
 `src/score` exports pure, deterministic functions:
 
 ```ts
-expandRecipe(recipe: Recipe, n0: number, params: Params): Formation     // memoised on JSON(recipe)+n0
+expandRecipe(recipe: Recipe, n0: number, params: Params): Formation     // memoised on JSON(recipe), n0 and `slotSpacingMin`; the returned `Formation` is frozen and shared, so copy before changing it
 currentMovement(score: Score, tick: number): { index: number; movement: Movement; holdStart: number; inHold: boolean }
 newerVersion(a: ScoreVersion, b: ScoreVersion): boolean                 // (issuedTick, origin) lexicographic
 composeNext(score: Score, tick: number, recipe: Recipe, origin: number, n0: number, params: Params): Score
