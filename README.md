@@ -6,7 +6,7 @@ Built at DurHack 2026 by Arnav Chitriv, Haris `[HUMAN: Haris's surname]` and Wil
 
 **It is a simulation, and software only.** There are no physical drones or other hardware, no internet and no backend. Everything runs on one laptop. The drones are logically independent agents inside one program, not separate machines. Each decides for itself; the program plays the air and the radio, not a controller. Collisions are measured, not ruled out.
 
-> **Status at this commit: the Encore brain is not merged yet. Both worlds fly the static baseline, and the app's badge says STATIC BRAIN IN BOTH ARMS.** Healing and score dissemination are not demonstrated, and no result is claimed. `[UPDATE AT FREEZE: replace this box with the build's real status, the frozen revision and a link to results/RESULTS.md, and resolve every bracketed placeholder below; legend in docs/demo/DEVPOST.md]`
+> **Status at this commit: the Encore world flies the Encore brain and the other world flies the static pre-programmed baseline; the app labels each world with its brain.** Local healing passes its pre-registered headless tests (G1) and is exercised through the app by `tests/app/encoreArm.test.ts`; score dissemination and the evaluation numbers are not yet claimed here. `[UPDATE AT FREEZE: replace this box with the build's real status, the frozen revision and a link to results/RESULTS.md, and resolve every bracketed placeholder below; legend in docs/demo/DEVPOST.md]`
 
 ## Run the demo (30 seconds)
 
