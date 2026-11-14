@@ -1,7 +1,9 @@
 // src/agent/steer.ts
 // The steering function shared by both brains (docs/design/contracts-and-algorithms.md, section 10).
-// Pure: no state, no clock, no randomness. Imports only the contracts.
-import type { Params, Sensed, Vec3 } from '../contracts';
+// Pure: no state, no clock, no randomness. Imports only the contracts and the score package.
+import { DT } from '../contracts';
+import type { Params, Score, Sensed, Vec3 } from '../contracts';
+import { currentMovement, expandRecipe, launchPos } from '../score';
 
 /** Velocity-tracking gain, per second (section 10). */
 const TRACK_GAIN = 4;
@@ -88,4 +90,33 @@ export function steerTarget(id: number, pos: Vec3, target: Vec3, params: Params)
   const dist = Math.hypot(target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]);
   if (!(dist > LANE_RELEASE_DIST)) return [target[0], target[1], target[2]];
   return [target[0], target[1], target[2] + ((id % 3) - 1) * LANE_SPACING];
+}
+
+/**
+ * Paced targets: the paced point reaches the slot this many ticks before holdStart. It is the 3 s settle allowance
+ * of the authoring formula (src/score/timing.ts, transitionTicksBetween), so the drone has settled at its slot by holdStart.
+ */
+export const PACE_SETTLE_TICKS = Math.round(3 / DT);
+
+/**
+ * Where slot `slot` of the movement current at `tick` is "now" for steering (section 10, paced targets; #80).
+ * Instead of jumping to the new slot when a movement starts, the point moves in a straight line, at constant
+ * speed, from the same slot index of the previous movement (the launch position `launchPos(slot, n0)` for
+ * movement 0) to the slot. With begin = max(startTick, 0) and end = holdStart - PACE_SETTLE_TICKS:
+ * f = 0 at and before begin, f = 1 at and after end, linear in between; if end <= begin it is the slot itself.
+ * Every drone of a formation moves its point in step, so crossing traffic meets at transit speeds the
+ * sidestep can handle instead of at vMax. Always a new array. Pure: a function of the score and the clock.
+ */
+export function pacedSlotPos(score: Score, tick: number, slot: number, n0: number, params: Params): Vec3 {
+  const cm = currentMovement(score, tick);
+  const to = expandRecipe(cm.movement.recipe, n0, params).slots[slot]?.pos;
+  if (to === undefined) throw new RangeError(`pacedSlotPos: slot ${slot} does not exist for n0 = ${n0}`);
+  const begin = Math.max(cm.movement.startTick, 0);
+  const span = cm.holdStart - PACE_SETTLE_TICKS - begin;
+  if (!(span > 0) || tick >= begin + span) return [to[0], to[1], to[2]];
+  const from = cm.index === 0
+    ? launchPos(slot, n0)
+    : expandRecipe(score.movements[cm.index - 1].recipe, n0, params).slots[slot].pos;
+  const f = Math.max(0, (tick - begin) / span);
+  return [from[0] + (to[0] - from[0]) * f, from[1] + (to[1] - from[1]) * f, from[2] + (to[2] - from[2]) * f];
 }

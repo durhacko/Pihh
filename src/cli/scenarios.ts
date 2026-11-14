@@ -16,7 +16,11 @@ export const SCENARIO_TICKS = 1800;
 export const RECIPE_A: Recipe = { kind: 'text', text: 'ENCORE' };
 export const RECIPE_B: Recipe = { kind: 'sphere' };
 export const RECIPE_INJECT: Recipe = { kind: 'text', text: 'BRAVO' };
-export const A_START_TICK = -200;
+/**
+ * Movement A starts before launch so that its hold plus holdGrace begins by A_HOLD_READY_BY. It was -200 until #80;
+ * paced targets need a launch flight window, and -40 leaves A's hold + holdGrace = 363 <= 380 at n0 = 200.
+ */
+export const A_START_TICK = -40;
 export const B_START_TICK = 900;
 /** Latest tick by which A's hold plus holdGrace must have begun (kills and partitions start at 300-400). */
 export const A_HOLD_READY_BY = 380;
@@ -52,7 +56,7 @@ export function killCount(n0: number): number {
 }
 
 /**
- * The preloaded score EVAL, version {0, OPERATOR}: movement A (text ENCORE) starts at tick -200 with its
+ * The preloaded score EVAL, version {0, OPERATOR}: movement A (text ENCORE) starts at tick A_START_TICK (-40) with its
  * transition measured from the launch grid; movement B (sphere) starts at tick 900 with its transition
  * measured from A. Both by the contract's authoring formula (transitionTicksBetween). Throws if A's hold
  * (plus holdGrace) would start after tick 380 or B's hold after tick 1300.
