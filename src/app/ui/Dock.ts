@@ -40,7 +40,7 @@ export function createDock(on: DockHandlers): Dock {
   const lenses = btn(icon.lenses, 'Lenses', 'X C', on.lenses, { 'aria-expanded': 'false', 'aria-haspopup': 'dialog' });
   const compare = h('div', { class: 'seg compare', role: 'radiogroup', 'aria-label': 'World shown (B)' },
     ...VIEWS.map(({ v, label, title }) => h('button', { type: 'button', role: 'radio', 'data-view': v, 'aria-checked': String(v === 'encore'), title, onclick: () => on.view(v) }, label)));
-  const show = btn(icon.timeline, 'Show', 'T', on.show, { 'aria-expanded': 'false' });
+  const show = btn(icon.timeline, 'Show', 'D', on.show, { 'aria-pressed': 'false', title: 'Run or stop the scripted 90-second show (D). The timeline is T.' });
   const consoleBtn = btn(icon.console, 'Console', '/', on.console, { 'aria-expanded': 'false' });
   const help = btn(icon.help, 'Help', '?', on.help, { 'aria-expanded': 'false', 'aria-haspopup': 'dialog' });
   const sep = () => h('span', { class: 'sep', 'aria-hidden': 'true' });

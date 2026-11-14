@@ -27,7 +27,7 @@ export interface PopoverContext {
   camera(preset: CameraPreset): void;
   hud(): HudPresentation;
   series(): Pair<readonly MetricsSample[]>;
-  meta(): { tick: number; seed: number; fps: number | null; speed: number; radio: { drawn: number; observed: number } | null };
+  meta(): { tick: number; seed: number; roster: number; fps: number | null; speed: number; radio: { drawn: number; observed: number } | null };
 }
 export interface Popover { readonly el: HTMLElement; render(): void }
 
@@ -183,7 +183,7 @@ export function createMetrics(ctx: PopoverContext): Popover {
         ...row('Shape fidelity', a.fidelity, b.fidelity)),
       h('div', { class: 'mfoot' },
         h('div', {}, 'Tick', h('b', {}, String(meta.tick))),
-        h('div', {}, 'Seed', h('b', {}, String(meta.seed))),
+        h('div', {}, 'Seed · roster', h('b', {}, `${meta.seed} · ${meta.roster}`)),
         h('div', {}, 'Render', h('b', {}, meta.fps === null ? '—' : `${meta.fps.toFixed(0)} fps`)),
         h('div', {}, 'Speed', h('b', {}, `${meta.speed}×`)),
         h('div', {}, 'Radio drawn', h('b', {}, meta.radio ? `${meta.radio.drawn} / ${meta.radio.observed}` : 'X-ray off')),
@@ -201,7 +201,8 @@ export function createHelp(ctx: PopoverContext): Popover {
     ['Space', 'Play / pause'], ['.', 'Step one tick'], ['[ ]', 'Slower / faster'], ['R', 'Reset from seed'],
     ['1 2 3', 'Camera: front, ¾, top'], ['K', 'Destroy a region'], ['J', 'Jam / lift jam'], ['P', 'Partition / reconnect'],
     ['X', 'Radio X-ray'], ['C', 'Belief colours'], ['G', 'Ghost slots (observer)'], ['B', 'Encore → split → static'], ['M', 'Metrics'],
-    ['H', 'Hide all controls'], ['?', 'This help'], ['Esc', 'Close / cancel / deselect'], ['F T / I', 'Compose, show, console (#93, #94)'],
+    ['H', 'Hide all controls'], ['?', 'This help'], ['Esc', 'Close / cancel / deselect'], ['F', 'Compose'], ['I', 'Compose and inject'],
+    ['/ or `', 'Console'], ['T', 'Show timeline'], ['D', 'Run / stop the 90 s show'],
   ];
   function render(): void {
     const rm = h('input', { type: 'checkbox', role: 'switch' }) as HTMLInputElement;

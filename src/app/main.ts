@@ -6,7 +6,7 @@
 // action once and schedules the same event into both worlds; everything shown comes from a snapshot, the radio
 // layer's own tally or an observer MetricsSample.
 import { Plane, Raycaster, Vector2, Vector3 } from 'three';
-import type { EnvEvent, MetricsSample, Vec3, WorldSnapshot } from '../contracts';
+import { DT, type EnvEvent, type MetricsSample, type Vec3, type WorldSnapshot } from '../contracts';
 import { currentMovement } from '../score';
 import { idsInSphere } from '../sim';
 import { bindControls, type ControlIntent, type ControlResult } from './actions';
@@ -16,11 +16,13 @@ import type { LayerFrame } from './render/Layer';
 import { createSlotStatusFeed, type SlotStatusFeed } from './render/layers/GhostSlotLayer';
 import { interpolateDrone, SnapshotBuffer } from './render/SnapshotBuffer';
 import { WorldView } from './render/WorldView';
-import { createPanels } from './ui';
 import { createDock } from './ui/Dock';
 import { h } from './ui/dom';
 import { HudModel } from './ui/Hud';
-import { connectInspector } from './ui/Inspector';
+import { connectComposer, Drafts } from './ui/Composer';
+import { connectConsole } from './ui/Console';
+import { brainNote, connectDemo } from './ui/DemoScript';
+import { connectInspector, createPanel as createInspectorPanel, type InspectorSource } from './ui/Inspector';
 import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend } from './ui/Legend';
@@ -28,18 +30,25 @@ import { createDisrupt, createHelp, createLenses, createMetrics, type PopoverCon
 import { createReadout } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
+import { connectTimeline } from './ui/Timeline';
 import { createToasts } from './ui/Toasts';
 import { ARMS, controlContext, createFrameLoop, createTickPipeline, createWorlds, hudPayload, type Arm, type Pair } from './worlds';
 import './ui/styles.css';
 
-const root = document.querySelector<HTMLElement>('#app');
-if (!root) throw new Error('Missing app root');
+const appRoot = document.querySelector<HTMLElement>('#app');
+if (!appRoot) throw new Error('Missing app root');
+const root: HTMLElement = appRoot;
 if (import.meta.env.VITE_SIM_MODE === 'false') throw new Error('Encore supports simulation mode only');
 
-// URL options: ?seed=<uint32> (default 1); ?split=1 or ?arm=static choose the first view; ?q=low lowers quality.
+// URL options: ?seed=<uint32> (default 1); ?n0=100|150|200 (roster, default 200; read once, kept across resets);
+// ?split=1 or ?arm=static choose the first view; ?q=low lowers quality.
 const query = new URLSearchParams(window.location.search);
 const requestedSeed = Number(query.get('seed') ?? 1);
 const initialSeed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 0xffffffff ? requestedSeed : 1;
+const ROSTERS = [100, 150, 200] as const;
+const requestedN0 = query.get('n0');
+const n0 = ROSTERS.find(r => String(r) === requestedN0) ?? 200;
+if (requestedN0 !== null && String(n0) !== requestedN0) console.info(`Encore: ?n0=${requestedN0} ignored; allowed rosters are ${ROSTERS.join(', ')}. Using ${n0}.`);
 const initialView: ViewMode = query.get('split') === '1' ? 'split' : query.get('arm') === 'static' ? 'static' : 'encore';
 const initialState = defaultUIState({ quality: query.get('q') === 'low' ? 'low' : 'auto', reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false });
 // Tethers start on: the selected drone's tether is part of its neighbourhood (all tethers still need X-ray).
@@ -48,7 +57,7 @@ resetViewMode();   // render view state is a module singleton (#25): every load 
 
 // ---------- worlds ----------
 // The only place the app holds worlds. It changes them only by stepping and by scheduling through the controller.
-const worlds = createWorlds({ seed: initialSeed });
+const worlds = createWorlds({ seed: initialSeed, n0 });   // reset() rebuilds with the same params, so the roster stays
 const params = worlds.params;
 const transport = { playing: true, speed: 1 };
 const first = worlds.stepBoth();
@@ -247,7 +256,14 @@ const onPointerUp = (e: PointerEvent) => {
   pointersDown = Math.max(0, pointersDown - 1);
   if (!start || e.button !== 0 || Math.hypot(e.clientX - start.x, e.clientY - start.y) > 5) return;
   const pick = store.state.pick;
-  if (pick) { const point = pointAt(e.clientX, e.clientY); if (point) pick.resolve({ droneId: pickDrone(e.clientX, e.clientY), point }); return; }
+  if (pick) {
+    // Only a real stage click answers a pick. A drone pick (inject / select) needs a drone under the pointer.
+    const droneId = pickDrone(e.clientX, e.clientY);
+    if ((pick.purpose === 'inject' || pick.purpose === 'select') && droneId === null) return;
+    const point = pointAt(e.clientX, e.clientY);
+    if (point) pick.resolve({ droneId, point });
+    return;
+  }
   const id = pickDrone(e.clientX, e.clientY);
   if (id !== null) controls.selectDrone(id);
   else if (store.state.selected) controls.selectDrone(null);
@@ -290,7 +306,7 @@ const popCtx: PopoverContext = {
   camera: preset => setCamera(preset),
   hud: () => hudModel.present(),
   series: () => worlds.series(),
-  meta: () => ({ tick: worlds.tick, seed: worlds.seed, fps: lastFps, speed: transport.speed, radio: store.state.lenses.xray ? radioTally('encore') : null }),
+  meta: () => ({ tick: worlds.tick, seed: worlds.seed, roster: params.n0, fps: lastFps, speed: transport.speed, radio: store.state.lenses.xray ? radioTally('encore') : null }),
 };
 const lenses = createLenses(popCtx);
 const disrupt = createDisrupt(popCtx);
@@ -300,18 +316,17 @@ const help = createHelp(popCtx);
 // ---------- dock ----------
 const SPEEDS = [0.25, 0.5, 1, 2, 4];
 const cycleView = () => store.set({ view: (['encore', 'split', 'static'] as const)[(['encore', 'split', 'static'].indexOf(store.state.view) + 1) % 3] });
-const later = (what: string, issue: string) => () => toaster.toast(`${what} is coming in ${issue}.`, 'info');
 const dock = createDock({
   play: () => run({ type: 'play' }, true),
   step: () => run({ type: 'step' }, true),
   speed: () => run({ type: 'speed', speed: SPEEDS[(SPEEDS.indexOf(transport.speed) + 1) % SPEEDS.length] }, true),
   reset: () => run({ type: 'reset', seed: worlds.seed }, true),
-  compose: later('The composer', '#93'),
+  compose: () => surfaces.toggle('composer'),
   disrupt: () => surfaces.toggle('disrupt'),
   lenses: () => surfaces.toggle('lenses'),
   view: v => store.set({ view: v }),
-  show: later('The show timeline', '#94'),
-  console: later('The console', '#93'),
+  show: () => toggleDemo(),
+  console: () => surfaces.toggle('console'),
   help: () => surfaces.toggle('help'),
 });
 root.append(brand, readout.el, legend.el, pickbar, hoverLabel, toaster.el, hiddenHint, dock.el, lenses.el, disrupt.el, metrics.el, help.el);
@@ -319,9 +334,11 @@ surfaces.register({ id: 'lenses', kind: 'popover', el: lenses.el, anchor: () => 
 surfaces.register({ id: 'disrupt', kind: 'popover', el: disrupt.el, anchor: () => dock.buttons.disrupt, onOpen: disrupt.render });
 surfaces.register({ id: 'metrics', kind: 'popover', el: metrics.el, anchor: () => readout.button, place: 'below-right', onOpen: metrics.render, focusOnOpen: () => metrics.el });
 surfaces.register({ id: 'help', kind: 'popover', el: help.el, anchor: () => dock.buttons.help, onOpen: help.render });
-const expanders: [string, HTMLElement][] = [['disrupt', dock.buttons.disrupt], ['lenses', dock.buttons.lenses], ['help', dock.buttons.help], ['metrics', readout.button]];
-const offSurfaces = surfaces.onChange(open => { for (const [id, b] of expanders) b.setAttribute('aria-expanded', String(open.includes(id))); });
-const panels = createPanels({ host: root });   // modules that register themselves (none at present)
+const expanders: [string, HTMLElement][] = [['disrupt', dock.buttons.disrupt], ['lenses', dock.buttons.lenses], ['help', dock.buttons.help], ['metrics', readout.button], ['composer', dock.buttons.compose], ['console', dock.buttons.console]];
+const offSurfaces = surfaces.onChange(open => { for (const [id, b] of expanders) b.setAttribute('aria-expanded', String(open.includes(id))); layoutBottom(); });
+// Mounted explicitly, not through the createPanel loader: the demo bar's own panel (DemoScript) would sit on the
+// dock and bring a second D key; the shell drives the same runner from Show / D and shows its captions above the dock.
+const inspectorPanel = createInspectorPanel({ host: root });
 
 // ---------- store reactions ----------
 let hintTimer: ReturnType<typeof setTimeout> | undefined;
@@ -373,26 +390,74 @@ const unbindKeys = bindShortcuts({
   metrics: () => surfaces.toggle('metrics'),
   hide: () => store.set({ chromeHidden: !store.state.chromeHidden }),
   help: () => surfaces.toggle('help'),
-  compose: later('The composer', '#93'), inject: later('Injecting a composition', '#93'),
-  timeline: later('The show timeline', '#94'), console: later('The console', '#93'), demo: later('The scripted demo', '#94'),
+  compose: () => surfaces.toggle('composer'), inject: () => surfaces.open('composer'),
+  timeline: () => surfaces.toggle('timeline'), console: () => surfaces.open('console'), demo: () => toggleDemo(),
 }, () => { handleEscape(store, surfaces, () => controls.selectDrone(null)); refreshChrome(); });
 
-// ---------- reserved for #112 (Composer panel and Console tray) ----------
-// Until it merges, Compose (F), Console (/ or `) and I say "coming in #93". When #112 merges, wire it here:
-//   const drafts = new Drafts();
-//   const compose = { controller: controls, store, surfaces, drafts, params, host: root, snapshots, samples: () => worlds.samples() };
-//   const composer = connectComposer(compose);   // also connects PreviewLayer to the store
-//   const consoleTray = connectConsole({ ...compose, hooks: { step: () => run({ type: 'step' }, true),
-//     inspect: (id, arm) => { controls.selectDrone(id); /* connectInspector(source, { arm }) */ } } });
-//   dock compose / F: composer.open(); dock console, / and `: consoleTray.open(); HMR: composer.dispose(); consoleTray.dispose().
+// ---------- #112: the Composer panel and the Console tray (they register their own surfaces) ----------
+const drafts = new Drafts();
+const compose = { controller: controls, store, surfaces, drafts, params, host: root, snapshots, samples: () => worlds.samples() };
+const composer = connectComposer(compose);   // also connects the stage preview to the store
+const consoleTray = connectConsole({ ...compose, hooks: {
+  step: () => { run({ type: 'step' }, true); },
+  inspect: (id, arm) => { controls.selectDrone(id); connectInspector(inspectorSource, { arm }); },
+  demo: action => {
+    if (action === 'stop') { demo.runner.stop(); refreshChrome(); return 'Demo stopped.'; }
+    demo.runner.start(); refreshChrome();
+    return demo.runner.state === 'running' ? 'Demo running: the scripted 90-second show.' : `The demo did not start. ${demo.runner.problems.join(' ')}`.trim();
+  },
+} });
 
-// ---------- reserved for #109 (Show timeline tray) and #104 (demo runner) ----------
-// Until they merge, Show (T) and D say "coming in #94". When #109 merges, wire it here and nowhere else:
-//   const timeline = connectTimeline({ getScore: () => worlds.score, getEvents: () => controls.getEventLog(),
-//     getSeries: () => worlds.series(), getTick: () => worlds.tick, onClose: () => surfaces.close('timeline') });
-//   surfaces.register({ id: 'timeline', kind: 'tray', el: timeline.el, onOpen: () => timeline.update() });
-//   dock `show` and the `timeline` key: surfaces.toggle('timeline'); refreshChrome(): if open, timeline.update();
-//   HMR dispose: timeline.dispose(). #104: the Show button starts / stops connectDemo / createDemoRunner.
+// ---------- #104: the scripted demo, driven by Show and D; its captions sit above the dock ----------
+const caption = h('div', { class: 'caption surface chrome', hidden: true, 'aria-live': 'polite' });
+const demo = connectDemo(root, { camera: preset => setCamera(preset), changed: () => renderCaption() });
+function toggleDemo(): void {
+  if (demo.runner.state === 'running') demo.runner.stop(); else demo.runner.start();
+  refreshChrome();
+}
+let lastCaption = '';
+function renderCaption(): void {
+  const runner = demo.runner;
+  const running = runner.state === 'running';
+  const note = running ? brainNote(demo.status(), runner.captionBeat) : '';
+  const sub = running ? `Scripted show · ${Math.min(90, Math.floor(worlds.tick * DT))} s${note ? ` · ${note}` : ''}` : runner.caption ? 'Scripted show' : '';
+  const key = `${runner.caption}|${sub}`;
+  if (key === lastCaption) return;
+  lastCaption = key;
+  caption.hidden = !runner.caption;
+  caption.replaceChildren(runner.caption, sub ? h('small', {}, sub) : '');
+  layoutBottom();
+}
+
+// ---------- #109: the Show timeline tray (T) ----------
+const timeline = connectTimeline({
+  getScore: () => worlds.score, getEvents: () => controls.getEventLog(), getSeries: () => worlds.series(), getTick: () => worlds.tick,
+  onClose: () => surfaces.close('timeline'),
+  demo: { start: () => { demo.runner.start(); refreshChrome(); }, stop: () => { demo.runner.stop(); refreshChrome(); }, isRunning: () => demo.runner.state === 'running' },
+});
+surfaces.register({ id: 'timeline', kind: 'tray', el: timeline.el, onOpen: () => timeline.update() });
+
+// Trays stack above the dock (caption ▸ console ▸ timeline ▸ dock); split view shrinks to fit above them.
+const dockNav = dock.el.lastElementChild!;
+dock.el.insertBefore(caption, dockNav);
+dock.el.insertBefore(consoleTray.el, dockNav);
+dock.el.insertBefore(timeline.el, dockNav);
+let layoutQueued = false;
+function layoutBottom(): void {
+  if (layoutQueued) return;
+  layoutQueued = true;
+  requestAnimationFrame(() => {
+    layoutQueued = false;
+    const top = dock.el.getBoundingClientRect().top;
+    root.style.setProperty('--bottom-h', `${Math.max(82, window.innerHeight - top + 12)}px`);
+    root.classList.add('has-bottom');
+    const trayTop = [consoleTray.el, timeline.el].filter(el => !el.hidden).map(el => el.getBoundingClientRect().top);
+    stage.style.bottom = trayTop.length ? `${Math.max(0, window.innerHeight - Math.min(...trayTop) + 8)}px` : '0';
+    legend.el.style.left = surfaces.isOpen('composer') ? '384px' : '';   // beside the composer panel, never under it
+  });
+}
+window.addEventListener('resize', layoutBottom);
+layoutBottom();
 
 // ---------- #102 hooks: ghost slots in the frame, and the drone inspector ----------
 /** The single place a view's LayerFrame is built. Ghost slots ride on it while their lens is on. */
@@ -403,11 +468,12 @@ function frameFor(arm: Arm, alpha: number, dtReal: number): LayerFrame {
   return store.state.lenses.ghosts || store.state.selected ? { ...frame, slots: slotFeeds[arm].read(frame.curr) } : frame;
 }
 // The inspector's agent section gets only inspect() + Belief; the observer box a pre-labelled truth object.
-connectInspector({
+const inspectorSource: InspectorSource = {
   agent: (id, arm) => { const drone = snapshots()[arm].drones[id]; return drone ? { id, inspect: worlds.worlds[arm].inspect(id), belief: drone.belief } : null; },
   truth: (id, arm) => observerTruth(snapshots()[arm], slotFeeds[arm].latest(), params, id),
   select: id => { controls.selectDrone(id); },
-});
+};
+connectInspector(inspectorSource);
 
 // ---------- 4 Hz chrome refresh ----------
 function ghostCounts(arm: Arm): { vacant: number; inTransit: number; contested: number; inHold: boolean } | null {
@@ -443,6 +509,10 @@ function refreshChrome(): void {
     vpBottom.replaceChildren(...label('▼ STATIC', 'pre-programmed baseline · sends no radio', samples.static));
   } else if (view === 'static') vpTop.replaceChildren(...label('STATIC', 'pre-programmed baseline · sends no radio', samples.static));
   if (surfaces.isOpen('metrics')) metrics.render();
+  if (surfaces.isOpen('timeline')) timeline.update();
+  if (surfaces.isOpen('composer')) composer.render();
+  dock.buttons.show.setAttribute('aria-pressed', String(demo.runner.state === 'running'));
+  renderCaption();
 }
 
 // ---------- loop ----------
@@ -526,7 +596,8 @@ if (import.meta.hot) import.meta.hot.dispose(() => {
   delete window.encore;
   connectInspector(null);
   resetViewMode();
-  for (const panel of panels) panel.dispose();
+  composer.dispose(); consoleTray.dispose(); timeline.dispose(); demo.dispose(); inspectorPanel.dispose();
+  window.removeEventListener('resize', layoutBottom);
   rig.dispose();
   for (const { view } of views) view.dispose();
 });
