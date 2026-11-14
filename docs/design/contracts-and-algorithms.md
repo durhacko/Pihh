@@ -222,9 +222,9 @@ export interface World {
 
 World behaviour that other packages rely on:
 
-- **Launch:** drone `i` starts at rest at `launchPos(i, n0)` (imported from `src/score`, one implementation) with `initialSlot = i`. The grid: `cols = ceil(sqrt(n0))`, `rows = ceil(n0 / cols)`, `x = (i % cols - (cols - 1) / 2) * 1.5`, `y = 0`, `z = (floor(i / cols) - (rows - 1) / 2) * 1.5`.
+- **Launch:** drone `i` starts at rest at `launchPos(i, n0)` with `initialSlot = i`. `launchPos` lives in `src/score`; the world may import only `src/contracts`, so `src/sim/math.ts` keeps an identical copy, `launchPosition`, and a test must assert the two agree. The grid: `cols = ceil(sqrt(n0))`, `rows = ceil(n0 / cols)`, `x = (i % cols - (cols - 1) / 2) * 1.5`, `y = 0`, `z = (floor(i / cols) - (rows - 1) / 2) * 1.5`.
 - **Sensing** never includes the drone itself. A dead drone's `DroneSnap.belief` is its last belief.
-- **Seeds:** `AgentInit.seed` comes from `agentSeed(runSeed, id)`, defined once in `src/sim` and exported, so tests can rebuild the same stream.
+- **Seeds:** `AgentInit.seed` comes from `agentSeed(runSeed, id)`, defined once in `src/sim` (`hashSeed` in `random.ts`) and exported under that name, so tests can rebuild the same stream.
 - **Events:** `SET_LOSS` replaces `loss` for every broadcast sent from that tick on. A `JAM_ON` or `PARTITION_ON` whose `id` is already active replaces it. `schedule()` throws if the event's tick is not later than the current tick.
 - **Kill:** the drone becomes `alive: false` at that tick and is removed from sensing and radio immediately (it falls out of the show). Messages it had already sent are still delivered. A drone that fails by hovering dark in place is not modelled (§12).
 - **Radio:** for each broadcast, every live drone within `rRadio` of the sender at send time is a candidate. It is `jammed` if sender or receiver is inside an active jam sphere at send time, `partitioned` if the two drones are in different groups of an active partition, `lost` with probability `loss`, otherwise delivered after a uniform `latencyMin…latencyMax` ticks.
@@ -237,8 +237,8 @@ World behaviour that other packages rely on:
 export interface MetricsSample {       // one per 5 ticks, per world
   tick: number; alive: number;
   coverage: number;                    // occupied slots / n0
-  pwc: number; npwc: number;           // priority-weighted coverage, and normalised by what M survivors could reach
-  sfMean: number; sfMax: number;       // shape fidelity, metres (label-independent)
+  pwc: number; npwc: number | null;    // priority-weighted coverage, and normalised by what M survivors could reach (null when alive is 0)
+  sfMean: number | null; sfMax: number | null;   // shape fidelity, metres (label-independent); null when alive is 0
   dupSlots: number;                    // slots claimed by 2+ live drones
   versions: Record<string, number>;    // "issuedTick:origin" -> live drones believing it
   msgs: { hb: number; score: number; delivered: number; lost: number; blocked: number };   // cumulative
@@ -259,12 +259,17 @@ export interface RunRecord {
 export type SlotStatus = 'occupied' | 'inTransit' | 'vacant' | 'contested';
 export interface Observer {
   registerScore(score: Score): void;                     // call for the preloaded score and for every score scheduled with INJECT_SCORE
+  recordEvent(event: EnvEvent): void;                    // call for every environment event scheduled into this world, scripted or live; read-only metadata for summaries
   sample(snapshot: WorldSnapshot): MetricsSample | null; // call every tick; returns a sample every 5 ticks
   slotStatus(snapshot: WorldSnapshot): { formation: Formation; inHold: boolean; status: SlotStatus[] };   // the reference formation at this tick, and each slot's status by index
   summary(): Record<string, number | null>;
 }
 // createObserver(params: Params): Observer
 ```
+
+**Event times.** The app and the CLI call `recordEvent` for every `EnvEvent` they schedule into a world (the scripted ones at start, live ones as they are scheduled). The observer keeps a copy and uses only events whose tick has passed; it needs them for exact times in the summaries (first `KILL`, `INJECT_SCORE`, last `PARTITION_OFF`), which snapshots alone cannot give. It never touches the world.
+
+**Empty swarm.** When no drone is alive, `npwc`, `sfMean` and `sfMax` are `null`: there is nothing to normalise by and no nearest drone. `coverage` and `pwc` are 0.
 
 **Reference formation.** Each world is measured against the newest registered score that at least one live drone **in that world** believes, at the current movement by the clock. So the static world is always measured against its preloaded score, and is not marked down for a new score it could never receive; that capability difference is reported through the adoption metrics instead. "Occupied" is defined once, in the observer: a live drone within `rOcc` of the slot position. `inTransit`: not occupied, and exactly one live drone's `belief.slot` names it. `contested`: two or more do. `vacant`: none does. The app draws these and never recomputes them.
 
@@ -275,7 +280,7 @@ Metric formulas, tolerances and summary keys are defined once, in [`../validatio
 `src/score` exports pure, deterministic functions:
 
 ```ts
-expandRecipe(recipe: Recipe, n0: number, params: Params): Formation     // memoised on JSON(recipe)+n0
+expandRecipe(recipe: Recipe, n0: number, params: Params): Formation     // memoised on JSON(recipe), n0 and `slotSpacingMin`; the returned `Formation` is frozen and shared, so copy before changing it
 currentMovement(score: Score, tick: number): { index: number; movement: Movement; holdStart: number; inHold: boolean }
 newerVersion(a: ScoreVersion, b: ScoreVersion): boolean                 // (issuedTick, origin) lexicographic
 composeNext(score: Score, tick: number, recipe: Recipe, origin: number, n0: number, params: Params): Score
@@ -403,9 +408,10 @@ step(s, in):
 ```
 
 ```text
-commit(v):       history.push({slot: s.slot, heldSince: s.heldSince})  (drop the oldest if longer than historyMax)
+commit(v):       history.push({slot: s.slot, heldSince: s.heldSince})
+                 if history is longer than historyMax: remove history[1]   # never history[0]: that is the launch home
                  s.slot = v; s.heldSince = now; s.claim = null; targetChanged(); log
-popHistory(why): if history is empty: log "anomaly" and keep the slot
+popHistory(why): if history is empty: keep the slot (I am on my launch home, which nobody can outrank) and log it
                  else: {slot, heldSince} = history.pop(); s.slot = slot; s.heldSince = heldSince; s.claim = null; targetChanged(); log
 targetChanged(): s.lastTargetChange = now; s.settledSince = null; s.yieldSince = null; s.emptySince = all null
 ```
@@ -415,7 +421,8 @@ A bid is `(rank, -id)`, compared lexicographically: the higher current slot inde
 ### 8.4 Why this settles
 
 - **Claims only go down.** A commit moves a drone to a slot at least `claimGap + 1` more important. So a drone can commit at most `n0 / claimGap` times, and can never cycle back by claiming.
-- **Only two things move a drone back up:** losing a duplicate, and the physical yield. Both pop one entry off its history, and each drone's history is finite. A popped drone returns with its **original** `heldSince`, so it outranks anyone who took that slot later, and they pop in turn. The launch slot has `heldSince = 0` and is unique per drone, so every live drone always has a home.
+- **Only two things move a drone back up:** losing a duplicate, and the physical yield. Both pop one entry off its history, and each drone's history is finite. A popped drone returns with its **original** `heldSince`, so it outranks anyone who took that slot later, and they pop in turn. The launch slot has `heldSince = 0` and is unique per drone, and it is the one history entry that is never discarded (`history[0]` survives the `historyMax` cap), so every live drone always has a home. When the cap removes a middle entry, a later pop skips that slot and lands on the next older one, which the drone also held earlier than any later claimant.
+- **Slot ownership is by index, across score versions.** A slot index means the same drone-sized place in the show whatever formation is current, so there must be one holder per index in the whole swarm. The duplicate rule, the bid rule and `slotHeard` therefore ignore the score version: a heartbeat holding slot 10 counts, whichever version its sender is flying. If a drone that claimed slot 10 during a partition hears the original holder, it pops back at once, even before the two agree on a score; both then fly their own slot of whatever score they hold. (Claims are not started while versions disagree nearby: `canHeal` condition 4.)
 - **Radio trouble alone cannot cause a move.** A vacancy needs the slot to be physically empty, and a deaf drone does not claim. The one case where radio trouble *plus movement* does is limit 7 below.
 
 This is an argument, not a proof, and it assumes failures eventually stop. The evaluation measures it: slot changes per drone, duplicate-slot seconds, and commits after the system should be quiet.

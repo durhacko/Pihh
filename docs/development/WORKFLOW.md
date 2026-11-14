@@ -14,7 +14,7 @@ Purpose: how work moves from an issue to `main` for three humans on three laptop
 2. **Claim** it: assign yourself, add `status:in-progress`, comment with the branch name.
 3. **Branch** from fresh `main`: `<type>/<issue#>-<slug>`.
 4. **Build** only what the acceptance criteria ask, inside the issue's allowed files.
-5. **Check**: `scripts/check.sh` and `python scripts/check_links.py`.
+5. **Check**: `npm ci` once per clone or worktree, then `bash scripts/check.sh` (it runs the docs link check too).
 6. **PR** with the template: `Closes #N`, requirement IDs, evidence, handoff block. Label the issue `status:in-review`.
 7. **Review and merge** (rules below). Squash-merge, delete the branch.
 8. **Verify**: the integrator runs the checks and the demo path on `main` and adds `status:verified`.
@@ -32,7 +32,7 @@ Example: `feat/14-radio-medium`.
 - `main` is **always buildable and demoable**. Nothing merges that breaks `scripts/check.sh` or the demo path.
 - Short-lived branches only. No `develop`, no stacked PRs more than one deep.
 - **Branch protection is not available** (private repo on a free org plan; the API returns 403). "PR-only" is a convention. The manual fallback: nobody pushes to `main`, and CI must be green before merging.
-- CODEOWNERS is not used: two of the three GitHub handles are still unconfirmed.
+- CODEOWNERS is not used: ownership is by issue and lane, and changes too fast for a file to keep up.
 
 ## Who may merge
 
@@ -78,6 +78,6 @@ claude    # or your agent of choice
 
 Paste:
 
-> You are a coding agent for <your name> on the Encore project (repo durhacko/Pihh). Follow AGENTS.md exactly. Read AGENTS.md, docs/CURRENT_STATE.md and docs/design/contracts-and-algorithms.md, then run `gh issue view <N> --comments`. Claim issue #<N>, create branch `<type>/<N>-<slug>`, and implement only its acceptance criteria inside its allowed files, with the tests it lists. Never import anything into src/agent except src/contracts and src/score. Run scripts/check.sh, then open a PR with `Closes #<N>` and the handoff block. Ask me before any contract change or anything out of scope. If you're blocked, post a BLOCKED handoff on the issue and stop.
+> You are a coding agent for <your name> on the Encore project (repo durhacko/Pihh). Follow AGENTS.md exactly. Read AGENTS.md, docs/CURRENT_STATE.md and docs/design/contracts-and-algorithms.md, then run `gh issue view <N> --comments`. Claim issue #<N>, create branch `<type>/<N>-<slug>`, and implement only its acceptance criteria inside its allowed files, with the tests it lists. Never import anything into src/agent except src/contracts and src/score. Run `npm ci` once, then `bash scripts/check.sh`, then open a PR with `Closes #<N>` and the handoff block. Ask me before any contract change or anything out of scope. If you're blocked, post a BLOCKED handoff on the issue and stop.
 
 To pick up whatever is next instead of a specific issue, replace the issue number with: "run `gh issue list --assignee @me --state open` and take the highest-priority READY one".
