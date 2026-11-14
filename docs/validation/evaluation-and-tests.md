@@ -32,7 +32,7 @@ Types and parameters: [contracts](../design/contracts-and-algorithms.md). Rules 
 | `collisions`, `nearMisses` | Cumulative pair-entry events from the snapshot | count |
 | `slotChanges` | Cumulative: a live drone's `belief.slot` differs from the tick before | count |
 
-Capacity loss `= 1 − P*(M)`. Coordination loss `= P*(M) − pwc`.
+Capacity loss `= 1 − P*(M)`. Coordination loss `= P*(M) − pwc`. With no live drone, `npwc`, `sfMean` and `sfMax` are `null` (contract §5), and summaries skip null samples. Event times in the summary keys come from `Observer.recordEvent`, not from guessing at snapshots.
 
 `RunRecord.summary` keys. `endA` = ticks 800–899; `end` = ticks 1700–1799. Wall-clock timings never enter a record (they would break replay equality).
 
