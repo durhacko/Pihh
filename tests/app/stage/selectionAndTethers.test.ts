@@ -6,6 +6,7 @@ import type { Vec3 } from '../../../src/contracts';
 import createSelectionLayer, { type SelectionState } from '../../../src/app/render/layers/SelectionLayer';
 import createTetherLayer from '../../../src/app/render/layers/TetherLayer';
 import { resetViewMode, setViewMode } from '../../../src/app/render/colourModes/viewMode';
+import { interpolateDrone } from '../../../src/app/render/SnapshotBuffer';
 import { makeFakeSnapshot } from '../../fixtures/fakeSnapshot';
 
 const N0 = 40;
@@ -124,6 +125,27 @@ describe('TetherLayer', () => {
     layer.setVisible(false);
     layer.update({ prev: snap, curr: snap, alpha: 0, dtReal: 0 });
     expect(lines.visible).toBe(false); expect(lines.userData.tethers).toBe(0);
+    layer.dispose();
+  });
+
+  it('starts each X-ray tether at the drawn (interpolated) position, the same as interpolateDrone, alpha clamped', () => {
+    const { layer, lines } = setup();
+    const prev = snapshot();
+    const curr = snapshot();
+    for (const drone of curr.drones) { drone.pos = [drone.pos[0] + 2, drone.pos[1] - 1, drone.pos[2] + 0.5]; drone.belief.target = [drone.pos[0] + 5, drone.pos[1], drone.pos[2]]; }
+    curr.drones[0].belief.target = [...curr.drones[0].pos];
+    setViewMode({ xray: true });
+    for (const alpha of [0.37, 1.6, -0.2]) {
+      layer.update({ prev, curr, alpha, dtReal: 0 });
+      const position = lines.geometry.getAttribute('position');
+      const drawn = curr.drones.filter(drone => drone.alive && drone.id !== 0);
+      expect(lines.userData.tethers).toBe(drawn.length);
+      drawn.forEach((drone, i) => {
+        const from = interpolateDrone(prev.drones[drone.id], drone, alpha).pos.map(v => Math.fround(v));
+        expect([position.getX(2 * i), position.getY(2 * i), position.getZ(2 * i)]).toEqual(from);
+        expect([position.getX(2 * i + 1), position.getY(2 * i + 1), position.getZ(2 * i + 1)]).toEqual(drone.belief.target.map(v => Math.fround(v)));
+      });
+    }
     layer.dispose();
   });
 });
