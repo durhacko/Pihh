@@ -105,11 +105,12 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
       const output = clone(brain.step(bodies[id].state, input));
       if (output.accel.length !== 3 || !output.accel.every(Number.isFinite)) throw new Error('Brain returned invalid acceleration');
       outputs.set(id, output);
-      bodies[id].last = { input: evidenceInput, output: clone(output) };
+      bodies[id].last = { input: evidenceInput, output };
     }
     // 5. Sender/receiver ordering is independent of the brain invocation order.
     const radio: RadioEvent[] = [];
-    const jammed = (pos: Vec3): boolean => [...jams.values()].some(j => distanceSquared(pos, j.centre) <= j.radius ** 2);
+    const activeJams = [...jams.values()];
+    const isJammed = bodies.map(body => activeJams.some(j => distanceSquared(body.pos, j.centre) <= j.radius ** 2));
     for (const id of live) for (const message of outputs.get(id)!.outbox) {
       if (message.from !== id || message.sentTick !== tick) throw new Error('Brain broadcast must identify its actual sender and current tick');
       const log: RadioEvent = { tick, from: id, type: message.type, claimSlot: message.type === 'HB' ? message.claim?.slot ?? null : null, delivered: [], lost: 0, jammed: 0, partitioned: 0 };
@@ -118,7 +119,7 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
       const packet = freeze(clone(message));
       for (const receiver of grid.within(bodies[id].pos, params.rRadio)) {
         if (receiver === id) continue;
-        if (jammed(bodies[id].pos) || jammed(bodies[receiver].pos)) { log.jammed++; continue; }
+        if (isJammed[id] || isJammed[receiver]) { log.jammed++; continue; }
         if (rng() < params.loss) { log.lost++; continue; }
         const latency = params.latencyMin + Math.floor(rng() * (params.latencyMax - params.latencyMin + 1));
         const queue = pending.get(tick + latency) ?? [];

@@ -160,6 +160,23 @@ describe('radio medium', () => {
     world.step();
     expect(world.inspect(0)!.input.inbox).toHaveLength(3);
   });
+  it('shared packets are deeply immutable, so one receiver cannot alter another receiver or sender', () => {
+    const brain = fixture();
+    const normalStep = brain.step;
+    brain.step = (state, input) => {
+      if (input.inbox.length) {
+        expect(() => { input.inbox[0].version = { issuedTick: 999, origin: 999 }; }).toThrow();
+        const message = input.inbox[0];
+        if (message.type === 'HB') {
+          expect(() => { message.pos[0] = 999; }).toThrow();
+          expect(message.version).toEqual(score.version);
+        }
+      }
+      return normalStep(state, input);
+    };
+    const world = createWorld(config(4, { loss: 0, latencyMin: 1, latencyMax: 1 }, brain));
+    world.step(); world.step(); world.step();
+  });
 });
 
 describe('replay and accounting', () => {
