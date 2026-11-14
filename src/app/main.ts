@@ -81,6 +81,7 @@ function reset(seed: number): void {
   for (const { view } of views) view.reset();   // retained radio/death evidence belongs to the old worlds
   if (loopError) transport.playing = true;       // R after a stopped loop is the recovery: run the new show
   loopError = null;
+  worldsBroken = false;
   delete readout.dataset.error;
   advance();
   seedLabel.textContent = String(worlds.seed);
@@ -95,6 +96,10 @@ function setSpeed(speed: number): void {
 }
 
 function setPlaying(playing: boolean): void {
+  // After a failed tick the worlds may be half-stepped: only a reset may run them again.
+  if (playing && worldsBroken) { refreshControls(); return; }
+  // After a render-only failure the worlds are intact: playing again clears the report (a repeat re-reports).
+  if (playing && loopError) { loopError = null; delete readout.dataset.error; }
   transport.playing = playing;
   refreshControls();
 }
@@ -249,6 +254,7 @@ feedHud();
 
 // A throw from a tick or a render pauses the show and is reported here; the loop keeps running, so R recovers.
 let loopError: string | null = null;
+let worldsBroken = false;   // a tick failed: the worlds may be half-stepped until a reset
 function readoutText(alive: Pair<number>, fps: number | null, tick: number): string {
   const main = `encore ${alive.encore} / static ${alive.static} alive of ${params.n0}${split ? '' : ` · showing ${views[0].arm}`}\n${fps === null ? '—' : fps.toFixed(0)} rendered fps · tick ${tick}${transport.playing ? '' : ' · paused'}`;
   return loopError ? `${main}\nStopped: ${loopError} · press R to reset` : main;
@@ -284,9 +290,12 @@ const loop = createFrameLoop(transport, {
       measuredFrames = 0;
     }
   },
-  onError(error) {
+  onError(error, phase) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message !== loopError) console.error('Encore loop stopped', error);   // once, not every frame it repeats
+    // Keep the root cause: once a tick has failed, later errors (e.g. a lockstep check) do not overwrite it.
+    if (worldsBroken) return;
+    if (message !== loopError) console.error(`Encore loop stopped (${phase})`, error);   // once, not every frame
+    worldsBroken = phase === 'tick';
     loopError = message;
     readout.dataset.error = loopError;
     try { readout.textContent = readoutText(aliveNow(), lastFps, worlds.tick); } catch { readout.textContent = `Stopped: ${loopError} · press R to reset`; }

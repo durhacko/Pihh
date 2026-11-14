@@ -213,8 +213,11 @@ export interface FrameHooks {
   advance(): void;
   /** Draw the frame; alpha is the interpolation between the last two ticks. */
   render(alpha: number, dtReal: number, steps: number, now: number): void;
-  /** A tick or the render threw: the transport is already paused. Report it; R / reset recovers. */
-  onError(error: unknown): void;
+  /**
+   * A tick or the render threw: the transport is already paused. `phase` says which: after a 'tick' failure
+   * the worlds may be half-stepped, so only a reset recovers; after a 'render' failure the worlds are intact.
+   */
+  onError(error: unknown, phase: 'tick' | 'render'): void;
   /** Schedule the next frame (requestAnimationFrame in the app). Always called, even after a throw. */
   request(frame: (now: number) => void): void;
 }
@@ -227,6 +230,7 @@ export function createFrameLoop(transport: { playing: boolean; speed: number }, 
   let previous = start;
   let accumulator = 0;
   function frame(now: number): void {
+    let phase: 'tick' | 'render' = 'tick';
     try {
       const dtReal = Math.max(0, (now - previous) / 1000);
       previous = now;
@@ -234,11 +238,12 @@ export function createFrameLoop(transport: { playing: boolean; speed: number }, 
       let steps = 0;
       while (accumulator >= DT && steps < MAX_STEPS_PER_FRAME) { hooks.advance(); accumulator -= DT; steps++; }
       if (steps === MAX_STEPS_PER_FRAME) accumulator = Math.min(accumulator, DT);
+      phase = 'render';
       hooks.render(accumulator / DT, dtReal, steps, now);
     } catch (error) {
       transport.playing = false;
       accumulator = 0;
-      try { hooks.onError(error); } catch { /* reporting must never stop the loop */ }
+      try { hooks.onError(error, phase); } catch { /* reporting must never stop the loop */ }
     } finally {
       hooks.request(frame);
     }

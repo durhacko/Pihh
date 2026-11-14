@@ -8,11 +8,11 @@ import { createFrameLoop, createWorlds, hudPayload, MAX_STEPS_PER_FRAME, type Fr
 
 function harness(options: { failAdvanceAt?: number[]; failRender?: boolean; failOnError?: boolean } = {}) {
   const transport = { playing: true, speed: 1 };
-  const log = { advances: 0, renders: 0, requests: 0, errors: [] as unknown[] };
+  const log = { advances: 0, renders: 0, requests: 0, errors: [] as unknown[], phases: [] as string[] };
   const hooks: FrameHooks = {
     advance() { log.advances++; if (options.failAdvanceAt?.includes(log.advances)) throw new Error(`tick ${log.advances} failed`); },
     render() { log.renders++; if (options.failRender) throw new Error('render failed'); },
-    onError(error) { log.errors.push(error); if (options.failOnError) throw new Error('reporting failed too'); },
+    onError(error, phase) { log.errors.push(error); log.phases.push(phase); if (options.failOnError) throw new Error('reporting failed too'); },
     request() { log.requests++; },
   };
   const loop = createFrameLoop(transport, hooks, 0);
@@ -43,6 +43,7 @@ describe('frame loop', () => {
     frames(30, 50);   // one tick per frame
     expect(log.errors).toHaveLength(1);
     expect(String(log.errors[0])).toContain('tick 7 failed');
+    expect(log.phases).toEqual(['tick']);   // the worlds may be half-stepped: the app requires a reset
     expect(transport.playing).toBe(false);
     expect(log.advances).toBe(7);        // nothing stepped while paused
     expect(log.requests).toBe(30);       // but every frame asked for the next one
@@ -57,6 +58,7 @@ describe('frame loop', () => {
     frames(5, 50);
     expect(transport.playing).toBe(false);
     expect(log.errors).toHaveLength(5);
+    expect(new Set(log.phases)).toEqual(new Set(['render']));   // worlds intact: play may resume
     expect(log.requests).toBe(5);
   });
 });

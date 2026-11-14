@@ -164,7 +164,7 @@ export function createPanel({ host }: PanelContext) {
     .encore-hud details{margin-top:6px}.encore-hud summary{cursor:pointer;color:#9fbccb;font-size:12px}
     .encore-hud details table{margin-top:4px;font-size:12px}
     .encore-hud .meta{margin:8px 0 0;font-size:11px;color:#8fb0bf}
-    @media(max-width:700px){.encore-hud{right:12px;bottom:160px;width:min(360px,calc(100vw - 24px));max-height:calc(100dvh - 330px)}}
+    @media(max-width:700px){.encore-hud{right:12px;bottom:160px;width:min(360px,calc(100vw - 249px));max-width:calc(100vw - 249px);max-height:calc(100dvh - 330px)}.encore-hud .summary{white-space:normal}.encore-hud.collapsed{max-width:calc(100vw - 249px)}}
   </style><header><h2>Observer comparison</h2><span class="summary" data-summary></span><button type="button" class="toggle" aria-expanded="true">Hide<kbd>H</kbd></button></header>
   <div class="body"><table><thead><tr><th scope="col">Measured</th>${(['encore', 'static'] as const).map(arm => `<th scope="col" data-arm-label="${arm}">${ARM_NAMES[arm]}</th>`).join('')}</tr></thead>
   <tbody>${ESSENTIAL.map((entry, index) => row(entry, index === 0)).join('')}</tbody></table>
@@ -174,6 +174,8 @@ export function createPanel({ host }: PanelContext) {
   const toggle = panel.querySelector<HTMLButtonElement>('.toggle')!;
   const summary = panel.querySelector<HTMLElement>('[data-summary]')!;
   function setCollapsed(collapsed: boolean) {
+    // Focus inside the body would vanish with it: keep keyboard users on the toggle.
+    if (collapsed && document.activeElement instanceof HTMLElement && panel.querySelector('.body')!.contains(document.activeElement)) toggle.focus();
     panel.classList.toggle('collapsed', collapsed);
     toggle.setAttribute('aria-expanded', String(!collapsed));
     toggle.innerHTML = `${collapsed ? 'Show' : 'Hide'}<kbd>H</kbd>`;
