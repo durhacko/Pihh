@@ -6,8 +6,8 @@ import type { EnvEvent, WorldSnapshot } from './world';
 export interface MetricsSample {       // one per 5 ticks, per world
   tick: number; alive: number;
   coverage: number;                    // occupied slots / n0
-  pwc: number; npwc: number;           // priority-weighted coverage, and normalised by what M survivors could reach
-  sfMean: number; sfMax: number;       // shape fidelity, metres (label-independent)
+  pwc: number; npwc: number | null;    // priority-weighted coverage, and normalised by what M survivors could reach (null when alive is 0)
+  sfMean: number | null; sfMax: number | null;   // shape fidelity, metres (label-independent); null when alive is 0
   dupSlots: number;                    // slots claimed by 2+ live drones
   versions: Record<string, number>;    // "issuedTick:origin" -> live drones believing it
   msgs: { hb: number; score: number; delivered: number; lost: number; blocked: number };   // cumulative
@@ -26,6 +26,7 @@ export interface RunRecord {
 export type SlotStatus = 'occupied' | 'inTransit' | 'vacant' | 'contested';
 export interface Observer {
   registerScore(score: Score): void;                     // call for the preloaded score and for every score scheduled with INJECT_SCORE
+  recordEvent(event: EnvEvent): void;                    // call for every environment event scheduled into this world, scripted or live; read-only metadata for summaries
   sample(snapshot: WorldSnapshot): MetricsSample | null; // call every tick; returns a sample every 5 ticks
   slotStatus(snapshot: WorldSnapshot): { formation: Formation; inHold: boolean; status: SlotStatus[] };   // the reference formation at this tick, and each slot's status by index
   summary(): Record<string, number | null>;
