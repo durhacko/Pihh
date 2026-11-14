@@ -63,6 +63,23 @@ describe('fixed partition groups', () => {
     expect(one.drones.map(d => d.partitionSide)).toEqual([0, 1, 0, 1]);
     expect(one.radio[0].delivered).toEqual([2]);
   });
+  it('partitionSide follows the oldest active partition by start order: a replaced id keeps its place, OFF then ON moves to the back', () => {
+    // 'z' starts first, so it wins although 'x' sorts first by id. Groups: by z [0, 0, 1, 1], by x [0, 1, 0, 1].
+    const instance = world([
+      { type: 'PARTITION_ON', tick: 1, id: 'z', point: [0, 0, 0], normal: [0, 0, 1] }, plane(2, 'x'),
+      { type: 'PARTITION_ON', tick: 3, id: 'z', point: [0, 0, 0], normal: [0, 0, -1] },
+      { type: 'PARTITION_OFF', tick: 4, id: 'z' }, { type: 'PARTITION_ON', tick: 5, id: 'z', point: [0, 0, 0], normal: [0, 0, 1] },
+    ]);
+    expect(instance.step().drones.map(d => d.partitionSide)).toEqual([0, 0, 1, 1]);
+    expect(instance.step().drones.map(d => d.partitionSide)).toEqual([0, 0, 1, 1]);
+    const replaced = instance.step();
+    expect(replaced.partitions.map(p => p.id)).toEqual(['z', 'x']);
+    expect(replaced.drones.map(d => d.partitionSide)).toEqual([1, 1, 0, 0]);
+    expect(instance.step().drones.map(d => d.partitionSide)).toEqual([0, 1, 0, 1]);
+    const restarted = instance.step();
+    expect(restarted.partitions.map(p => p.id)).toEqual(['x', 'z']);
+    expect(restarted.drones.map(d => d.partitionSide)).toEqual([0, 1, 0, 1]);
+  });
   it('does not retroactively revoke packets accepted before a partition began', () => {
     const instance = world([plane(2)]);
     expect(instance.step().radio[0].delivered).toEqual([1, 2, 3]);
