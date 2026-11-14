@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { performance } from 'node:perf_hooks';
 import { makeParams } from '../../src/contracts';
-import type { AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Params, Score, Vec3 } from '../../src/contracts';
+import type { AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Message, Params, Score, Sensed, Vec3 } from '../../src/contracts';
 import { launchPos } from '../../src/score';
 import { agentSeed, createWorld } from '../../src/sim';
 import { launchPosition } from '../../src/sim/math';
@@ -105,6 +105,44 @@ describe('world tick and isolation', () => {
     };
     const world = createWorld(config(4, {}, brain));
     expect(world.step().drones.map(d => d.pos)).toEqual(Array.from({ length: 4 }, (_, id) => launchPosition(id, 4)));
+  });
+  it('inspect().input is what the brain was given, even if the brain then mutates its input', () => {
+    const given = new Map<number, AgentInput>();
+    const brain = fixture();
+    const normalStep = brain.step;
+    brain.step = (state, input) => {
+      given.set((state as State).id, structuredClone(input));
+      const output = normalStep(state, input);
+      input.pos[0] = 999; input.vel[0] = 999;
+      for (const peer of input.sensed) { peer.rel[0] = 999; peer.vel[0] = 999; }
+      (input.sensed as Sensed[]).length = 0;
+      (input.inbox as Message[]).length = 0;
+      return output;
+    };
+    const world = createWorld(config(4, { loss: 0, latencyMin: 1, latencyMax: 1 }, brain));
+    world.step(); world.step();
+    for (let id = 0; id < 4; id++) {
+      const recorded = world.inspect(id)!.input;
+      expect(recorded.inbox).toHaveLength(3);
+      expect(recorded.sensed).toHaveLength(3);
+      expect(recorded).toEqual(given.get(id));
+    }
+  });
+  it('accepts a class-instance brain: stored by reference, prototype methods kept, caller object not frozen', () => {
+    class Climber implements AgentBrain {
+      readonly kind = 'static' as const;
+      private readonly inner = fixture({ send: false, accel: () => [0, 1, 0] });
+      init(init: AgentInit): unknown { return this.inner.init(init); }
+      step(state: unknown, input: AgentInput): AgentOutput { return this.inner.step(state, input); }
+      belief(state: unknown): Belief { return this.inner.belief(state); }
+    }
+    const brain = new Climber();
+    const world = createWorld(config(4, {}, brain));
+    expect(world.config.brain).toBe(brain);
+    expect(Object.isFrozen(brain)).toBe(false);
+    const snapshot = world.step();
+    expect(snapshot.drones.every(d => d.vel[1] > 0)).toBe(true);
+    expect(snapshot.drones.map(d => d.belief.target)).toEqual(Array.from({ length: 4 }, (_, id) => launchPosition(id, 4)));
   });
   it('rejects scheduling into the past and invalid packet-loss events', () => {
     const world = createWorld(config());
