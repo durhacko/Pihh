@@ -16,7 +16,7 @@ import type {
 import { currentMovement, expandRecipe, newerVersion } from '../score';
 import { NEVER_HEARD, nextRandom } from './state';
 import type { EncoreState } from './state';
-import { steer, steerTarget } from './steer';
+import { pacedSlotPos, steer, steerTarget } from './steer';
 
 /** "Slow" for being settled at a slot, in m/s (section 8.2, condition 3). */
 const SETTLED_SPEED = 0.5;
@@ -350,7 +350,13 @@ export const encoreBrain: AgentBrain<EncoreState> = {
 
     // 6. Move and light (section 10). The slot may have changed in steps 3 and 4: fly to the one I hold now.
     const mine = slots[s.slot];
-    const accel = steer(input.pos, input.vel, steerTarget(s.id, input.pos, mine.pos, p), input.sensed, p);
+    const paced = pacedSlotPos(s.score, now, s.slot, s.n0, p);
+    let aim = paced;
+    if (p.transitLanes) {
+      const lane = steerTarget(s.id, input.pos, mine.pos, p);
+      aim = [paced[0] + lane[0] - mine.pos[0], paced[1] + lane[1] - mine.pos[1], paced[2] + lane[2] - mine.pos[2]];
+    }
+    const accel = steer(input.pos, input.vel, aim, input.sensed, p);
     return { accel, colour: [mine.colour[0], mine.colour[1], mine.colour[2]], outbox };
   },
 

@@ -18,7 +18,7 @@ import { composeNext, currentMovement, expandRecipe, newerVersion } from '../../
 import { encoreBrain } from '../../src/agent/encoreBrain';
 import { NEVER_HEARD, nextRandom } from '../../src/agent/state';
 import type { EncoreState } from '../../src/agent/state';
-import { steer, steerTarget } from '../../src/agent/steer';
+import { pacedSlotPos, steer, steerTarget } from '../../src/agent/steer';
 
 // ---------- the show ----------
 
@@ -424,14 +424,15 @@ describe('encoreBrain: heartbeats (section 8.3, step 5)', () => {
     expect(encoreBrain.step(s, inputAt({}, 8)).outbox[0]).toMatchObject({ version: { issuedTick: 0, origin: OPERATOR }, seq: 1 });
   });
 
-  it('accel is steer towards my slot, and the colour is my slot colour', () => {
+  it('accel is steer towards the paced point of my slot (#80); belief.target and the colour stay my real slot', () => {
     const pos: Vec3 = [3, 12, -4];
     const vel: Vec3 = [1, 2, -1];
     const p = play({ pos: () => pos, vel: () => vel }, 6);
     for (const f of p.frames) {
       const slot = expandRecipe(TEXT, N, P).slots[ME];
-      expect(f.out.accel).toEqual(steer(pos, vel, steerTarget(ME, pos, slot.pos, P), f.input.sensed, P));
+      expect(f.out.accel).toEqual(steer(pos, vel, pacedSlotPos(SCORE, f.tick, ME, N, P), f.input.sensed, P));
       expect(f.out.colour).toEqual(slot.colour);
+      expect(f.belief.target).toEqual(slot.pos);
     }
   });
 });

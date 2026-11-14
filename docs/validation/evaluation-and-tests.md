@@ -55,7 +55,13 @@ Capacity loss `= 1 − P*(M)`. Coordination loss `= P*(M) − pwc`. With no live
 
 ## 3. Scenarios
 
-MUST. `n0 = 200`, 1800 ticks, default `Params`. Preloaded score `EVAL`, version `{0, OPERATOR}`: movement A = text `ENCORE` with `startTick: -200` (the contract allows the first movement to start before tick 0; drones still launch at tick 0), movement B = sphere at tick 900, `transitionTicks` by the contract's authoring formula. The runner asserts A's `holdStart + holdGrace ≤ 380` and B's `holdStart ≤ 1300`; if A's assertion fails, make A's `startTick` more negative before the freeze and leave the event ticks alone. Shortening the text does not help: the formation's size is set by 200 slots at `slotSpacingMin`, not by the letter count.
+MUST. `n0 = 200`, 1800 ticks, default `Params`. Preloaded score `EVAL`, version `{0, OPERATOR}`: movement A = text `ENCORE`, movement B = sphere at tick 900, `transitionTicks` by the contract's authoring formula (`tA` for A, measured from the launch grid). `buildEvalScore` computes A's start as `min(-40, 380 − holdGrace − tA)`: −40 at n0 ≤ 200, and earlier at larger n0 (−51 at 250, −84 at 300). This keeps A's `holdStart + holdGrace ≤ 380` by construction. The contract allows the first movement to start before tick 0, and drones still launch at tick 0. A starts as late as that allows because drones fly paced targets (contract §10). The launch flight runs from tick 0 to A's `holdStart − 60`, so a later start means a slower, safer launch.
+
+The runner then asserts two things:
+- **A's paced launch is feasible.** The window `holdStart − 60` must be at least `⌈(tA − 60) / 2⌉` ticks, the farthest drone's flight time at `vMax`.
+- **B's hold begins in time.** B's `holdStart ≤ 1300`.
+
+If either assertion fails, the formation cannot be shown in time at that n0. Use a smaller n0 or move the event ticks later. Do not change A's start by hand. Shortening the text does not help: the formation's size is set by n0 slots at `slotSpacingMin`, not by the letter count.
 
 A pure builder in `src/cli/scenarios.ts` (the world may not import `src/score`, the CLI may) returns `{ score, events }` from `(id, seed, params)`. It draws from its own seeded stream and resolves kills to explicit ids from formation-A slot positions (launch slot = id), never from live positions. Plane `P`: point `[0, 30, 0]`, normal `[1, 0, 0]`.
 
