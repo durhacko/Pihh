@@ -82,14 +82,12 @@ describe('beyond G1: the clumped kill on every kill centre (n0 = 40, seed 1, 20 
     expect(runs.filter(r => !r.verdict.quietOk).map(r => r.centre)).toEqual([]);
   });
 
-  it('the miss is exactly the measured one: centres 7, 15, 21, 23, 36, each by less than 1 s', () => {
-    const late = runs.filter(r => !r.verdict.quietOk);
-    expect(late.map(r => r.centre)).toEqual([7, 15, 21, 23, 36]);
-    for (const r of late) {
-      expect(r.lateCommits).toHaveLength(1);
-      expect(r.lastCommitSec as number).toBeGreaterThan(20);
-      expect(r.lastCommitSec as number).toBeLessThan(21);
-    }
+  // Bounds, not the exact list: ADR-002 does not promise identical floats on another host, and one
+  // heartbeat phase more or less moves a commit by 0.25 s. Measured here: 5 centres, latest 20.95 s.
+  it('the miss is small: at most 8 of the 40 centres are late (measured: 5), and no chain ends later than 22 s after the kill (measured: 20.95 s)', () => {
+    expect(runs).toHaveLength(40);
+    expect(runs.filter(r => !r.verdict.quietOk).length).toBeLessThanOrEqual(8);
+    for (const r of runs) expect(r.lastCommitSec ?? 0, `centre ${r.centre}: seconds from the kill to the last commit`).toBeLessThan(22);
   });
 });
 
