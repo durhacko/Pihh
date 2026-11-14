@@ -20,15 +20,33 @@ export class RadioTrace {
   private lastTick = -1;
   private ordinal = 0;
 
+  /**
+   * Per-tick evidence (#46): call once for every simulation tick, in order. Each tick's broadcasts are kept
+   * exactly once, so a frame that advances several ticks loses nothing and repeated calls add nothing.
+   */
+  ingest(snapshot: WorldSnapshot): void {
+    if (snapshot.tick < this.lastTick) this.reset();
+    this.record(snapshot);
+  }
+
+  /** Drop all retained evidence (the world was rebuilt). */
+  reset(): void { this.history = []; this.lastTick = -1; this.ordinal = 0; }
+
+  /** Render-frame fallback for views without per-tick ingestion: sees only the frame's prev/curr snapshots. */
   update(prev: WorldSnapshot, curr: WorldSnapshot): void {
-    if (curr.tick < this.lastTick) { this.history = []; this.lastTick = -1; this.ordinal = 0; }
-    for (const snapshot of [prev, curr]) {
-      if (snapshot.tick <= this.lastTick) continue;
+    if (curr.tick < this.lastTick) this.reset();
+    this.record(prev);
+    this.record(curr);
+  }
+
+  private record(snapshot: WorldSnapshot): void {
+    if (snapshot.tick <= this.lastTick) return;
+    if (snapshot.radio.length > 0) {
       const positions = new Map(snapshot.drones.map(drone => [drone.id, [...drone.pos] as Vec3]));
       for (const event of snapshot.radio) this.history.push({ tick: snapshot.tick, event: structuredClone(event), positions, ordinal: this.ordinal++, drawn: new Set() });
-      this.lastTick = snapshot.tick;
     }
-    this.history = this.history.filter(broadcast => (curr.tick - broadcast.tick) * DT < 1);
+    this.lastTick = snapshot.tick;
+    this.history = this.history.filter(broadcast => (snapshot.tick - broadcast.tick) * DT < 1);
   }
 
   plan(tick: number, alpha: number, selectedDroneId: number | null = null, enabled = true) {

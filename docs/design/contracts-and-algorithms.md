@@ -189,7 +189,7 @@ export interface WorldConfig {
 export interface DroneSnap {
   id: number; alive: boolean; diedTick: number | null;
   pos: Vec3; vel: Vec3; colour: RGB;
-  partitionSide: 0 | 1 | null;     // group in the active partition, null if none
+  partitionSide: 0 | 1 | null;     // group in the oldest active partition, null if none
   belief: Belief;                  // from brain.belief(), copied
 }
 export interface RadioEvent {      // one per broadcast, from the medium's real log
