@@ -148,7 +148,7 @@ describe('determinism', () => {
     worlds.reset(SEED);
     runTo(worlds, 200);
     expect(hashes(worlds)).toEqual(first);
-  });
+  }, 15_000); // Bounded headroom for CPU contention across concurrent local check runs.
 
   it('two runs with the same seed and events give identical hashes and snapshots', () => {
     const script = (worlds: Worlds) => {

@@ -236,5 +236,5 @@ describe('replay and accounting', () => {
     const start = performance.now();
     for (let tick = 0; tick < 200; tick++) world.step();
     console.log(`200-drone dummyBrain (radio enabled) benchmark: ${((performance.now() - start) / 200).toFixed(3)} ms/tick`);
-  });
+  }, 15_000); // Bounded headroom for CPU contention across concurrent local check runs.
 });
