@@ -114,6 +114,8 @@ describe('accepted commands become typed intents', () => {
     ['view xray', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'xray' } }],
     ['view beliefs off', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'beliefs', on: false } }],
     ['view zones on', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'zones', on: true } }],
+    ['view ghosts on', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'ghosts', on: true } }],
+    ['view tethers', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'tethers' } }],
     ['camera top', { kind: 'ui', command: 'camera', ui: { type: 'camera', preset: 'top' } }],
     ['compare on', { kind: 'ui', command: 'compare', ui: { type: 'compare', mode: 'on' } }],
     ['compare static', { kind: 'ui', command: 'compare', ui: { type: 'compare', mode: 'static' } }],
@@ -158,7 +160,7 @@ describe('"later" commands are honest and change nothing', () => {
     expect(seed.kind === 'control' && seed.steps[0].type === 'reset' && Object.is(seed.steps[0].seed, 0)).toBe(true);
   });
 
-  it.each(['fault unjam J', 'form svg logo.svg', 'form cloud x.ply', 'cue add', 'cue move', 'show save', 'show load', 'seek 10', 'demo run 180', 'fault kill-random --percent 25', 'view ghosts on', 'view tethers', 'view neighbourhood'])('%s', line => {
+  it.each(['fault unjam J', 'form svg logo.svg', 'form cloud x.ply', 'cue add', 'cue move', 'show save', 'show load', 'seek 10', 'demo run 180', 'fault kill-random --percent 25', 'view neighbourhood'])('%s', line => {
     const intent = ok(line);
     expect(intent.kind).toBe('planned');
     expect(intent.kind === 'planned' && intent.message).toMatch(/planned, not built.*Nothing was changed\.$/);

@@ -115,8 +115,8 @@ export const LOSS_MAX_PERCENT = 90;
 export const TEXT_MAX = 20;
 export const NAME_MAX = 24;
 
-/** Lenses the production renderer has. The others are in the design and planned (FE-C). */
-const LENSES: Record<Lens, boolean> = { xray: true, beliefs: true, zones: true, show: true, ghosts: false, tethers: false, neighbourhood: false };
+/** Lenses the production renderer has (ghost slots and tethers: #102, toggled through the layers' setVisible). */
+const LENSES: Record<Lens, boolean> = { xray: true, beliefs: true, zones: true, show: true, ghosts: true, tethers: true, neighbourhood: false };
 
 const FORM_FLAGS: readonly FlagSpec[] = [
   { name: 'colors', arity: 2, hint: '#RRGGBB #RRGGBB', type: 'colour', values: SWATCHES },

@@ -108,8 +108,9 @@ function layoutViews(view: ViewMode): void {
   else { place('static', '0', '100%', true); place('encore', '0', '100%', false); }
   divider.hidden = view !== 'split';
   Object.assign(vpBottom.style, { top: 'calc(50% + 12px)' });
-  vpBottom.hidden = view !== 'split';
-  vpTop.hidden = view === 'encore';
+  // style.display, not `hidden`: the .vp-label class sets display:flex, which overrides the hidden attribute.
+  vpBottom.style.display = view === 'split' ? '' : 'none';
+  vpTop.style.display = view === 'encore' ? 'none' : '';
   for (const { view: v } of views) v.resize();
 }
 layoutViews(initialView);
@@ -376,6 +377,15 @@ const unbindKeys = bindShortcuts({
   timeline: later('The show timeline', '#94'), console: later('The console', '#93'), demo: later('The scripted demo', '#94'),
 }, () => { handleEscape(store, surfaces, () => controls.selectDrone(null)); refreshChrome(); });
 
+// ---------- reserved for #112 (Composer panel and Console tray) ----------
+// Until it merges, Compose (F), Console (/ or `) and I say "coming in #93". When #112 merges, wire it here:
+//   const drafts = new Drafts();
+//   const compose = { controller: controls, store, surfaces, drafts, params, host: root, snapshots, samples: () => worlds.samples() };
+//   const composer = connectComposer(compose);   // also connects PreviewLayer to the store
+//   const consoleTray = connectConsole({ ...compose, hooks: { step: () => run({ type: 'step' }, true),
+//     inspect: (id, arm) => { controls.selectDrone(id); /* connectInspector(source, { arm }) */ } } });
+//   dock compose / F: composer.open(); dock console, / and `: consoleTray.open(); HMR: composer.dispose(); consoleTray.dispose().
+
 // ---------- reserved for #109 (Show timeline tray) and #104 (demo runner) ----------
 // Until they merge, Show (T) and D say "coming in #94". When #109 merges, wire it here and nowhere else:
 //   const timeline = connectTimeline({ getScore: () => worlds.score, getEvents: () => controls.getEventLog(),
@@ -388,7 +398,9 @@ const unbindKeys = bindShortcuts({
 /** The single place a view's LayerFrame is built. Ghost slots ride on it while their lens is on. */
 function frameFor(arm: Arm, alpha: number, dtReal: number): LayerFrame {
   const frame = buffers[arm].frame(alpha, dtReal);
-  return store.state.lenses.ghosts ? { ...frame, slots: slotFeeds[arm].read(frame.curr) } : frame;
+  // Read the observer's slot status while ghosts are on, and while a drone is selected (the inspector's
+  // observer box needs it). The ghost layer itself stays hidden unless its lens is on.
+  return store.state.lenses.ghosts || store.state.selected ? { ...frame, slots: slotFeeds[arm].read(frame.curr) } : frame;
 }
 // The inspector's agent section gets only inspect() + Belief; the observer box a pre-labelled truth object.
 connectInspector({
