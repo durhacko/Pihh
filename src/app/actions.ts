@@ -1,11 +1,16 @@
-import type { EnvEvent, Params, Recipe, Score, World, WorldSnapshot } from '../contracts';
+import type { EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
 import { idsInSphere, randomIds } from '../sim';
 
+/**
+ * `at` and `centre` exist for the scripted demo (#27), which drives these same intents from the DOM: `at` lands
+ * an event on an exact later tick instead of the next one, and `centre` fixes a region instead of the selected
+ * drone's position. Buttons and keys never pass them.
+ */
 export type ControlIntent =
   | { type: 'play' } | { type: 'reset'; seed: number } | { type: 'speed'; speed: number }
-  | { type: 'select'; id: number | null } | { type: 'kill-region'; radius?: number }
-  | { type: 'kill-selected' } | { type: 'kill-random' } | { type: 'jam'; radius?: number }
-  | { type: 'partition' } | { type: 'loss'; loss: number } | { type: 'inject'; recipe: Recipe }
+  | { type: 'select'; id: number | null } | { type: 'kill-region'; radius?: number; centre?: Vec3; at?: number }
+  | { type: 'kill-selected' } | { type: 'kill-random' } | { type: 'jam'; radius?: number; centre?: Vec3; at?: number }
+  | { type: 'partition' } | { type: 'loss'; loss: number } | { type: 'inject'; recipe: Recipe; at?: number }
   | { type: 'xray' } | { type: 'belief' };
 
 export interface ControlContext {
@@ -28,6 +33,8 @@ export interface ControlContext {
 
 export interface ControlStatus {
   available: boolean; playing: boolean; speed: number; seed: number; loss: number;
+  /** The shared tick of both worlds (always set by the controller; optional for older status fixtures). */
+  tick?: number;
   selectedId: number | null; selectedAlive: boolean; radioFaults: boolean; composition: boolean; display: boolean;
   message: string;
 }
@@ -51,7 +58,7 @@ export function createActionController(context: ControlContext) {
   function status(): ControlStatus {
     const snapshot = context.getSnapshots().encore;
     const lossEvent = [...log].reverse().find((event): event is Extract<EnvEvent, { type: 'SET_LOSS' }> => event.type === 'SET_LOSS');
-    return { available: true, ...context.getTransport(), loss: lossEvent?.loss ?? context.params.loss, selectedId, selectedAlive: snapshot.drones.some(drone => drone.id === selectedId && drone.alive), radioFaults: !!context.radioFaults, composition: !!context.radioFaults && !!context.composeScore, display: !!context.display, message };
+    return { available: true, ...context.getTransport(), tick: snapshot.tick, loss: lossEvent?.loss ?? context.params.loss, selectedId, selectedAlive: snapshot.drones.some(drone => drone.id === selectedId && drone.alive), radioFaults: !!context.radioFaults, composition: !!context.radioFaults && !!context.composeScore, display: !!context.display, message };
   }
   function selected(snapshot: WorldSnapshot) {
     const drone = snapshot.drones.find(drone => drone.id === selectedId && drone.alive);
@@ -101,9 +108,11 @@ export function createActionController(context: ControlContext) {
       }
       const snapshots = context.getSnapshots();
       if (snapshots.encore.tick !== snapshots.static.tick) throw new Error('World clocks are not aligned.');
-      const tick = snapshots.encore.tick + 1;
+      const at = 'at' in intent ? intent.at : undefined;
+      if (at !== undefined && (!Number.isSafeInteger(at) || at <= snapshots.encore.tick)) throw new Error('A timed action must land after the current tick.');
+      const tick = at ?? snapshots.encore.tick + 1;
       let event: EnvEvent;
-      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, selected(snapshots.encore).pos, killRadius(intent.radius ?? context.params.rClaim)) };
+      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, intent.centre ?? selected(snapshots.encore).pos, killRadius(intent.radius ?? context.params.rClaim)) };
       else if (intent.type === 'kill-selected') event = { type: 'KILL', tick, ids: [selected(snapshots.encore).id] };
       else if (intent.type === 'kill-random') {
         const live = snapshots.encore.drones.filter(drone => drone.alive).map(drone => drone.id);
@@ -113,7 +122,7 @@ export function createActionController(context: ControlContext) {
         if (!context.radioFaults) throw new Error('Radio fault controls are not connected yet.');
         if (intent.type === 'jam') {
           const on = pendingToggle('JAM_ON', 'JAM_OFF', jamId, snapshots.encore.tick, snapshots.encore.jams.some(jam => jam.id === jamId));
-          event = on ? { type: 'JAM_OFF', tick, id: jamId } : { type: 'JAM_ON', tick, id: jamId, centre: [...selected(snapshots.encore).pos], radius: intent.radius ?? context.params.rRadio };
+          event = on ? { type: 'JAM_OFF', tick, id: jamId } : { type: 'JAM_ON', tick, id: jamId, centre: [...(intent.centre ?? selected(snapshots.encore).pos)], radius: intent.radius ?? context.params.rRadio };
           if (event.type === 'JAM_ON' && (!Number.isFinite(event.radius) || event.radius <= 0)) throw new Error('Radius must be positive.');
         } else if (intent.type === 'partition') {
           const on = pendingToggle('PARTITION_ON', 'PARTITION_OFF', partitionId, snapshots.encore.tick, snapshots.encore.partitions.some(partition => partition.id === partitionId));
