@@ -115,6 +115,29 @@ describe('createSlotStatusFeed', () => {
     expect(slotStatus).toHaveBeenCalledTimes(1);
   });
 
+  it('latest() is null right after a reset, until the new observer has been read', () => {
+    const { feed, replaceObserver, advance } = setup();
+    feed.read(snap(40));
+    expect(feed.latest()?.tick).toBe(40);
+    replaceObserver();                    // the app rebuilt its observers: the cached reading is the old run's
+    expect(feed.latest()).toBeNull();
+    advance(1); feed.read(snap(1));
+    expect(feed.latest()?.tick).toBe(1);
+  });
+
+  it('latest() feeds no old-run slot status into the inspector truth after a real reset', () => {
+    const worlds = createWorlds({ seed: 4, n0: 30 });
+    let snapshot = worlds.stepBoth().encore;
+    for (let i = 0; i < 20; i++) snapshot = worlds.stepBoth().encore;
+    const feed = createSlotStatusFeed(() => worlds.observers.encore);
+    feed.read(snapshot);
+    expect(feed.latest()?.tick).toBe(21);
+    worlds.reset();
+    expect(feed.latest()).toBeNull();
+    feed.read(worlds.stepBoth().encore);
+    expect(feed.latest()?.tick).toBe(1);
+  });
+
   it('recomputes at once after a reset: a new observer or a tick that went backwards', () => {
     const { feed, slotStatus, advance, replaceObserver } = setup();
     feed.read(snap(40)); advance(1); feed.read(snap(3));
