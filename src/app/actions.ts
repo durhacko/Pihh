@@ -4,7 +4,7 @@ export type ControlIntent =
   | { type: 'play' } | { type: 'reset'; seed: number } | { type: 'speed'; speed: number }
   | { type: 'select'; id: number | null } | { type: 'kill-region'; radius?: number }
   | { type: 'kill-selected' } | { type: 'kill-random' } | { type: 'jam'; radius?: number }
-  | { type: 'partition' } | { type: 'inject'; recipe: Recipe }
+  | { type: 'partition' } | { type: 'loss'; loss: number } | { type: 'inject'; recipe: Recipe }
   | { type: 'xray' } | { type: 'belief' };
 
 export interface ControlContext {
@@ -26,7 +26,7 @@ export interface ControlContext {
 }
 
 export interface ControlStatus {
-  available: boolean; playing: boolean; speed: number; seed: number;
+  available: boolean; playing: boolean; speed: number; seed: number; loss: number;
   selectedId: number | null; selectedAlive: boolean; radioFaults: boolean; composition: boolean; display: boolean;
   message: string;
 }
@@ -58,7 +58,8 @@ export function createActionController(context: ControlContext) {
 
   function status(): ControlStatus {
     const snapshot = context.getSnapshots().encore;
-    return { available: true, ...context.getTransport(), selectedId, selectedAlive: snapshot.drones.some(drone => drone.id === selectedId && drone.alive), radioFaults: !!context.radioFaults, composition: !!context.radioFaults && !!context.composeScore, display: !!context.display, message };
+    const lossEvent = [...log].reverse().find((event): event is Extract<EnvEvent, { type: 'SET_LOSS' }> => event.type === 'SET_LOSS');
+    return { available: true, ...context.getTransport(), loss: lossEvent?.loss ?? context.params.loss, selectedId, selectedAlive: snapshot.drones.some(drone => drone.id === selectedId && drone.alive), radioFaults: !!context.radioFaults, composition: !!context.radioFaults && !!context.composeScore, display: !!context.display, message };
   }
   function selected(snapshot: WorldSnapshot) {
     const drone = snapshot.drones.find(drone => drone.id === selectedId && drone.alive);
@@ -122,8 +123,12 @@ export function createActionController(context: ControlContext) {
         } else if (intent.type === 'partition') {
           const on = pendingToggle('PARTITION_ON', 'PARTITION_OFF', partitionId, snapshots.encore.tick, snapshots.encore.partitions.some(partition => partition.id === partitionId));
           event = on ? { type: 'PARTITION_OFF', tick, id: partitionId } : { type: 'PARTITION_ON', tick, id: partitionId, point: [0, 30, 0], normal: [1, 0, 0] };
+        } else if (intent.type === 'loss') {
+          if (!Number.isFinite(intent.loss) || intent.loss < 0 || intent.loss > 1) throw new Error('Packet loss must be between 0 and 1.');
+          event = { type: 'SET_LOSS', tick, loss: intent.loss };
         } else {
           if (!context.composeScore) throw new Error('Score composer is not connected yet.');
+          if (log.some(event => event.type === 'INJECT_SCORE' && event.tick === tick)) throw new Error('A composition is already scheduled for this tick. Advance the show before injecting another.');
           const id = selected(snapshots.encore).id;
           if (intent.recipe.kind === 'text' && (!intent.recipe.text.trim() || !/^[A-Z0-9 ]{1,20}$/i.test(intent.recipe.text))) throw new Error('Use 1–20 letters, digits or spaces.');
           const recipe = intent.recipe.kind === 'text' ? { ...intent.recipe, text: intent.recipe.text.toUpperCase() } : intent.recipe;

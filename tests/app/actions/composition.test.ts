@@ -28,6 +28,16 @@ function setup() {
 }
 
 describe('real score composer at the action boundary', () => {
+  it('validates packet loss and schedules one matching next-tick event into both arms', () => {
+    const fixture = setup();
+    expect(fixture.controller.handle({ type: 'loss', loss: 2 }).ok).toBe(false);
+    expect(fixture.controller.getEventLog()).toEqual([]);
+    const result = fixture.controller.handle({ type: 'loss', loss: 0.5 });
+    expect(result.event).toEqual({ type: 'SET_LOSS', tick: 2, loss: 0.5 });
+    expect(fixture.worlds.encore.schedule).toHaveBeenCalledExactlyOnceWith(result.event);
+    expect(fixture.worlds.static.schedule).toHaveBeenCalledExactlyOnceWith(result.event);
+    expect(fixture.controller.status().loss).toBe(0.5);
+  });
   it('authors once at the injection tick and schedules deep-equal scores into both arms', () => {
     const fixture = setup(); fixture.controller.selectDrone(4);
     const result = fixture.controller.handle({ type: 'inject', recipe: { kind: 'text', text: 'bravo' } });
@@ -61,5 +71,13 @@ describe('real score composer at the action boundary', () => {
     fixture.snapshots.encore.drones[4].alive = false;
     expect(fixture.controller.handle({ type: 'inject', recipe: { kind: 'helix' } }).ok).toBe(false);
     expect(fixture.worlds.encore.schedule).not.toHaveBeenCalled(); expect(fixture.worlds.static.schedule).not.toHaveBeenCalled();
+  });
+  it('rejects a second composition in the same pending tick rather than reusing a score version', () => {
+    const fixture = setup(); fixture.controller.selectDrone(4);
+    expect(fixture.controller.handle({ type: 'inject', recipe: { kind: 'sphere' } }).ok).toBe(true);
+    const duplicate = fixture.controller.handle({ type: 'inject', recipe: { kind: 'helix' } });
+    expect(duplicate.ok).toBe(false); expect(duplicate.message).toContain('Advance the show');
+    expect(fixture.worlds.encore.schedule).toHaveBeenCalledTimes(1); expect(fixture.worlds.static.schedule).toHaveBeenCalledTimes(1);
+    expect(fixture.controller.getEventLog()).toHaveLength(1);
   });
 });

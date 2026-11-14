@@ -16,6 +16,7 @@ export function createPanel({ host }: PanelContext) {
     <div class="divider"></div><label for="encore-selection">Drone id</label><div class="row"><input id="encore-selection" data-selection type="number" min="0" step="1" placeholder="None"><button data-action="select">Select</button></div><small data-selection-status>No drone selected.</small>
     <div class="row" style="margin-top:12px"><button data-action="kill-region" data-needs-selection>Kill region <kbd>K</kbd></button><button data-action="kill-selected" data-needs-selection>Kill selected</button></div><button data-action="kill-random" style="width:100%">Kill random 10%</button>
     <div class="row" style="margin-top:8px"><button data-action="jam" data-needs-radio>Jam on / off <kbd>J</kbd></button><button data-action="partition" data-needs-radio>Partition <kbd>P</kbd></button></div>
+    <label for="encore-loss">Packet loss</label><select id="encore-loss" data-loss data-needs-radio><option value="0">0%</option><option value="0.05" selected>5%</option><option value="0.2">20%</option><option value="0.5">50%</option><option value="1">100%</option></select>
     <div class="divider"></div><label for="encore-recipe">New composition</label><select id="encore-recipe" data-recipe><option value="text">Text</option><option value="sphere">Sphere</option><option value="helix">Double helix</option></select><input data-text aria-label="Composition text" maxlength="20" value="ENCORE" style="margin-top:8px"><button data-action="inject" data-needs-composition style="width:100%;margin-top:8px">Inject into selected <kbd>I</kbd></button>
     <div class="divider"></div><div class="row"><button data-action="xray" data-needs-display>X-ray <kbd>X</kbd></button><button data-action="belief" data-needs-display>Belief colours <kbd>C</kbd></button></div>
   </fieldset><output role="status">Real simulation controls unavailable. Waiting for the simulation connection.</output>`;
@@ -26,6 +27,7 @@ export function createPanel({ host }: PanelContext) {
   const selection = panel.querySelector<HTMLInputElement>('[data-selection]')!;
   const speed = panel.querySelector<HTMLSelectElement>('[data-speed]')!;
   const recipe = panel.querySelector<HTMLSelectElement>('[data-recipe]')!;
+  const loss = panel.querySelector<HTMLSelectElement>('[data-loss]')!;
   const text = panel.querySelector<HTMLInputElement>('[data-text]')!;
   let status: ControlStatus | undefined;
   const inject = (): ControlIntent => ({ type: 'inject', recipe: recipe.value === 'text' ? { kind: 'text', text: text.value } : { kind: recipe.value as 'sphere' | 'helix' } });
@@ -46,18 +48,20 @@ export function createPanel({ host }: PanelContext) {
     if (document.activeElement !== seed) seed.value = String(status.seed);
     if (document.activeElement !== selection) selection.value = status.selectedId === null ? '' : String(status.selectedId);
     speed.value = String(status.speed);
+    loss.value = String(status.loss);
     panel.querySelector('[data-selection-status]')!.textContent = status.selectedId === null ? 'No drone selected.' : `Drone ${status.selectedId} · ${status.selectedAlive ? 'live' : 'dead'}`;
     for (const button of panel.querySelectorAll<HTMLButtonElement>('[data-needs-selection]')) button.disabled = !status.selectedAlive;
-    for (const button of panel.querySelectorAll<HTMLButtonElement>('[data-needs-radio]')) button.disabled = !status.radioFaults;
+    for (const control of panel.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('[data-needs-radio]')) control.disabled = !status.radioFaults;
     for (const button of panel.querySelectorAll<HTMLButtonElement>('[data-needs-composition]')) button.disabled = !status.composition || !status.selectedAlive;
     for (const button of panel.querySelectorAll<HTMLButtonElement>('[data-needs-display]')) button.disabled = !status.display;
     output.textContent = status.message;
   }
   const onSpeed = () => send({ type: 'speed', speed: Number(speed.value) });
+  const onLoss = () => send({ type: 'loss', loss: Number(loss.value) });
   const onRecipe = () => { text.hidden = recipe.value !== 'text'; };
   panel.addEventListener('click', onClick); host.addEventListener('encore:control-status', onStatus);
-  speed.addEventListener('change', onSpeed); recipe.addEventListener('change', onRecipe);
+  speed.addEventListener('change', onSpeed); recipe.addEventListener('change', onRecipe); loss.addEventListener('change', onLoss);
   const unbindKeys = bindKeyboard(host, () => status, inject);
   host.dispatchEvent(new Event('encore:control-query'));
-  return { dispose() { unbindKeys(); panel.removeEventListener('click', onClick); host.removeEventListener('encore:control-status', onStatus); speed.removeEventListener('change', onSpeed); recipe.removeEventListener('change', onRecipe); panel.remove(); } };
+  return { dispose() { unbindKeys(); panel.removeEventListener('click', onClick); host.removeEventListener('encore:control-status', onStatus); speed.removeEventListener('change', onSpeed); recipe.removeEventListener('change', onRecipe); loss.removeEventListener('change', onLoss); panel.remove(); } };
 }
