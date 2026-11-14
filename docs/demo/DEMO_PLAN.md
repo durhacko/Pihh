@@ -101,12 +101,12 @@ While both arms fly the static brain, every Encore-only caption carries an amber
   - Two runs from the demo's own reset end with identical `stateHash` values, HUD samples and event logs, even when status arrives only every 7 ticks.
   - Stop, including inside the 3 s window before an event, restart and an outside reset work.
   - A failed or late beat is reported in the bar.
-- One headless Chromium run of this code, split view, 1440×900, software WebGL:
+- Two headless Chromium runs of this code, split view, 1440×900, software WebGL, the second after rebasing on `ac46156`:
   - the whole script ran with no page errors;
   - alive went from 200 to 180 in both arms at the kill;
   - the jam was active from tick 1080 to 1360;
   - each caption, and the static-brain note, appeared on its beat;
-  - it ended at tick ~1805 after 111 s real time, which includes the 0.5× section;
+  - the runs ended at tick ~1800 after 105–111 s real time, which includes the 0.5× section;
   - it rendered 8–16 fps on software WebGL. That says nothing about a laptop GPU: record real fps at rehearsal.
 - Layout measured at 1440×900, 1280×800 and 1000×760: the bar does not overlap the HUD, the control panel, the camera buttons, the help text or the fps readout.
 
