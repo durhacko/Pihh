@@ -237,8 +237,8 @@ World behaviour that other packages rely on:
 export interface MetricsSample {       // one per 5 ticks, per world
   tick: number; alive: number;
   coverage: number;                    // occupied slots / n0
-  pwc: number; npwc: number;           // priority-weighted coverage, and normalised by what M survivors could reach
-  sfMean: number; sfMax: number;       // shape fidelity, metres (label-independent)
+  pwc: number; npwc: number | null;    // priority-weighted coverage, and normalised by what M survivors could reach (null when alive is 0)
+  sfMean: number | null; sfMax: number | null;   // shape fidelity, metres (label-independent); null when alive is 0
   dupSlots: number;                    // slots claimed by 2+ live drones
   versions: Record<string, number>;    // "issuedTick:origin" -> live drones believing it
   msgs: { hb: number; score: number; delivered: number; lost: number; blocked: number };   // cumulative
@@ -259,12 +259,17 @@ export interface RunRecord {
 export type SlotStatus = 'occupied' | 'inTransit' | 'vacant' | 'contested';
 export interface Observer {
   registerScore(score: Score): void;                     // call for the preloaded score and for every score scheduled with INJECT_SCORE
+  recordEvent(event: EnvEvent): void;                    // call for every environment event scheduled into this world, scripted or live; read-only metadata for summaries
   sample(snapshot: WorldSnapshot): MetricsSample | null; // call every tick; returns a sample every 5 ticks
   slotStatus(snapshot: WorldSnapshot): { formation: Formation; inHold: boolean; status: SlotStatus[] };   // the reference formation at this tick, and each slot's status by index
   summary(): Record<string, number | null>;
 }
 // createObserver(params: Params): Observer
 ```
+
+**Event times.** The app and the CLI call `recordEvent` for every `EnvEvent` they schedule into a world (the scripted ones at start, live ones as they are scheduled). The observer keeps a copy and uses only events whose tick has passed; it needs them for exact times in the summaries (first `KILL`, `INJECT_SCORE`, last `PARTITION_OFF`), which snapshots alone cannot give. It never touches the world.
+
+**Empty swarm.** When no drone is alive, `npwc`, `sfMean` and `sfMax` are `null`: there is nothing to normalise by and no nearest drone. `coverage` and `pwc` are 0.
 
 **Reference formation.** Each world is measured against the newest registered score that at least one live drone **in that world** believes, at the current movement by the clock. So the static world is always measured against its preloaded score, and is not marked down for a new score it could never receive; that capability difference is reported through the adoption metrics instead. "Occupied" is defined once, in the observer: a live drone within `rOcc` of the slot position. `inTransit`: not occupied, and exactly one live drone's `belief.slot` names it. `contested`: two or more do. `vacant`: none does. The app draws these and never recomputes them.
 
