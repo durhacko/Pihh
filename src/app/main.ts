@@ -1,5 +1,4 @@
 import { Vector3 } from 'three';
-import { DT } from '../contracts';
 import type { EnvEvent, MetricsSample, Vec3, WorldSnapshot } from '../contracts';
 import { bindControls } from './actions';
 import { CameraRig, type CameraPreset } from './render/CameraRig';
@@ -9,7 +8,7 @@ import { WorldView } from './render/WorldView';
 import { createPanels } from './ui';
 import { bindHud } from './ui/Hud';
 import { idsInSphere } from '../sim';
-import { ARMS, controlContext, createWorlds, encoreBrainIsFixture, killEvent, viewModeDisplay, type Arm, type Pair } from './worlds';
+import { ARMS, controlContext, createFrameLoop, createWorlds, encoreBrainIsFixture, hudPayload, killEvent, viewModeDisplay, type Arm, type Pair } from './worlds';
 import './style.css';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -43,9 +42,7 @@ const first = worlds.stepBoth();
 const buffers: Pair<SnapshotBuffer> = { encore: new SnapshotBuffer(first.encore), static: new SnapshotBuffer(first.static) };
 seedLabel.textContent = String(worlds.seed);
 
-/** A per-tick evidence hook a view may grow (issue #46). Called defensively; WorldView does not have it yet. */
-type IngestingView = WorldView & { ingest?: (snapshot: WorldSnapshot) => void };
-interface MountedView { arm: Arm; view: IngestingView }
+interface MountedView { arm: Arm; view: WorldView }
 
 const rig = new CameraRig();
 const views: MountedView[] = [];
@@ -64,14 +61,14 @@ try {
   host.innerHTML = '<p class="error">WebGL could not start. Enable browser graphics acceleration and reload.</p>';
   throw error;
 }
-for (const { arm, view } of views) view.ingest?.(first[arm]);
+for (const { arm, view } of views) view.ingest(first[arm]);
 const panels = createPanels({ host: app });
 
-/** One simulation tick for both worlds; every view sees every tick's snapshot, not only the drawn ones. */
+/** One simulation tick for both worlds; every view ingests every tick's snapshot (#46), not only the drawn ones. */
 function advance(): Pair<WorldSnapshot> {
   const snapshots = worlds.stepBoth();
   for (const arm of ARMS) buffers[arm].push(snapshots[arm]);
-  for (const { arm, view } of views) view.ingest?.(snapshots[arm]);
+  for (const { arm, view } of views) view.ingest(snapshots[arm]);
   return snapshots;
 }
 
@@ -81,9 +78,15 @@ let refreshControls = (): void => {};
 
 function reset(seed: number): void {
   worlds.reset(seed);
+  for (const { view } of views) view.reset();   // retained radio/death evidence belongs to the old worlds
+  if (loopError) transport.playing = true;       // R after a stopped loop is the recovery: run the new show
+  loopError = null;
+  worldsBroken = false;
+  delete readout.dataset.error;
   advance();
   seedLabel.textContent = String(worlds.seed);
   refreshControls();
+  feedHud();   // the old run's numbers vanish at once (the new samples are null until tick 5)
 }
 
 function setSpeed(speed: number): void {
@@ -93,6 +96,10 @@ function setSpeed(speed: number): void {
 }
 
 function setPlaying(playing: boolean): void {
+  // After a failed tick the worlds may be half-stepped: only a reset may run them again.
+  if (playing && worldsBroken) { refreshControls(); return; }
+  // After a render-only failure the worlds are intact: playing again clears the report (a repeat re-reports).
+  if (playing && loopError) { loopError = null; delete readout.dataset.error; }
   transport.playing = playing;
   refreshControls();
 }
@@ -230,57 +237,73 @@ function onKey(event: KeyboardEvent) {
 }
 window.addEventListener('keydown', onKey);
 
-let previousTime = performance.now();
-let accumulator = 0;
 let measuredTime = 0;
 let measuredFrames = 0;
 let animation = 0;
 let lastControlRefresh = 0;
 // The comparison HUD (#24) is fed explicitly by the bootstrap: observer samples, roster, fps, layout, brains.
-// bindHud throttles its own publishing to 4 Hz; feed it when a new sample lands or the fps reading changes.
+// bindHud throttles its own publishing to 4 Hz; feed it when a new sample lands, the fps reading changes, or on reset.
 const hud = bindHud(app);
 let lastFps: number | null = null;
 let lastHudTick = -1;
 function feedHud(): void {
-  const samples = worlds.samples();
-  lastHudTick = samples.encore?.tick ?? -1;
-  hud.update({
-    ...samples, rosterSize: params.n0, fps: lastFps, layout: split ? 'split' : views[0].arm,
-    brainKinds: { encore: worlds.worlds.encore.config.brain.kind, static: worlds.worlds.static.config.brain.kind },
-  });
+  lastHudTick = worlds.samples().encore?.tick ?? -1;
+  hud.update(hudPayload(worlds, { fps: lastFps, layout: split ? 'split' : views[0].arm }));
 }
 feedHud();
-function draw(now: number) {
-  const dtReal = Math.max(0, (now - previousTime) / 1000);
-  previousTime = now;
-  if (transport.playing) accumulator += Math.min(dtReal, 0.1) * transport.speed;
-  let steps = 0;
-  while (accumulator >= DT && steps < 5) { advance(); accumulator -= DT; steps++; }
-  if (steps === 5) accumulator = Math.min(accumulator, DT);   // fell behind: drop the backlog, never fake ticks
-  if (steps > 0 && now - lastControlRefresh >= 200) { refreshControls(); lastControlRefresh = now; }   // ≤ 5 Hz
-  if (steps > 0 && (worlds.samples().encore?.tick ?? -1) !== lastHudTick) feedHud();   // new sample, or a reset
-  lastAlpha = accumulator / DT;
-  for (const { arm, view } of views) view.render(buffers[arm].frame(lastAlpha, dtReal));
-  measuredTime += dtReal;
-  measuredFrames++;
-  if (measuredTime >= 1) {
-    const snapshots = current();
-    const alive = { encore: snapshots.encore.drones.filter(d => d.alive).length, static: snapshots.static.drones.filter(d => d.alive).length };
-    const fps = measuredFrames / measuredTime;
-    lastFps = fps;
-    feedHud();
-    readout.dataset.fps = fps.toFixed(1);
-    readout.dataset.tick = String(snapshots.encore.tick);
-    readout.dataset.visible = String(alive[views[0].arm]);
-    readout.dataset.aliveEncore = String(alive.encore);
-    readout.dataset.aliveStatic = String(alive.static);
-    readout.textContent = `encore ${alive.encore} / static ${alive.static} alive of ${params.n0}${split ? '' : ` · showing ${views[0].arm}`}\n${fps.toFixed(0)} rendered fps · tick ${snapshots.encore.tick}${transport.playing ? '' : ' · paused'}`;
-    measuredTime = 0;
-    measuredFrames = 0;
-  }
-  animation = requestAnimationFrame(draw);
+
+// A throw from a tick or a render pauses the show and is reported here; the loop keeps running, so R recovers.
+let loopError: string | null = null;
+let worldsBroken = false;   // a tick failed: the worlds may be half-stepped until a reset
+function readoutText(alive: Pair<number>, fps: number | null, tick: number): string {
+  const main = `encore ${alive.encore} / static ${alive.static} alive of ${params.n0}${split ? '' : ` · showing ${views[0].arm}`}\n${fps === null ? '—' : fps.toFixed(0)} rendered fps · tick ${tick}${transport.playing ? '' : ' · paused'}`;
+  return loopError ? `${main}\nStopped: ${loopError} · press R to reset` : main;
 }
-animation = requestAnimationFrame(draw);
+function aliveNow(): Pair<number> {
+  const s = current();
+  return { encore: s.encore.drones.filter(d => d.alive).length, static: s.static.drones.filter(d => d.alive).length };
+}
+const loop = createFrameLoop(transport, {
+  advance,
+  render(alpha, dtReal, steps, now) {
+    if (steps > 0 && now - lastControlRefresh >= 200) { refreshControls(); lastControlRefresh = now; }   // ≤ 5 Hz
+    if (steps > 0 && (worlds.samples().encore?.tick ?? -1) !== lastHudTick) feedHud();   // a new sample landed
+    lastAlpha = alpha;
+    // Views sharing one camera (split) must not each advance its damped OrbitControls: update it once.
+    const sharedRig = views.length > 1;
+    if (sharedRig) rig.update();
+    for (const { arm, view } of views) view.render(buffers[arm].frame(alpha, dtReal), !sharedRig);
+    measuredTime += dtReal;
+    measuredFrames++;
+    if (measuredTime >= 1) {
+      const alive = aliveNow();
+      const fps = measuredFrames / measuredTime;
+      lastFps = fps;
+      feedHud();
+      readout.dataset.fps = fps.toFixed(1);
+      readout.dataset.tick = String(worlds.tick);
+      readout.dataset.visible = String(alive[views[0].arm]);
+      readout.dataset.aliveEncore = String(alive.encore);
+      readout.dataset.aliveStatic = String(alive.static);
+      readout.textContent = readoutText(alive, fps, worlds.tick);
+      measuredTime = 0;
+      measuredFrames = 0;
+    }
+  },
+  onError(error, phase) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Keep the root cause: once a tick has failed, later errors (e.g. a lockstep check) do not overwrite it.
+    if (worldsBroken) return;
+    if (message !== loopError) console.error(`Encore loop stopped (${phase})`, error);   // once, not every frame
+    worldsBroken = phase === 'tick';
+    loopError = message;
+    readout.dataset.error = loopError;
+    try { readout.textContent = readoutText(aliveNow(), lastFps, worlds.tick); } catch { readout.textContent = `Stopped: ${loopError} · press R to reset`; }
+    refreshControls();
+  },
+  request(frame) { animation = requestAnimationFrame(frame); },
+}, performance.now());
+animation = requestAnimationFrame(loop.frame);
 
 if (import.meta.hot) import.meta.hot.dispose(() => {
   cancelAnimationFrame(animation);
