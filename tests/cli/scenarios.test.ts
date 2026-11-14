@@ -4,7 +4,7 @@ import type { EnvEvent, Vec3 } from '../../src/contracts';
 import { composeNext, expandRecipe } from '../../src/score';
 import { PACE_SETTLE_TICKS } from '../../src/agent/steer';
 import {
-  A_HOLD_READY_BY, A_START_TICK, B_HOLD_BY, buildEvalScore, buildScenario, JAM_CENTRE, JAM_RADIUS, PLANE_P,
+  A_HOLD_READY_BY, A_START_TICK, aStartTick, B_HOLD_BY, buildEvalScore, buildScenario, JAM_CENTRE, JAM_RADIUS, PLANE_P,
   RECIPE_A, RECIPE_INJECT, SCENARIO_IDS, SCENARIO_TICKS, S4_PLANE_BAND,
 } from '../../src/cli/scenarios';
 
@@ -52,19 +52,30 @@ describe('EVAL score', () => {
     expect((b?.startTick ?? 0) + (b?.transitionTicks ?? 0)).toBeLessThanOrEqual(B_HOLD_BY);
   });
 
-  it.each([100, 150, 200])('with A_START_TICK, at n0 = %i the guards hold (A hold + holdGrace <= A_HOLD_READY_BY, B hold <= B_HOLD_BY)', (n0) => {
+  it.each([100, 150, 200, 250, 300])('at n0 = %i the guards hold (A hold + holdGrace <= A_HOLD_READY_BY, B hold <= B_HOLD_BY)', (n0) => {
     const p = makeParams(n0);
-    const score = buildEvalScore(p);   // throws if either guard fails
+    const score = buildEvalScore(p);   // throws if a guard fails
     const [a, b] = score.movements;
-    expect(a?.startTick).toBe(A_START_TICK);
-    expect((a?.startTick ?? 0) + (a?.transitionTicks ?? 0) + p.holdGrace).toBeLessThanOrEqual(A_HOLD_READY_BY);
+    const tA = a?.transitionTicks ?? 0;
+    expect(a?.startTick).toBe(aStartTick(tA, p));
+    expect(a?.startTick).toBeLessThanOrEqual(A_START_TICK);
+    expect((a?.startTick ?? 0) + tA + p.holdGrace).toBeLessThanOrEqual(A_HOLD_READY_BY);
     expect((b?.startTick ?? 0) + (b?.transitionTicks ?? 0)).toBeLessThanOrEqual(B_HOLD_BY);
-    // Paced targets reach A's slots PACE_SETTLE_TICKS before A's hold: that must be after launch (tick 0).
-    expect((a?.startTick ?? 0) + (a?.transitionTicks ?? 0) - PACE_SETTLE_TICKS).toBeGreaterThan(0);
+    // Paced targets reach A's slots PACE_SETTLE_TICKS before A's hold. The launch window (from tick 0) must exist,
+    // and must be long enough for the farthest drone at vMax: half the authoring formula's 0.5 vMax flight time.
+    const window = (a?.startTick ?? 0) + tA - PACE_SETTLE_TICKS;
+    expect(window).toBeGreaterThanOrEqual(Math.ceil((tA - PACE_SETTLE_TICKS) / 2));
+  });
+
+  it('at n0 = 200, A starts at A_START_TICK (-40); at larger n0 it starts earlier, never later', () => {
+    expect(buildEvalScore(makeParams(200)).movements[0].startTick).toBe(-40);
+    const s300 = buildEvalScore(makeParams(300)).movements[0];
+    expect(s300.startTick).toBeLessThan(A_START_TICK);
+    expect(s300.startTick + s300.transitionTicks + makeParams(300).holdGrace).toBe(A_HOLD_READY_BY);
   });
 
   it('throws a clear error when A cannot reach its hold in time', () => {
-    expect(() => buildEvalScore(makeParams(200, { vMax: 0.5 }))).toThrow(/movement A's holdStart.*more negative/);
+    expect(() => buildEvalScore(makeParams(200, { vMax: 0.5 }))).toThrow(/movement A cannot reach its hold in time/);
   });
 });
 

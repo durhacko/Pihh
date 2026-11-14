@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeParams, OPERATOR } from '../../src/contracts';
 import type { Movement, Recipe, Score, Vec3 } from '../../src/contracts';
-import { currentMovement, expandRecipe, launchPos, makeScore } from '../../src/score';
+import { composeNext, currentMovement, expandRecipe, launchPos, makeScore } from '../../src/score';
 import { PACE_SETTLE_TICKS, pacedSlotPos } from '../../src/agent/steer';
 
 const N = 30;
@@ -82,11 +82,33 @@ describe('pacedSlotPos', () => {
     expect(pacedSlotPos(one, 1e6, 4, N, P)).toEqual(slotOf(SPHERE, 4));
   });
 
-  it('a tick before the first movement starts: the launch position', () => {
+  it('a tick before the first movement starts: the launch position (launch movement from tick 0)', () => {
+    expect(currentMovement(TWO, -5).index).toBe(0);
+    for (const tick of [-100, -5, -1]) expect(pacedSlotPos(TWO, tick, 3, N, P)).toEqual(launchPos(3, N));
+  });
+
+  it('movement 0 that starts after tick 0 is not paced: there is no known previous formation', () => {
     const late = score({ startTick: 100, transitionTicks: 200, recipe: SPHERE });
-    expect(currentMovement(late, 50).index).toBe(0);
-    for (const tick of [-10, 0, 50, 99, 100]) expect(pacedSlotPos(late, tick, 3, N, P)).toEqual(launchPos(3, N));
-    expectClose(pacedSlotPos(late, 120, 3, N, P), lerp(launchPos(3, N), slotOf(SPHERE, 3), 20 / (300 - PACE_SETTLE_TICKS - 100)));
+    for (const tick of [-10, 0, 50, 100, 150, 400]) expect(pacedSlotPos(late, tick, 3, N, P)).toEqual(slotOf(SPHERE, 3));
+  });
+
+  it('an injected score (composeNext) during a transition does not pace from the launch grid', () => {
+    // At tick 650 movement B (HELIX) of TWO is mid-transition. composeNext keeps only B, as movement 0 (startTick 600),
+    // and appends the new movement. B must stay unpaced (its slot), never a point pulled towards the ground grid.
+    const injected = composeNext(TWO, 650, { kind: 'text', text: 'X' }, 0, N, P);
+    expect(injected.movements[0].startTick).toBe(600);
+    expect(injected.movements[0].recipe).toEqual(HELIX);
+    const next = injected.movements[1];
+    for (const tick of [650, 660, next.startTick - 1]) expect(pacedSlotPos(injected, tick, 3, N, P)).toEqual(slotOf(HELIX, 3));
+    // The injected movement itself is paced from B's slot, which the score does hold.
+    expect(pacedSlotPos(injected, next.startTick, 3, N, P)).toEqual(slotOf(HELIX, 3));
+    const end = next.startTick + next.transitionTicks - PACE_SETTLE_TICKS;
+    expect(pacedSlotPos(injected, end, 3, N, P)).toEqual(expandRecipe(next.recipe, N, P).slots[3].pos);
+  });
+
+  it('a later-movement tick before its start keeps flying the previous movement (currentMovement decides)', () => {
+    expectClose(pacedSlotPos(TWO, 599, 3, N, P), slotOf(SPHERE, 3));
+    expectClose(pacedSlotPos(TWO, 120, 3, N, P), lerp(launchPos(3, N), slotOf(SPHERE, 3), 120 / A_END));
   });
 
   it('a movement that started before tick 0 (like EVAL movement A) is paced from tick 0, not from its startTick', () => {

@@ -101,9 +101,13 @@ export const PACE_SETTLE_TICKS = Math.round(3 / DT);
 /**
  * Where slot `slot` of the movement current at `tick` is "now" for steering (section 10, paced targets; #80).
  * Instead of jumping to the new slot when a movement starts, the point moves in a straight line, at constant
- * speed, from the same slot index of the previous movement (the launch position `launchPos(slot, n0)` for
- * movement 0) to the slot. With begin = max(startTick, 0) and end = holdStart - PACE_SETTLE_TICKS:
- * f = 0 at and before begin, f = 1 at and after end, linear in between; if end <= begin it is the slot itself.
+ * speed, from the same slot index of the previous movement to the slot. With begin = max(startTick, 0) and
+ * end = holdStart - PACE_SETTLE_TICKS: f = 0 at and before begin, f = 1 at and after end, linear in between;
+ * if end <= begin it is the slot itself.
+ * Movement 0 has no previous movement in the score. If it starts at or before tick 0 it is the launch movement and
+ * is paced from the launch position `launchPos(slot, n0)`. If it starts later it is not paced (the slot itself):
+ * that is the current movement that composeNext carries into an injected score, whose previous formation the
+ * score no longer holds, and pacing it from the launch grid would pull the drone towards the ground.
  * Every drone of a formation moves its point in step, so crossing traffic meets at transit speeds the
  * sidestep can handle instead of at vMax. Always a new array. Pure: a function of the score and the clock.
  */
@@ -111,6 +115,7 @@ export function pacedSlotPos(score: Score, tick: number, slot: number, n0: numbe
   const cm = currentMovement(score, tick);
   const to = expandRecipe(cm.movement.recipe, n0, params).slots[slot]?.pos;
   if (to === undefined) throw new RangeError(`pacedSlotPos: slot ${slot} does not exist for n0 = ${n0}`);
+  if (cm.index === 0 && cm.movement.startTick > 0) return [to[0], to[1], to[2]];
   const begin = Math.max(cm.movement.startTick, 0);
   const span = cm.holdStart - PACE_SETTLE_TICKS - begin;
   if (!(span > 0) || tick >= begin + span) return [to[0], to[1], to[2]];
