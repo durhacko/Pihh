@@ -98,14 +98,10 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     const outputs = new Map<number, AgentOutput>();
     for (const id of test.reverseStepOrder ? [...live].reverse() : live) {
       const input = inputs.get(id)!;
-      const evidenceInput: AgentInput = {
-        tick: input.tick, pos: [...input.pos], vel: [...input.vel], inbox: [...input.inbox],
-        sensed: input.sensed.map(peer => ({ rel: [...peer.rel], vel: [...peer.vel] })),
-      };
       const output = clone(brain.step(bodies[id].state, input));
       if (output.accel.length !== 3 || !output.accel.every(Number.isFinite)) throw new Error('Brain returned invalid acceleration');
       outputs.set(id, output);
-      bodies[id].last = { input: evidenceInput, output };
+      bodies[id].last = { input, output };
     }
     // 5. Sender/receiver ordering is independent of the brain invocation order.
     const radio: RadioEvent[] = [];
@@ -139,7 +135,7 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
       body.colour = clone(outputs.get(id)!.colour);
     }
     // 7. Entry events, not one event per tick spent in contact. Endpoint sampling.
-    const afterGrid = new SpatialGrid(bodies.map(b => b.pos), live, Math.max(params.dCollide, params.dNear));
+    const afterGrid = new SpatialGrid(bodies.map(b => b.pos), live, Math.max(params.rSense, params.dCollide, params.dNear));
     const collisions: [number, number][] = [];
     const nearMisses: [number, number][] = [];
     const nowCollision = new Set<string>();

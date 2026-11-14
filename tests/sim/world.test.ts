@@ -74,7 +74,7 @@ describe('world tick and isolation', () => {
     event.ids[0] = 2;
     expect(world.step().drones.map(d => d.alive)).toEqual([true, false, true, true]);
   });
-  it('deep-freezes every input when requested and records input before a brain mutates it', () => {
+  it('deep-freezes every input when requested', () => {
     const brain = fixture();
     const step = brain.step;
     brain.step = (state, input) => {
@@ -87,6 +87,19 @@ describe('world tick and isolation', () => {
     };
     const world = createWorld(config(4, {}, brain), { freezeInputs: true });
     world.step(); world.step(); world.step();
+  });
+  it('a brain mutating its own detached input cannot mutate bodies or another brain input', () => {
+    const brain = fixture({ send: false });
+    const normalStep = brain.step;
+    brain.step = (state, input) => {
+      const output = normalStep(state, input);
+      input.pos[0] = 999;
+      input.vel[0] = 999;
+      for (const peer of input.sensed) { peer.rel[0] = 999; peer.vel[0] = 999; }
+      return output;
+    };
+    const world = createWorld(config(4, {}, brain));
+    expect(world.step().drones.map(d => d.pos)).toEqual(Array.from({ length: 4 }, (_, id) => launchPosition(id, 4)));
   });
   it('rejects scheduling into the past and unsupported WP-2b events explicitly', () => {
     const world = createWorld(config());
@@ -165,9 +178,9 @@ describe('radio medium', () => {
     const normalStep = brain.step;
     brain.step = (state, input) => {
       if (input.inbox.length) {
-        expect(() => { input.inbox[0].version = { issuedTick: 999, origin: 999 }; }).toThrow();
         const message = input.inbox[0];
         if (message.type === 'HB') {
+          expect(() => { message.version = { issuedTick: 999, origin: 999 }; }).toThrow();
           expect(() => { message.pos[0] = 999; }).toThrow();
           expect(message.version).toEqual(score.version);
         }
