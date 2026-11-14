@@ -34,7 +34,9 @@ export class HudModel {
   private payload: HudPayload = { encore: null, static: null };
 
   update(payload: HudPayload): void {
-    this.payload = { ...this.payload, ...structuredClone(payload) };
+    // Each update describes the current observation. Omitted optional telemetry is unknown,
+    // not permission to retain an old run's FPS, hold state, layout or brain label.
+    this.payload = structuredClone(payload);
     for (const arm of ['encore', 'static'] as const) {
       const sample = payload[arm];
       const previous = this.previous[arm];

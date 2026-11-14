@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { MetricsSample } from '../../../src/contracts';
 import { bindHud, formatMetres, formatPercent, HudModel, type HudPresentation } from '../../../src/app/ui/Hud';
+import { makeParams } from '../../../src/contracts';
+import { staticBrain } from '../../../src/agent/staticBrain';
+import { createObserver } from '../../../src/observer';
+import { makeScore } from '../../../src/score';
+import { createWorld } from '../../../src/sim';
 
 function sample(tick = 5, overrides: Partial<MetricsSample> = {}): MetricsSample {
   return { tick, alive: 40, coverage: 1, pwc: 20, npwc: 1, sfMean: 0.2, sfMax: 0.5, dupSlots: 0, versions: { '0:-1': 40 }, msgs: { hb: 10, score: 0, delivered: 80, lost: 10, blocked: 10 }, collisions: 2, nearMisses: 3, slotChanges: 0, ...overrides };
@@ -54,6 +59,28 @@ describe('HUD sample presentation', () => {
     model.update({ encore: sample(5), static: quiet }); expect(model.present().status).toBe('Samples are from different ticks');
     expect(model.present().static?.delivered).toBe('No transmission candidates');
   });
+  it('does not retain optional telemetry when the current observation omits it', () => {
+    const model = new HudModel();
+    model.update({ encore: sample(), static: sample(), rosterSize: 200, fps: 57, quality: 'high',
+      layout: 'split', inHold: { encore: true, static: true }, radio: { drawn: 2, observed: 8 },
+      brainKinds: { encore: 'static', static: 'static' } });
+    model.update({ encore: sample(10), static: sample(10) });
+    const current = model.present();
+    expect(current.fps).toBe('FPS not measured'); expect(current.quality).toBe('Quality not reported');
+    expect(current.radio).toBe('Radio drawing not reported'); expect(current.layout).toBe('View layout not reported');
+    expect(current.encore?.alive).toBe('40 / ?'); expect(current.encore?.transitioning).toBeNull();
+    expect(current.encore?.label).toContain('brain not reported');
+    model.update({ encore: null, static: null });
+    expect(model.present().encore).toBeNull();
+    expect(model.present().status).toBe('Waiting for both observer samples');
+  });
+  it('uses the actual elapsed sample ticks across skipped presentation updates', () => {
+    const model = new HudModel();
+    model.update({ encore: sample(5), static: sample(5) });
+    const next = sample(20, { msgs: { hb: 13, score: 0, delivered: 80, lost: 10, blocked: 10 } });
+    model.update({ encore: next, static: next });
+    expect(model.present().encore?.messages).toBe('4.0 broadcasts / sim s');
+  });
 });
 
 describe('HUD explicit binding', () => {
@@ -77,4 +104,35 @@ describe('HUD explicit binding', () => {
     host.dispatchEvent(new Event('encore:hud-query')); binding.update({ encore: sample(), static: sample() }); expect(events).toBe(0);
     const fresh = bindHud(host, timing); expect(fresh).not.toBe(binding); fresh.dispose();
   });
+});
+
+it('presents real observer samples before and after an actual all-drone kill', () => {
+  const params = makeParams(4);
+  const score = makeScore([{ kind: 'sphere' }], params.n0, params);
+  const world = createWorld({ seed: 101, params, score, brain: staticBrain });
+  const observer = createObserver(params);
+  observer.registerScore(score);
+  const kill = { type: 'KILL' as const, tick: 10, ids: [0, 1, 2, 3] };
+  world.schedule(kill); observer.recordEvent(kill);
+  const model = new HudModel();
+  const displayed: number[] = [];
+  for (let tick = 1; tick <= 10; tick++) {
+    const metrics = observer.sample(world.step());
+    if (!metrics) continue;
+    model.update({ encore: metrics, static: metrics, rosterSize: params.n0,
+      brainKinds: { encore: 'static', static: 'static' } });
+    const view = model.present();
+    expect(view.status).toBe('Observer measurements · same simulation tick');
+    for (const arm of ['encore', 'static'] as const) {
+      expect(view[arm]?.alive).toBe(`${metrics.alive} / ${params.n0}`);
+      expect(view[arm]?.npwc).toBe(metrics.npwc === null ? 'Unavailable' : `${(metrics.npwc * 100).toFixed(1)}%`);
+      const candidates = metrics.msgs.delivered + metrics.msgs.lost + metrics.msgs.blocked;
+      expect(view[arm]?.delivered).toBe(candidates === 0 ? 'No transmission candidates'
+        : `${(metrics.msgs.delivered / candidates * 100).toFixed(1)}% delivered (cumulative)`);
+    }
+    displayed.push(metrics.alive);
+  }
+  expect(displayed).toEqual([4, 0]);
+  expect(model.present().encore?.npwcNote).toBe('No live drones');
+  expect(model.present().encore?.fidelity).toBe('Unavailable mean / Unavailable max');
 });
