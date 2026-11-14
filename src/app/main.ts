@@ -1,11 +1,14 @@
-import { DT } from '../contracts';
-import type { EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
-import { composeNext } from '../score';
+import { Vector3 } from 'three';
+import type { EnvEvent, MetricsSample, Vec3, WorldSnapshot } from '../contracts';
+import { bindControls } from './actions';
 import { CameraRig, type CameraPreset } from './render/CameraRig';
-import { SnapshotBuffer } from './render/SnapshotBuffer';
+import { resetViewMode } from './render/colourModes/viewMode';
+import { interpolateDrone, SnapshotBuffer } from './render/SnapshotBuffer';
 import { WorldView } from './render/WorldView';
 import { createPanels } from './ui';
-import { ARMS, createWorlds, encoreBrainIsFixture, idsInRegion, killEvent, type Arm, type Pair } from './worlds';
+import { bindHud } from './ui/Hud';
+import { idsInSphere } from '../sim';
+import { ARMS, controlContext, createFrameLoop, createWorlds, encoreBrainIsFixture, hudPayload, killEvent, viewModeDisplay, type Arm, type Pair } from './worlds';
 import './style.css';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -32,15 +35,14 @@ const seedLabel = app.querySelector<HTMLElement>('.seed')!;
 
 // The only place the app holds worlds. It changes them only through stepBoth / scheduleBoth / reset.
 const worlds = createWorlds({ seed: initialSeed });
+resetViewMode();   // view state is a module singleton (#25); start every load (and HMR reload) from defaults
 const params = worlds.params;
 const transport = { playing: true, speed: 1 };
 const first = worlds.stepBoth();
 const buffers: Pair<SnapshotBuffer> = { encore: new SnapshotBuffer(first.encore), static: new SnapshotBuffer(first.static) };
 seedLabel.textContent = String(worlds.seed);
 
-/** A per-tick evidence hook a view may grow (issue #46). Called defensively; WorldView does not have it yet. */
-type IngestingView = WorldView & { ingest?: (snapshot: WorldSnapshot) => void };
-interface MountedView { arm: Arm; view: IngestingView }
+interface MountedView { arm: Arm; view: WorldView }
 
 const rig = new CameraRig();
 const views: MountedView[] = [];
@@ -59,14 +61,14 @@ try {
   host.innerHTML = '<p class="error">WebGL could not start. Enable browser graphics acceleration and reload.</p>';
   throw error;
 }
-for (const { arm, view } of views) view.ingest?.(first[arm]);
+for (const { arm, view } of views) view.ingest(first[arm]);
 const panels = createPanels({ host: app });
 
-/** One simulation tick for both worlds; every view sees every tick's snapshot, not only the drawn ones. */
+/** One simulation tick for both worlds; every view ingests every tick's snapshot (#46), not only the drawn ones. */
 function advance(): Pair<WorldSnapshot> {
   const snapshots = worlds.stepBoth();
   for (const arm of ARMS) buffers[arm].push(snapshots[arm]);
-  for (const { arm, view } of views) view.ingest?.(snapshots[arm]);
+  for (const { arm, view } of views) view.ingest(snapshots[arm]);
   return snapshots;
 }
 
@@ -76,9 +78,15 @@ let refreshControls = (): void => {};
 
 function reset(seed: number): void {
   worlds.reset(seed);
+  for (const { view } of views) view.reset();   // retained radio/death evidence belongs to the old worlds
+  if (loopError) transport.playing = true;       // R after a stopped loop is the recovery: run the new show
+  loopError = null;
+  worldsBroken = false;
+  delete readout.dataset.error;
   advance();
   seedLabel.textContent = String(worlds.seed);
   refreshControls();
+  feedHud();   // the old run's numbers vanish at once (the new samples are null until tick 5)
 }
 
 function setSpeed(speed: number): void {
@@ -88,6 +96,10 @@ function setSpeed(speed: number): void {
 }
 
 function setPlaying(playing: boolean): void {
+  // After a failed tick the worlds may be half-stepped: only a reset may run them again.
+  if (playing && worldsBroken) { refreshControls(); return; }
+  // After a render-only failure the worlds are intact: playing again clears the report (a repeat re-reports).
+  if (playing && loopError) { loopError = null; delete readout.dataset.error; }
   transport.playing = playing;
   refreshControls();
 }
@@ -103,36 +115,16 @@ function scheduleKill(ids: readonly number[]): EnvEvent {
   return structuredClone(event);
 }
 
-// --- Controls (#22 / PR #52). bindControls is picked up when src/app/actions.ts exists; until then the
-// panel stays disabled. Shape as proposed on issue #6; the binder schedules into both worlds itself.
-interface ControlContext {
-  params: Params;
-  getWorlds(): Pair<World>;
-  getSnapshots(): Pair<WorldSnapshot>;
-  getScore(): Score;
-  getTransport(): { playing: boolean; speed: number; seed: number };
-  setPlaying(playing: boolean): void;
-  setSpeed(speed: number): void;
-  reset(seed: number): void;
-  composeScore?: (score: Score, tick: number, recipe: Recipe, origin: number, n0: number, params: Params) => Score;
-  radioFaults?: boolean;
-}
-type ControlBinder = (host: HTMLElement, context: ControlContext) => { dispose(): void; refresh?(): void };
-const controlModules = import.meta.glob<{ bindControls?: ControlBinder }>('./actions.ts', { eager: true });
-const bindControls = Object.values(controlModules)[0]?.bindControls;
-const controls = bindControls?.(app, {
-  params,
-  getWorlds: () => worlds.worlds,
+// --- Controls (#22). The binder resolves each intent once and schedules the same event into both worlds.
+const controls = bindControls(app, controlContext(worlds, {
   getSnapshots: current,
-  getScore: () => worlds.score,
   getTransport: () => ({ ...transport, seed: worlds.seed }),
   setPlaying,
   setSpeed,
   reset,
-  composeScore: composeNext,
-  radioFaults: false,   // partitions, SET_LOSS and INJECT_SCORE are WP-2b (#19), not in the world yet
-});
-if (controls?.refresh) refreshControls = () => controls.refresh?.();
+  display: viewModeDisplay,   // X / C keys and panel toggles drive the X-ray and belief layers (#25)
+}));
+refreshControls = () => controls.refresh();
 
 // --- Console handle for manual checks. Only schedules KILL events, steps or resets; never edits a drone.
 interface EncoreDebug {
@@ -142,26 +134,95 @@ interface EncoreDebug {
   snapshots(): Pair<WorldSnapshot>;
   alive(): Pair<number>;
   stateHashes(): Pair<string>;
+  /** Newest observer MetricsSample per world (every 5 ticks); the HUD is #24. */
+  samples(): Pair<MetricsSample | null>;
+  series(): Pair<readonly MetricsSample[]>;
   tick(): number;
   setPlaying(playing: boolean): void;
   setSpeed(speed: number): void;
+  /** Where a live Encore drone is drawn, in client pixels (for click-to-select checks), or null. */
+  screenOf(id: number): [number, number] | null;
 }
 declare global { interface Window { encore?: EncoreDebug } }
 window.encore = {
   killIds: ids => scheduleKill(ids),
   killRegion(centre, radius) {
-    const ids = idsInRegion(current().encore, centre, radius);
+    if (!Number.isFinite(radius) || radius <= 0) throw new RangeError('Radius must be a positive number');
+    const ids = idsInSphere(current().encore, centre, radius);
     if (ids.length === 0) throw new Error('No live Encore drones in that region');
     return scheduleKill(ids);
   },
-  reset: (seed = worlds.seed) => reset(seed),
+  // Through the controller, like the panel and R: it also clears its event log, authored score and selection.
+  reset(seed = worlds.seed) {
+    const result = controls.handle({ type: 'reset', seed });
+    if (!result.ok) throw new Error(result.message);
+  },
   snapshots: current,
   alive: () => { const s = current(); return { encore: s.encore.drones.filter(d => d.alive).length, static: s.static.drones.filter(d => d.alive).length }; },
   stateHashes: () => ({ encore: worlds.worlds.encore.stateHash(), static: worlds.worlds.static.stateHash() }),
+  samples: () => worlds.samples(),
+  series: () => worlds.series(),
   tick: () => worlds.tick,
   setPlaying,
   setSpeed,
+  screenOf: id => screenOf(id),
 };
+
+// --- Click to select, in the Encore view. Picks against what is drawn: each live drone's interpolated snapshot
+// position, projected with the shared camera; the nearest within PICK_PX wins. (DroneLayer packs live drones
+// into its instances, so a raycast instanceId is not a drone id; projecting snapshots needs no layer change.)
+const PICK_PX = 14;
+const projected = new Vector3();
+let lastAlpha = 0;
+const encoreCanvas = views.find(mounted => mounted.arm === 'encore')?.view.renderer.domElement;
+function screenPositions(): { id: number; x: number; y: number }[] {
+  if (!encoreCanvas) return [];
+  const rect = encoreCanvas.getBoundingClientRect();
+  const frame = buffers.encore.frame(lastAlpha);
+  const out: { id: number; x: number; y: number }[] = [];
+  for (const drone of frame.curr.drones) {
+    if (!drone.alive) continue;
+    projected.set(...interpolateDrone(frame.prev.drones[drone.id], drone, frame.alpha).pos).project(rig.camera);
+    // Outside the view volume (behind the camera, past the far plane, or off the canvas) is not drawn.
+    if (Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1 || projected.z < -1 || projected.z > 1) continue;
+    out.push({ id: drone.id, x: rect.left + (projected.x + 1) / 2 * rect.width, y: rect.top + (1 - projected.y) / 2 * rect.height });
+  }
+  return out;
+}
+function screenOf(id: number): [number, number] | null {
+  const hit = screenPositions().find(entry => entry.id === id);
+  return hit ? [hit.x, hit.y] : null;
+}
+function pickDrone(clientX: number, clientY: number): number | null {
+  let best: number | null = null;
+  let bestDistance2 = PICK_PX ** 2;
+  for (const { id, x, y } of screenPositions()) {
+    const distance2 = (x - clientX) ** 2 + (y - clientY) ** 2;
+    if (distance2 < bestDistance2) { bestDistance2 = distance2; best = id; }
+  }
+  return best;
+}
+// A click is one primary pointer going down and up within 5 px. A second pointer (pinch), a drag (orbit) or a
+// cancel is never a click.
+let pressed: { pointerId: number; x: number; y: number } | null = null;
+let pointersDown = 0;
+const onPointerDown = (event: PointerEvent) => {
+  pointersDown++;
+  pressed = pointersDown === 1 && event.isPrimary && event.button === 0 ? { pointerId: event.pointerId, x: event.clientX, y: event.clientY } : null;
+};
+// pointerup on window: OrbitControls captures the pointer on the element it is attached to (the pane host in split).
+const onPointerUp = (event: PointerEvent) => {
+  const start = pressed?.pointerId === event.pointerId ? pressed : null;
+  pressed = null;
+  pointersDown = Math.max(0, pointersDown - 1);
+  if (!start || event.button !== 0 || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;
+  const id = pickDrone(event.clientX, event.clientY);
+  if (id !== null) controls.selectDrone(id);
+};
+const onPointerCancel = () => { pressed = null; pointersDown = Math.max(0, pointersDown - 1); };
+encoreCanvas?.addEventListener('pointerdown', onPointerDown);
+window.addEventListener('pointerup', onPointerUp);
+window.addEventListener('pointercancel', onPointerCancel);
 
 const buttons = [...app.querySelectorAll<HTMLButtonElement>('[data-preset]')];
 function setPreset(preset: CameraPreset) {
@@ -176,45 +237,84 @@ function onKey(event: KeyboardEvent) {
 }
 window.addEventListener('keydown', onKey);
 
-let previousTime = performance.now();
-let accumulator = 0;
 let measuredTime = 0;
 let measuredFrames = 0;
 let animation = 0;
 let lastControlRefresh = 0;
-function draw(now: number) {
-  const dtReal = Math.max(0, (now - previousTime) / 1000);
-  previousTime = now;
-  if (transport.playing) accumulator += Math.min(dtReal, 0.1) * transport.speed;
-  let steps = 0;
-  while (accumulator >= DT && steps < 5) { advance(); accumulator -= DT; steps++; }
-  if (steps === 5) accumulator = Math.min(accumulator, DT);   // fell behind: drop the backlog, never fake ticks
-  if (steps > 0 && now - lastControlRefresh >= 200) { refreshControls(); lastControlRefresh = now; }   // ≤ 5 Hz
-  for (const { arm, view } of views) view.render(buffers[arm].frame(accumulator / DT, dtReal));
-  measuredTime += dtReal;
-  measuredFrames++;
-  if (measuredTime >= 1) {
-    const snapshots = current();
-    const alive = { encore: snapshots.encore.drones.filter(d => d.alive).length, static: snapshots.static.drones.filter(d => d.alive).length };
-    const fps = measuredFrames / measuredTime;
-    readout.dataset.fps = fps.toFixed(1);
-    readout.dataset.tick = String(snapshots.encore.tick);
-    readout.dataset.visible = String(alive[views[0].arm]);
-    readout.dataset.aliveEncore = String(alive.encore);
-    readout.dataset.aliveStatic = String(alive.static);
-    readout.textContent = `encore ${alive.encore} / static ${alive.static} alive of ${params.n0}${split ? '' : ` · showing ${views[0].arm}`}\n${fps.toFixed(0)} rendered fps · tick ${snapshots.encore.tick}${transport.playing ? '' : ' · paused'}`;
-    measuredTime = 0;
-    measuredFrames = 0;
-  }
-  animation = requestAnimationFrame(draw);
+// The comparison HUD (#24) is fed explicitly by the bootstrap: observer samples, roster, fps, layout, brains.
+// bindHud throttles its own publishing to 4 Hz; feed it when a new sample lands, the fps reading changes, or on reset.
+const hud = bindHud(app);
+let lastFps: number | null = null;
+let lastHudTick = -1;
+function feedHud(): void {
+  lastHudTick = worlds.samples().encore?.tick ?? -1;
+  hud.update(hudPayload(worlds, { fps: lastFps, layout: split ? 'split' : views[0].arm }));
 }
-animation = requestAnimationFrame(draw);
+feedHud();
+
+// A throw from a tick or a render pauses the show and is reported here; the loop keeps running, so R recovers.
+let loopError: string | null = null;
+let worldsBroken = false;   // a tick failed: the worlds may be half-stepped until a reset
+function readoutText(alive: Pair<number>, fps: number | null, tick: number): string {
+  const main = `encore ${alive.encore} / static ${alive.static} alive of ${params.n0}${split ? '' : ` · showing ${views[0].arm}`}\n${fps === null ? '—' : fps.toFixed(0)} rendered fps · tick ${tick}${transport.playing ? '' : ' · paused'}`;
+  return loopError ? `${main}\nStopped: ${loopError} · press R to reset` : main;
+}
+function aliveNow(): Pair<number> {
+  const s = current();
+  return { encore: s.encore.drones.filter(d => d.alive).length, static: s.static.drones.filter(d => d.alive).length };
+}
+const loop = createFrameLoop(transport, {
+  advance,
+  render(alpha, dtReal, steps, now) {
+    if (steps > 0 && now - lastControlRefresh >= 200) { refreshControls(); lastControlRefresh = now; }   // ≤ 5 Hz
+    if (steps > 0 && (worlds.samples().encore?.tick ?? -1) !== lastHudTick) feedHud();   // a new sample landed
+    lastAlpha = alpha;
+    // Views sharing one camera (split) must not each advance its damped OrbitControls: update it once.
+    const sharedRig = views.length > 1;
+    if (sharedRig) rig.update();
+    for (const { arm, view } of views) view.render(buffers[arm].frame(alpha, dtReal), !sharedRig);
+    measuredTime += dtReal;
+    measuredFrames++;
+    if (measuredTime >= 1) {
+      const alive = aliveNow();
+      const fps = measuredFrames / measuredTime;
+      lastFps = fps;
+      feedHud();
+      readout.dataset.fps = fps.toFixed(1);
+      readout.dataset.tick = String(worlds.tick);
+      readout.dataset.visible = String(alive[views[0].arm]);
+      readout.dataset.aliveEncore = String(alive.encore);
+      readout.dataset.aliveStatic = String(alive.static);
+      readout.textContent = readoutText(alive, fps, worlds.tick);
+      measuredTime = 0;
+      measuredFrames = 0;
+    }
+  },
+  onError(error, phase) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Keep the root cause: once a tick has failed, later errors (e.g. a lockstep check) do not overwrite it.
+    if (worldsBroken) return;
+    if (message !== loopError) console.error(`Encore loop stopped (${phase})`, error);   // once, not every frame
+    worldsBroken = phase === 'tick';
+    loopError = message;
+    readout.dataset.error = loopError;
+    try { readout.textContent = readoutText(aliveNow(), lastFps, worlds.tick); } catch { readout.textContent = `Stopped: ${loopError} · press R to reset`; }
+    refreshControls();
+  },
+  request(frame) { animation = requestAnimationFrame(frame); },
+}, performance.now());
+animation = requestAnimationFrame(loop.frame);
 
 if (import.meta.hot) import.meta.hot.dispose(() => {
   cancelAnimationFrame(animation);
   window.removeEventListener('keydown', onKey);
-  controls?.dispose();
+  encoreCanvas?.removeEventListener('pointerdown', onPointerDown);
+  window.removeEventListener('pointerup', onPointerUp);
+  window.removeEventListener('pointercancel', onPointerCancel);
+  controls.dispose();
+  hud.dispose();
   delete window.encore;
+  resetViewMode();
   for (const panel of panels) panel.dispose();
   rig.dispose();
   for (const { view } of views) view.dispose();

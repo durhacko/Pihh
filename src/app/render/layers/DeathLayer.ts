@@ -40,6 +40,11 @@ export default function createLayer(): Layer {
       }
       group.visible = visible;
     },
+    reset() {
+      trace.reset();
+      for (const marker of markers.values()) { group.remove(marker.flash, marker.cross); marker.material.dispose(); marker.crossMaterial.dispose(); }
+      markers.clear();
+    },
     setVisible(value) { visible = value; group.visible = value; },
     dispose() { for (const marker of markers.values()) { marker.material.dispose(); marker.crossMaterial.dispose(); } markers.clear(); geometry.dispose(); crossGeometry.dispose(); scene?.remove(group); },
   };
