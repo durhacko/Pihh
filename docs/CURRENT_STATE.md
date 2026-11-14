@@ -1,49 +1,55 @@
 # Current state
 
-> **Canonical snapshot. Keep it short and edit in place; it is not a log.** Last updated: Sat 14 Nov 2026 ~20:15 GMT by Arnav's orchestrator. Live status is always [GitHub issues](https://github.com/durhacko/Pihh/issues).
+> **Canonical snapshot. Keep it short and edit in place; it is not a log.** Last updated: Sat 14 Nov 2026 ~21:00 GMT by Arnav's orchestrator. Live status is always [GitHub issues](https://github.com/durhacko/Pihh/issues) and [pull requests](https://github.com/durhacko/Pihh/pulls).
 
 ## Phase: **implementation under way**
 
-Project: **Encore**. Stack: TypeScript, Vite, Three.js, vitest. **Scope: software only**, one laptop, no hardware, no internet ([NFR-10](specification/requirements.md)).
+Project: **Encore**. Stack: TypeScript, Vite, Three.js, vitest, Node 22.12+. **Scope: software only**, one laptop, no hardware, no internet ([NFR-10](specification/requirements.md)).
 
 | Gate | Target (GMT) | Status |
 |---|---|---|
-| G0 Design accepted + contracts merged | Sat 20:30 | **Passed 20:04.** Scaffold (#5) and contract types (#12) are on `main` |
-| G1 Local healing works headless | Sat 23:30 | In progress: #13 score and #15 steering in build; #16 Encore brain next |
-| G2 3D vertical slice | Sun 00:30 | In progress: #18 render slice, #14 world core (Williams's team) |
-| G3 Radio resilience / G4 Dissemination | Sun 02:30 / 03:30 | Not started |
-| G5 Validation | Sun 06:30 | Not started |
+| G0 Design accepted + contracts merged | Sat 20:30 | **Passed 20:04** |
+| G1 Local healing works headless | Sat 23:30 | **In progress.** Score (#13) and steering + static brain (#15) merged. Encore brain (#16) in build and verification; G1 tests (#17) follow. **Not yet proven** |
+| G2 3D vertical slice | Sun 00:30 | In progress. World core (#14) and render slice (#18) merged; the app still draws fixture drones. Integration (#6) in build |
+| G3 Radio resilience | Sun 02:30 | In review: radio faults (#19, PR #50 approved), X-ray (#25, PR #49 approved), isolation tests (#20, PR #51), controls (#22, PR #52) |
+| G4 Dissemination | Sun 03:30 | Not started (#21 waits for #16 and #19) |
+| G5 Validation | Sun 06:30 | Observer (#23, PR #53) in review; scenarios and batch runner (#26) not started |
 | Feature freeze / backup video | Sun 08:30 / 09:00 | — |
-| **G6 Submit on Devpost** | **Sun 10:15 (hard deadline 11:00)** | — |
+| **G6 Submit on Devpost** | **Sun 10:15 (hard deadline 11:00)** | Owner: Haris (#7, #8) |
 
 Gate evidence: [evaluation doc §7](validation/evaluation-and-tests.md#7-gates). Work table and dependencies: [development plan](planning/development-plan.md).
 
 ## What runs today
 
-On `main`: `npm ci && npm run check` passes (typecheck, lint with the import-boundary checker, **30 tests**, build). Those tests cover the import boundary (T01) and the contract parameters and fixtures only. **No simulation, brain or renderer code is on `main` yet, so no claim about healing, radio or dissemination is tested.**
+On `main`: `npm ci`, then `bash scripts/check.sh` passes: typecheck, lint with the import-boundary checker, **226 tests in 10 files**, build, docs link check. Covered by those tests: the import boundary (T01), contract parameters, score expansion (T17), the world core with kill and jam, steering and the static brain, the snapshot buffer.
 
-Run commands inside WSL or a normal local clone. `npm` does not work on a `\\wsl.localhost\…` path from Windows.
+**Not on `main` and therefore untested: the Encore brain, healing, partitions, score gossip, the observer, and the app running a real world.** Nobody may say healing or dissemination works until the G1 and G4 tests pass.
 
 ## Who is doing what
 
-| Who | Issues | State |
+| Who | Now | Next |
 |---|---|---|
-| Arnav (lane A, via orchestrator workers) | [#13](https://github.com/durhacko/Pihh/issues/13) score, [#15](https://github.com/durhacko/Pihh/issues/15) steering + static brain | In progress. Then #16 Encore brain, #17 G1 tests, #6 integration, #21 score gossip |
-| Williams's team (lane B, plus the render slice) | [#14](https://github.com/durhacko/Pihh/issues/14) world core, [#18](https://github.com/durhacko/Pihh/issues/18) render slice, [#20](https://github.com/durhacko/Pihh/issues/20) isolation tests | In progress |
-| Haris | [#34](https://github.com/durhacko/Pihh/issues/34) readiness check, [#1](https://github.com/durhacko/Pihh/issues/1) verify the sponsor brief | **No activity on GitHub yet; handle `sirahmo` still unconfirmed** |
+| Arnav's agents (lane A) | #16 Encore brain, #17 G1 tests (orchestrator workers); #6 integration (session `durhack-0c`) | #21 score gossip with relay test T18; brain swap in #6 |
+| Williams's team (`wpimento`) | #19, #20, #22, #23, #25 in PRs; follow-ups #46, #64 | #26 scenarios and batch runner is unowned and theirs to claim |
+| Haris (`sirahmo`) | Readiness done (#34). Documentation review: raised #55, #57 (both decided and merged), #56 (merged), #58 (needs Arnav) | #1 sponsor brief and theme wording; #7 pitch and demo plan; #8 README and Devpost draft |
 
-Unowned and coming up in lane C once #6 lands: #22 controls, #25 X-ray, #24 split view and HUD, #27 scripted demo, #7 and #8 demo and submission. If Haris does not appear, these need redistributing.
+Unowned: #24 split view and HUD, #27 scripted demo, #26 scenarios and batch runner; optional #28 ghost slots, #29 inspector.
 
-## Blockers and open questions
+## Decisions waiting for a human
 
-- **Research handoff packet not received.** [`context/research-handoff.md`](context/research-handoff.md) records the material changes from the original concept, but the comparison with the packet itself cannot be done until Arnav pastes it in.
-- **Haris's identity and readiness are unconfirmed** (#34). Coordination is exercised between Arnav's and Williams's laptops only.
-- **Neptune North brief and theme wording are team-reported, not verified** (#1).
-- The healing mechanism is a design until G1 passes (#17). Score gossip was amended at 19:50 (no same-version cancellation); its relay test T18 is specified, not yet written.
-- The docs review loop was stopped early; fixes after its last round were not re-reviewed ([review history](planning/development-plan.md#review-history)).
-- No branch protection and no Projects board (plan limits). Repo is private: decide on public or judge access before submission (#8).
+- **#58:** who may merge. `AGENTS.md` says a human other than the author; `WORKFLOW.md` lets the author merge after review, or alone after 10 minutes of green CI. Practice so far follows `WORKFLOW.md`. Arnav to confirm.
+- **Research handoff packet:** still not received ([`context/research-handoff.md`](context/research-handoff.md)). Arnav to paste it in; reconciliation is then a separate, small task.
+- Repo is private: public or judge access before submission (#8).
+
+## Known risks right now
+
+- Healing is a design until G1 passes (#17). If it fails, take the [fallback ladder](planning/decisions-and-risks.md#fallback-ladder-if-healing-fails-g1).
+- The documented sidestep acts for only a tick or two at high closing speeds, so **formation changes will produce counted collisions** (found verifying #15). Measured, not hidden; `transitLanes` is the first remedy.
+- Sensing order in the world is by drone id (#64): no brain uses it, but it should become geometric after G1.
+- Neptune North brief and theme wording are team-reported, not verified (#1).
 
 ## Measured numbers
 
-- Williams's team reports the render slice at 57 fps with 200 fixture drones in headless Chrome (comment on #6; not yet on `main`, not re-measured here).
-- Nothing else yet. G1 results go here at G1.
+- World core: 200 drones with radio step well inside the tick budget in the headless benchmark (see `tests/sim/world.test.ts` output).
+- Render slice: Williams's team reports 57 fps with 200 fixture drones in headless Chrome (#6 comment; not re-measured here).
+- G1: nothing yet.

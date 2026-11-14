@@ -1,6 +1,7 @@
 import { AdditiveBlending, Color, DynamicDrawUsage, Group, InstancedMesh, MeshBasicMaterial, Object3D, Scene, SphereGeometry } from 'three';
 import type { Layer } from '../Layer';
 import { interpolateDrone } from '../SnapshotBuffer';
+import { droneColour } from '../colourModes/droneColour';
 
 /** Bright points and translucent instanced halos use exactly the snapshot's RGB. */
 export default function createLayer(): Layer {
@@ -37,7 +38,7 @@ export default function createLayer(): Layer {
         transform.scale.setScalar(1);
         transform.updateMatrix();
         points.setMatrixAt(count, transform.matrix);
-        colour.setRGB(...shown.colour);
+        colour.setRGB(...droneColour(drone, shown.colour));
         points.setColorAt(count, colour);
         halos.setColorAt(count, colour);
         transform.scale.setScalar(3.8);

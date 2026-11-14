@@ -24,11 +24,11 @@ stack:
   build: Vite
   rendering: Three.js
   tests: vitest
-  runtime: browser (app) and Node 20+ (headless simulation and batch runs)
+  runtime: browser (app) and Node 22.12+ (headless simulation and batch runs)
 
-team:   # GitHub handles for Haris and Williams are inferred, not confirmed
+team:   # all three GitHub handles are confirmed by activity (readiness PRs #40 and #59; Williams's merged PRs)
   - { name: Arnav, github: reverez, lane: "integration lead; owns shared contracts; agent brain" }
-  - { name: Haris, github: sirahmo, lane: "3D experience, demo, submission (provisional)" }
+  - { name: Haris, github: sirahmo, lane: "readiness, sponsor brief, demo, pitch, submission; docs review" }
   - { name: Williams, github: wpimento, lane: "simulation world, radio, validation (provisional)" }
 
 source_of_truth:
