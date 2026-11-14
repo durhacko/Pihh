@@ -1,11 +1,11 @@
 # Team roles
 
-Purpose: who is accountable for what. Lanes as they stand at 21:00 Sat: Arnav's agents run lane A (contracts, score, brains, integration). Williams's team has lane B and, in lane C, the render slice (#18, merged), controls (#22) and X-ray (#25), plus the isolation tests (#20) and the observer (#23). Haris (`sirahmo`) owns readiness (#34, done), the sponsor brief (#1), demo and pitch (#7) and submission (#8), and is reviewing the documentation. Unowned in lane C: #24, #27, #28, #29. A lane becomes real when its owner claims an issue.
+Purpose: who is accountable for what. As of 21:20 Sat: **Williams has paused development**, and his open issues were reassigned. Arnav's agents run lanes A and B (contracts, score, brains, world, observer, batch runner, app integration). Haris (`sirahmo`) owns the sponsor brief (#1), demo and pitch (#7), submission (#8), the split view and HUD (#24) and the scripted demo (#27). Unowned and optional: #28, #29.
 
 | Human | GitHub | Lane (see [development plan](../planning/development-plan.md#lanes)) | Owns these shared files |
 |---|---|---|---|
 | Arnav Chitriv | `reverez` (verified) | **A. Brain and contracts**: `src/contracts`, `src/score`, `src/agent`; integration; runs the orchestrator | `src/contracts/**`, the contracts doc |
-| Williams (William Pimentel) | `wpimento` (confirmed: closed #2) | **B. World and evidence**: `src/sim`, `src/observer`, `src/cli`, build and CI | `package.json`, build config, `scripts/check.sh`, CI |
+| Williams (William Pimentel) | `wpimento` (confirmed: closed #2) | **Paused development 21:20 Sat.** Built the world, radio faults, render slice, X-ray, controls, observer and isolation tests | `package.json`, build config, `scripts/check.sh`, CI |
 | Haris | `sirahmo` (confirmed: readiness PR #59, 20:41 Sat) | **C. Experience**: `src/app/**`, demo, pitch, submission | `src/app/main.ts`, `index.html`, README |
 
 ## Agents
@@ -16,7 +16,7 @@ Arnav's session also runs an **orchestrator** with local sub-agents. It keeps is
 
 ## Single points of failure
 
-- **Contracts and integration:** Arnav. If unreachable for 30 minutes, Williams acts as integrator and may approve `[contract]` PRs.
+- **Contracts and integration:** Arnav (via his orchestrator). With Williams paused there is no backup integrator; if Arnav is unreachable, Haris may merge non-contract PRs with green CI.
 - **Demo and pitch:** Haris owns them, but all three must be able to run the scripted demo by 08:30 Sun.
 - **Any lane with nobody active:** its READY issues are open to anyone; say so on the issue.
 
