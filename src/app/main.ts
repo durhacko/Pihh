@@ -43,9 +43,7 @@ const first = worlds.stepBoth();
 const buffers: Pair<SnapshotBuffer> = { encore: new SnapshotBuffer(first.encore), static: new SnapshotBuffer(first.static) };
 seedLabel.textContent = String(worlds.seed);
 
-/** A per-tick evidence hook a view may grow (issue #46). Called defensively; WorldView does not have it yet. */
-type IngestingView = WorldView & { ingest?: (snapshot: WorldSnapshot) => void };
-interface MountedView { arm: Arm; view: IngestingView }
+interface MountedView { arm: Arm; view: WorldView }
 
 const rig = new CameraRig();
 const views: MountedView[] = [];
@@ -64,14 +62,14 @@ try {
   host.innerHTML = '<p class="error">WebGL could not start. Enable browser graphics acceleration and reload.</p>';
   throw error;
 }
-for (const { arm, view } of views) view.ingest?.(first[arm]);
+for (const { arm, view } of views) view.ingest(first[arm]);
 const panels = createPanels({ host: app });
 
-/** One simulation tick for both worlds; every view sees every tick's snapshot, not only the drawn ones. */
+/** One simulation tick for both worlds; every view ingests every tick's snapshot (#46), not only the drawn ones. */
 function advance(): Pair<WorldSnapshot> {
   const snapshots = worlds.stepBoth();
   for (const arm of ARMS) buffers[arm].push(snapshots[arm]);
-  for (const { arm, view } of views) view.ingest?.(snapshots[arm]);
+  for (const { arm, view } of views) view.ingest(snapshots[arm]);
   return snapshots;
 }
 
@@ -81,6 +79,7 @@ let refreshControls = (): void => {};
 
 function reset(seed: number): void {
   worlds.reset(seed);
+  for (const { view } of views) view.reset();   // retained radio/death evidence belongs to the old worlds
   advance();
   seedLabel.textContent = String(worlds.seed);
   refreshControls();
