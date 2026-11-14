@@ -46,4 +46,14 @@ describe('per-world reference scores', () => {
     expect(scores.newestAt(19)).toEqual(preloaded);
     expect(scores.newestAt(20)).toEqual(injected);
   });
+  it('accepts identical score contents regardless of JSON object key order', () => {
+    const scores = new ReferenceScores();
+    scores.register(preloaded);
+    const reordered: Score = {
+      movements: [{ recipe: { kind: 'sphere' }, transitionTicks: 0, startTick: 0 }],
+      version: { origin: -1, issuedTick: 0 },
+    };
+    expect(() => scores.register(reordered)).not.toThrow();
+    expect(scores.reference(makeFakeSnapshot(1, 5))).toEqual(preloaded);
+  });
 });

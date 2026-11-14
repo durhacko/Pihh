@@ -2,6 +2,15 @@ import type { Score, WorldSnapshot } from '../contracts';
 import { newerVersion } from '../score';
 import { versionKey } from './measure';
 
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map(key => [key, canonical(record[key])]));
+  }
+  return value;
+}
+
 /** A registered injection is not a world's reference until a live drone believes it. */
 export class ReferenceScores {
   private readonly scores = new Map<string, Score>();
@@ -9,7 +18,7 @@ export class ReferenceScores {
   register(score: Score): void {
     const key = versionKey(score.version);
     const previous = this.scores.get(key);
-    if (previous && JSON.stringify(previous) !== JSON.stringify(score)) {
+    if (previous && JSON.stringify(canonical(previous)) !== JSON.stringify(canonical(score))) {
       throw new Error(`Conflicting contents for score version ${key}`);
     }
     this.scores.set(key, structuredClone(score));
