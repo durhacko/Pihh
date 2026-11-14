@@ -1,11 +1,11 @@
 # Team roles
 
-Purpose: who is accountable for what. Lanes are **proposed, not confirmed**: the team's skills and availability have not been recorded, and neither Haris nor Williams has yet acted on GitHub. A lane becomes real when its owner claims an issue. Lanes are defaults for picking work, not limits.
+Purpose: who is accountable for what. Lanes are **proposed, not confirmed**: the team's skills and availability have not been recorded, and Haris has not yet acted on GitHub. A lane becomes real when its owner claims an issue. Lanes are defaults for picking work, not limits.
 
 | Human | GitHub | Lane (see [development plan](../planning/development-plan.md#lanes)) | Owns these shared files |
 |---|---|---|---|
 | Arnav Chitriv | `reverez` (verified) | **A. Brain and contracts**: `src/contracts`, `src/score`, `src/agent`; integration; runs the orchestrator | `src/contracts/**`, the contracts doc |
-| Williams (William Pimentel) | `wpimento` (inferred from profile name) | **B. World and evidence**: `src/sim`, `src/observer`, `src/cli`, build and CI | `package.json`, build config, `scripts/check.sh`, CI |
+| Williams (William Pimentel) | `wpimento` (confirmed: closed #2) | **B. World and evidence**: `src/sim`, `src/observer`, `src/cli`, build and CI | `package.json`, build config, `scripts/check.sh`, CI |
 | Haris | `sirahmo` (inferred by elimination) | **C. Experience**: `src/app/**`, demo, pitch, submission | `src/app/main.ts`, `index.html`, README |
 
 ## Agents
