@@ -12,7 +12,17 @@ interface Body {
 interface Pending { receiver: number; message: Message }
 type Jam = WorldSnapshot['jams'][number];
 type TestOptions = { reverseStepOrder?: boolean; freezeInputs?: boolean };
-const clone = <T>(value: T): T => structuredClone(value);
+/** Contracts contain only plain JSON data. Avoid structuredClone's per-call overhead
+ * on the thousands of small sensing/radio vectors produced by a tick. */
+function clone<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(entry => clone(entry)) as T;
+  if (value !== null && typeof value === 'object') {
+    const copy: Record<string, unknown> = {};
+    for (const key of Object.keys(value)) copy[key] = clone((value as Record<string, unknown>)[key]);
+    return copy as T;
+  }
+  return value;
+}
 function freeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const entry of Object.values(value)) freeze(entry);

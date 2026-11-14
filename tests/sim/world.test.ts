@@ -4,6 +4,7 @@ import { makeParams } from '../../src/contracts';
 import type { AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Params, Score, Vec3 } from '../../src/contracts';
 import { createWorld } from '../../src/sim';
 import { launchPosition } from '../../src/sim/math';
+import { dummyBrain } from '../fixtures/dummyBrain';
 
 const score: Score = { version: { issuedTick: 0, origin: -1 }, movements: [{ startTick: 0, transitionTicks: 0, recipe: { kind: 'sphere' } }] };
 interface State { id: number; slot: number; seed: number; heard: number[]; ticks: number; position: Vec3; version: Score['version'] }
@@ -186,10 +187,10 @@ describe('replay and accounting', () => {
     }
   });
   it('prints a 200-drone headless tick benchmark', () => {
-    const world = createWorld(config(200, {}, fixture({ send: false, accel: () => [0, 1, 0] })));
+    const world = createWorld(config(200, {}, dummyBrain));
     for (let tick = 0; tick < 50; tick++) world.step();
     const start = performance.now();
     for (let tick = 0; tick < 200; tick++) world.step();
-    console.log(`200-drone no-radio fixture benchmark: ${((performance.now() - start) / 200).toFixed(3)} ms/tick`);
+    console.log(`200-drone dummyBrain (radio enabled) benchmark: ${((performance.now() - start) / 200).toFixed(3)} ms/tick`);
   });
 });
