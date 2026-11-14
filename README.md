@@ -52,7 +52,7 @@ Open the loopback URL printed by Vite in a browser with WebGL enabled. The app r
 
 Use `/?seed=101` for a reproducible seed, `/?arm=static` for the static view, or `/?seed=101&split=1` for the current two-pane view. Drag to orbit, right-drag to pan, scroll to zoom; keys 1–3 choose camera presets. The controls panel offers transport and kill actions. Radio fault, composition and display controls remain unavailable until their bootstrap callbacks are connected, even where their underlying modules are merged.
 
-For a console smoke check, pause with `window.encore.setPlaying(false)`, inspect `window.encore.alive()`, schedule `window.encore.killIds([0])`, then resume with `window.encore.setPlaying(true)`. After the next simulation tick, both alive counts should decrease by one. `window.encore.reset(101)` rebuilds both worlds from that seed. These are inspection steps, not a claim that a browser rehearsal has been completed.
+For a console smoke check, start from a fresh run with `window.encore.reset(101)`, then pause with `window.encore.setPlaying(false)`, inspect `window.encore.alive()`, schedule `window.encore.killIds([0])`, then resume with `window.encore.setPlaying(true)`. After the next simulation tick, both alive counts should decrease by one. `window.encore.reset(101)` rebuilds both worlds from that seed. These are inspection steps, not a claim that a browser rehearsal has been completed.
 
 On Windows PowerShell use `npm.cmd` if script execution policy blocks `npm`; use Git Bash for `bash scripts/check.sh` (the Windows `bash` command may instead launch WSL).
 
@@ -68,7 +68,7 @@ The runtime uses Three.js for 3D rendering. Development and validation use Node.
 
 ## AI use
 
-AI assistance is used throughout this project and is credited explicitly under [BRIEF R4](docs/competition/BRIEF.md#4-submission-and-rules). Claude Code (Anthropic) was used on 14 Nov 2026 for repository setup and coordination documents, research into event rules and prior art, and architecture/specification drafting and review under the team's direction.
+AI assistance is used throughout this project and is credited explicitly under [BRIEF R4](docs/competition/BRIEF.md#4-submission-and-rules). Claude Code (Anthropic) was used on 14 Nov 2026 for repository setup and coordination documents, research into event rules and prior art, and architecture/specification drafting and review under the team's direction. Recorded implementation contributions also include contract types and fixtures (#12), score expansion and timing (#13), and steering and the static baseline (#15).
 
 OpenAI Codex was used for implementation, tests, code and documentation review, GitHub issue coordination and PR integration. Recorded contributions include the scaffold and CI/import-boundary checks (#5), world simulation (#14/#19), rendering and visual evidence layers (#18/#25), controls (#22), observer metrics (#23), isolation tests (#20), readiness and documentation corrections (#34/#56), and test timeout fixes (#71). Haris's Codex session also drafted these setup and AI disclosures. Human contributors direct the agents; implementation and validation evidence is recorded in the repository's commits, issues and PRs. Update this credit if additional tools are used before submission.
 
