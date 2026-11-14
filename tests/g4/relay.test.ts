@@ -2,13 +2,15 @@
 // T18 (docs/validation/evaluation-and-tests.md): score relay on the real world. Three drones in a line, A in radio
 // range of B, B in range of C, A out of range of C; the operator injects at A. C adopts within 40 ticks at loss 0,
 // and within 400 ticks at loss 0.2 on seeds 1-5. Same bounds with two extra up-to-date drones beside B that cannot
-// reach C (hidden terminal): B must not stand down because it heard them (contract section 9: a scheduled send
-// always fires). No drone sends more than one SCORE per scoreResendMin.
+// reach C (hidden terminal). No drone sends more than one SCORE per scoreResendMin.
+// What the hidden-terminal run shows is that the bounds hold with D and E there. It does not by itself prove that
+// B never cancels a send on hearing them: anti-entropy alone would still reach C in about 34 ticks. The never-cancel
+// rule itself is tested directly in tests/agent/scoreGossip.test.ts.
 import { describe, expect, it } from 'vitest';
 import { makeParams } from '../../src/contracts';
 import type { Recipe, Vec3 } from '../../src/contracts';
 import { composeNext, makeScore } from '../../src/score';
-import { dist, minSendGap, pinnedEncore, run } from './harness';
+import { checkRateLimit, dist, minSendGap, pinnedEncore, run } from './harness';
 
 const A = 0, B = 1, C = 2, D = 3, E = 4;
 const Y = 20;
@@ -51,32 +53,36 @@ describe('T18: score relay on the real world', () => {
     describe(name, () => {
       it('loss 0: C adopts within 40 ticks; only B ever delivers a SCORE to C; at most one SCORE per drone per scoreResendMin', () => {
         const times: string[] = [];
+        const gaps: number[] = [];
         for (const seed of [1, 2, 3, 4, 5]) {
-          const { r, params } = relay([...pins], 0, seed);
+          const { r } = relay([...pins], 0, seed);
           const c = delay(r.adopted, C);
           times.push(`seed ${seed}: B ${delay(r.adopted, B)}, C ${c}`);
           expect(c, `seed ${seed}`).toBeLessThanOrEqual(40);
           // The drones really sat where the test says: nobody but B reached C.
           for (const s of r.sends) if (s.delivered.includes(C)) expect(s.from, `seed ${seed} tick ${s.tick}`).toBe(B);
           expect(r.sends.some((s) => s.from === B && s.delivered.includes(C))).toBe(true);
-          expect(minSendGap(r.sends)).toBeGreaterThanOrEqual(params.scoreResendMin);
+          gaps.push(minSendGap(r.sends));
           // Everyone ends on the injected version.
           for (const v of r.finalVersions) expect(v).toEqual({ issuedTick: INJECT, origin: A });
         }
-        console.log(`T18 ${name}, loss 0, adoption ticks after injection: ${times.join('; ')}`);
+        const gap = checkRateLimit(gaps, makeParams(pins.length).scoreResendMin);
+        console.log(`T18 ${name}, loss 0, adoption ticks after injection: ${times.join('; ')}; min SCORE gap ${gap}`);
       }, 30_000);
 
       it('loss 0.2: C adopts within 400 ticks on seeds 1-5; at most one SCORE per drone per scoreResendMin', () => {
         const times: string[] = [];
+        const gaps: number[] = [];
         for (const seed of [1, 2, 3, 4, 5]) {
-          const { r, params } = relay([...pins], 0.2, seed);
+          const { r } = relay([...pins], 0.2, seed);
           const c = delay(r.adopted, C);
           times.push(`seed ${seed}: B ${delay(r.adopted, B)}, C ${c}`);
           expect(c, `seed ${seed}`).toBeLessThanOrEqual(400);
           for (const s of r.sends) if (s.delivered.includes(C)) expect(s.from).toBe(B);
-          expect(minSendGap(r.sends)).toBeGreaterThanOrEqual(params.scoreResendMin);
+          gaps.push(minSendGap(r.sends));
         }
-        console.log(`T18 ${name}, loss 0.2, adoption ticks after injection: ${times.join('; ')}`);
+        const gap = checkRateLimit(gaps, makeParams(pins.length).scoreResendMin);
+        console.log(`T18 ${name}, loss 0.2, adoption ticks after injection: ${times.join('; ')}; min SCORE gap ${gap}`);
       }, 30_000);
     });
   }

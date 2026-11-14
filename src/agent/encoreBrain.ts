@@ -127,8 +127,11 @@ function scheduleScoreSend(s: EncoreState, now: number): void {
  * by the clock, so a late adopter joins whatever movement is current, and spreads the score on.
  */
 function handleScoreMessage(s: EncoreState, m: ScoreMsg, now: number): void {
-  // A score with no movements has no current movement (currentMovement throws). Honest senders never send one.
-  if (!Array.isArray(m.score?.movements) || m.score.movements.length === 0) return;
+  // A score with no version or no movements cannot be ordered or flown (newerVersion and currentMovement would
+  // throw). Honest senders never send one (section 12: no adversarial senders); it is ignored.
+  const v = m.score?.version;
+  if (!v || !Number.isFinite(v.issuedTick) || !Number.isFinite(v.origin)) return;
+  if (!Array.isArray(m.score.movements) || m.score.movements.length === 0) return;
   if (!newerVersion(m.score.version, s.score.version)) return;
   const was = s.score.version;
   s.score = copyJson(m.score);

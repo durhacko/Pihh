@@ -99,7 +99,10 @@ export function run(o: RunOptions): Run {
   };
 }
 
-/** Rate limit (section 9): every pair of consecutive SCORE sends by one drone is at least scoreResendMin apart. */
+/**
+ * Rate limit (section 9): the smallest gap between consecutive SCORE sends by one drone. Infinity when no drone sent
+ * twice, so a caller asserting ">= scoreResendMin" must also check, over its runs, that some gap was finite.
+ */
 export function minSendGap(sends: readonly ScoreSend[]): number {
   const byDrone = new Map<number, number[]>();
   for (const s of sends) {
@@ -110,6 +113,18 @@ export function minSendGap(sends: readonly ScoreSend[]): number {
   let min = Infinity;
   for (const ticks of byDrone.values()) for (let i = 1; i < ticks.length; i++) min = Math.min(min, ticks[i] - ticks[i - 1]);
   return min;
+}
+
+/**
+ * The rate limit holds over a set of runs AND was actually exercised: every gap is >= scoreResendMin, and at least
+ * one drone sent twice in at least one run (otherwise every gap is Infinity and the check would be vacuous).
+ * Returns the smallest finite gap, for reporting.
+ */
+export function checkRateLimit(gaps: readonly number[], scoreResendMin: number): number {
+  for (const g of gaps) if (!(g >= scoreResendMin)) throw new Error(`SCORE sends ${g} ticks apart < scoreResendMin ${scoreResendMin}`);
+  const finite = gaps.filter((g) => Number.isFinite(g));
+  if (finite.length === 0) throw new Error('rate limit not exercised: no drone sent two SCOREs in any run');
+  return Math.min(...finite);
 }
 
 /** Seconds, for reporting. */

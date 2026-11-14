@@ -6,10 +6,10 @@
 // (at most one SCORE per drone per scoreResendMin) and reports adoption times and slot churn (section 8.5, limit 7).
 import { describe, expect, it } from 'vitest';
 import { makeParams } from '../../src/contracts';
-import type { EnvEvent, Score, Vec3, WorldSnapshot } from '../../src/contracts';
+import type { EnvEvent, Score, ScoreVersion, Vec3, WorldSnapshot } from '../../src/contracts';
 import { composeNext, makeScore } from '../../src/score';
 import { encoreBrain } from '../../src/agent/encoreBrain';
-import { dist, minSendGap, run, sameVersion, secs } from './harness';
+import { checkRateLimit, dist, minSendGap, run, sameVersion, secs } from './harness';
 
 const N = 40;
 const INJECT = 300;                       // the preloaded sphere is in hold well before this
@@ -38,7 +38,7 @@ describe('G4: a connected swarm adopts an injected score everywhere', () => {
       events: [{ type: 'INJECT_SCORE', tick: INJECT, droneId: 7, score: next }], watch: next.version,
     });
     expect(r.adopted.every((t) => t !== null)).toBe(true);
-    expect(minSendGap(r.sends)).toBeGreaterThanOrEqual(params.scoreResendMin);
+    checkRateLimit([minSendGap(r.sends)], params.scoreResendMin);
     console.log(`G4 swarm n0=40 loss ${loss}: 100% adopted, last after ${maxDelay(r.adopted, INJECT)} ticks (${secs(maxDelay(r.adopted, INJECT))} s); ${r.sends.length} SCORE sends`);
   }, 30_000);
 
@@ -51,7 +51,7 @@ describe('G4: a connected swarm adopts an injected score everywhere', () => {
       events: [{ type: 'INJECT_SCORE', tick: 400, droneId: 0, score: next }], watch: next.version,
     });
     expect(r.adopted.every((t) => t !== null)).toBe(true);
-    expect(minSendGap(r.sends)).toBeGreaterThanOrEqual(params.scoreResendMin);
+    checkRateLimit([minSendGap(r.sends)], params.scoreResendMin);
     console.log(`G4 swarm n0=200 loss 0.2: 100% adopted, last after ${maxDelay(r.adopted, 400)} ticks (${secs(maxDelay(r.adopted, 400))} s); ${r.sends.length} SCORE sends`);
   }, 30_000);
 });
@@ -105,7 +105,7 @@ describe('G4: a jam stops adoption inside it until JAM_OFF, then all adopt', () 
     expect(outside.some((i) => adoptedAt[i] !== null && (adoptedAt[i] as number) < JAM_OFF)).toBe(true);
     // After JAM_OFF: all.
     expect(adoptedAt.every((t) => t !== null)).toBe(true);
-    expect(minSendGap(r.sends)).toBeGreaterThanOrEqual(params.scoreResendMin);
+    checkRateLimit([minSendGap(r.sends)], params.scoreResendMin);
     console.log(`G4 jam n0=40: ${neverLeft.size} drones inside the jam throughout, 0 adopted before JAM_OFF; ` +
       `last inside drone adopted ${maxDelay(adoptedAt, JAM_OFF, [...neverLeft])} ticks after JAM_OFF; all 40 by ${maxDelay(adoptedAt, JAM_OFF)} ticks after JAM_OFF`);
   }, 30_000);
@@ -139,7 +139,7 @@ describe('G4: a group partition stops adoption in the other group until PARTITIO
     for (const id of g1) expect(adoptedAt[id] === null || (adoptedAt[id] as number) >= OFF, `group-1 drone ${id} adopted at ${adoptedAt[id]}`).toBe(true);
     for (const id of g0) expect(adoptedAt[id] !== null && (adoptedAt[id] as number) < OFF, `group-0 drone ${id}`).toBe(true);
     expect(adoptedAt.every((t) => t !== null)).toBe(true);
-    expect(minSendGap(r.sends)).toBeGreaterThanOrEqual(params.scoreResendMin);
+    checkRateLimit([minSendGap(r.sends)], params.scoreResendMin);
     const churn = r.slotChanges.reduce((a, b) => a + b, 0);
     console.log(`G4 partition n0=40: group 0 (${g0.length}) all adopted by ${maxDelay(adoptedAt, INJECT, g0)} ticks after injection; ` +
       `group 1 (${g1.length}) 0 before PARTITION_OFF, all by ${maxDelay(adoptedAt, OFF, g1)} ticks after; ` +
@@ -154,9 +154,11 @@ describe('T16: scores injected on both sides of a partition; the later issuedTic
     let groups: (0 | 1)[] = [];
     let a = -1, b = -1;
     let sA: Score | null = null, sB: Score | null = null;
+    let beforeOff: ScoreVersion[] = [];
     const r = run({
       seed, params, score: pre, brain: encoreBrain, ticks: OFF + RECOVERY, watch: { issuedTick: -1, origin: -2 },
       onTick: (snap, schedule) => {
+        if (snap.tick === OFF - 1) beforeOff = snap.drones.map((d) => ({ ...d.belief.version }));
         if (snap.tick !== ON - 1) return;
         groups = snap.drones.map((d) => side(d.pos));
         a = groups.indexOf(0);
@@ -169,6 +171,11 @@ describe('T16: scores injected on both sides of a partition; the later issuedTic
         schedule({ type: 'INJECT_SCORE', tick: tickB, droneId: b, score: sB });
       },
     });
+    // Just before reconnection each group must hold ITS OWN score: otherwise "the later one wins" proves nothing.
+    for (let id = 0; id < N; id++) {
+      const own = groups[id] === 0 ? (sA as unknown as Score).version : (sB as unknown as Score).version;
+      expect(beforeOff[id], `seed ${seed} drone ${id} (group ${groups[id]}) at PARTITION_OFF - 1`).toEqual(own);
+    }
     return { r, a, b, sA: sA as unknown as Score, sB: sB as unknown as Score, params };
   }
 
@@ -176,7 +183,7 @@ describe('T16: scores injected on both sides of a partition; the later issuedTic
     for (const seed of [1, 2]) {
       const { r, sB, params } = twoSides(300, 350, seed);
       for (const v of r.finalVersions) expect(v, `seed ${seed}`).toEqual(sB.version);
-      expect(minSendGap(r.sends)).toBeGreaterThanOrEqual(params.scoreResendMin);
+      checkRateLimit([minSendGap(r.sends)], params.scoreResendMin);
     }
   }, 30_000);
 
@@ -184,6 +191,7 @@ describe('T16: scores injected on both sides of a partition; the later issuedTic
     const { r, a, b, sA, sB } = twoSides(300, 300, 1);
     const winner = a > b ? sA : sB;
     expect(sA.version.issuedTick).toBe(sB.version.issuedTick);
+    expect(a).not.toBe(b);
     for (const v of r.finalVersions) expect(v).toEqual(winner.version);
   }, 30_000);
 });
