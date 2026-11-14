@@ -3,14 +3,14 @@ import { makeParams, type Score } from '../../../src/contracts';
 import { composeNext } from '../../../src/score';
 import { createWorld } from '../../../src/sim';
 import { createActionController, type ControlContext } from '../../../src/app/actions';
-import { dummyBrain } from '../../fixtures/dummyBrain';
+import { staticBrain } from '../../../src/agent/staticBrain';
 
 /** Adapter unit test: real composer and real initial snapshots, explicit schedule recorders.
  * Actual operator inbox delivery requires WP-2b and is validated separately after #19. */
 function setup() {
   const params = makeParams(40);
   const score: Score = { version: { issuedTick: 0, origin: -1 }, movements: [{ startTick: 0, transitionTicks: 0, recipe: { kind: 'sphere' } }] };
-  const actual = { encore: createWorld({ seed: 101, params, score, brain: dummyBrain }), static: createWorld({ seed: 101, params, score, brain: dummyBrain }) };
+  const actual = { encore: createWorld({ seed: 101, params, score, brain: staticBrain }), static: createWorld({ seed: 101, params, score, brain: staticBrain }) };
   const snapshots = { encore: actual.encore.step(), static: actual.static.step() };
   const calls: string[] = [];
   const worlds = {

@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { makeParams, type Score } from '../../../src/contracts';
 import { createWorld } from '../../../src/sim';
 import { bindControls, createActionController, idsInRegion, type ControlContext } from '../../../src/app/actions';
-import { dummyBrain } from '../../fixtures/dummyBrain';
+import { staticBrain } from '../../../src/agent/staticBrain';
 
 const score: Score = { version: { issuedTick: 0, origin: -1 }, movements: [{ startTick: 0, transitionTicks: 0, recipe: { kind: 'sphere' } }] };
 function setup(n0 = 9) {
   const params = makeParams(n0);
-  const config = (seed = 101) => ({ seed, params, score, brain: dummyBrain });
+  const config = (seed = 101) => ({ seed, params, score, brain: staticBrain });
   let worlds = { encore: createWorld(config()), static: createWorld(config()) };
   let snapshots = { encore: worlds.encore.step(), static: worlds.static.step() };
   const transport = { playing: true, speed: 1, seed: 101 };
