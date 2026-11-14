@@ -114,6 +114,31 @@ describe('control intents dispatch through the real action API unchanged', () =>
     expect(fx.snapshot().partitions).toEqual([]);
   });
 
+  it('a timed toggle pending for a later tick (`at`, as the scripted demo sends) does not count yet: liveState agrees with the controller', () => {
+    // Off now, JAM_ON@60 pending: at tick 12 the jam is still off, so `fault unjam` is already in effect. (The old
+    // log-order rule called it on, dispatched the toggle, and the controller scheduled a JAM_ON@12.)
+    const off = setup();
+    expect(off.controller.handle({ type: 'jam', centre: [0, 30, 0], radius: 10, at: 60 }).event).toMatchObject({ type: 'JAM_ON', tick: 60 });
+    for (let i = 0; i < 10; i++) off.step();
+    expect(off.snapshot().tick).toBe(11);
+    expect(liveState(off.controller.status(), off.snapshot(), off.controller.getEventLog()).jam).toBe(false);
+    expect(off.run('fault unjam')).toBe('already');
+    expect(off.events.map(e => [e.type, e.tick])).toEqual([['JAM_ON', 60]]);
+
+    // On now, JAM_OFF@60 pending: at tick 12 the jam is still on, so `fault jam` is already in effect. (The old rule
+    // called it off, dispatched, and the controller scheduled a JAM_OFF@12.)
+    const on = setup();
+    on.run('fault jam --at 4 --radius 10');
+    for (let i = 0; i < 10; i++) on.step();
+    expect(on.snapshot().jams).toHaveLength(1);
+    expect(on.controller.handle({ type: 'jam', at: 60 }).event).toMatchObject({ type: 'JAM_OFF', tick: 60 });
+    expect(liveState(on.controller.status(), on.snapshot(), on.controller.getEventLog()).jam).toBe(true);
+    expect(on.run('fault jam --at 4')).toBe('already');
+    expect(on.events.map(e => [e.type, e.tick])).toEqual([['JAM_ON', 2], ['JAM_OFF', 60]]);
+    // And `fault unjam` now lands as JAM_OFF@12 in the controller, exactly as liveState predicted.
+    expect((on.run('fault unjam') as { event?: EnvEvent }[]).map(r => r.event)).toEqual([{ type: 'JAM_OFF', tick: 12, id: OPERATOR_JAM_ID }]);
+  });
+
   it('ignores jams and partitions the controller does not own (scripted ids)', () => {
     const status = { playing: true };
     const snapshot = { tick: 5, jams: [{ id: 'J', centre: [0, 30, 0] as [number, number, number], radius: 12 }], partitions: [{ id: 'P', point: [0, 30, 0] as [number, number, number], normal: [1, 0, 0] as [number, number, number] }] };
