@@ -44,6 +44,7 @@ Milestone times are proposals set by the bootstrap agent. Change them in GitHub 
 
 ## Blockers / open questions
 
+- **Bootstrap PR [#10](https://github.com/durhacko/Pihh/pull/10) must be merged by a human** before agents can read these docs from `main`.
 - GitHub handles inferred, not confirmed: Haris = `sirahmo`, Williams = `wpimento`. Confirm in #3.
 - No branch protection (free private org). PR-only is by convention.
 - No Projects board (token scope). Issues + labels + milestones are the board (#9).
