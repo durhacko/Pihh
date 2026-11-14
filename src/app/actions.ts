@@ -4,7 +4,7 @@ import { idsInSphere, randomIds } from '../sim';
 export type ControlIntent =
   | { type: 'play' } | { type: 'step' } | { type: 'reset'; seed: number } | { type: 'speed'; speed: number }
   | { type: 'select'; id: number | null } | { type: 'kill-region'; radius?: number; centre?: Vec3 }
-  | { type: 'kill-selected' } | { type: 'kill-random' } | { type: 'jam'; radius?: number; centre?: Vec3 }
+  | { type: 'kill-selected' } | { type: 'kill-random' } | { type: 'kill-ids'; ids: number[] } | { type: 'jam'; radius?: number; centre?: Vec3 }
   | { type: 'partition' } | { type: 'loss'; loss: number } | { type: 'inject'; recipe: Recipe }
   | { type: 'xray' } | { type: 'belief' };
 
@@ -125,6 +125,12 @@ export function createActionController(context: ControlContext) {
       let event: EnvEvent;
       if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, intent.centre ? [...intent.centre] : selected(snapshots.encore).pos, killRadius(intent.radius ?? context.params.rClaim)) };
       else if (intent.type === 'kill-selected') event = { type: 'KILL', tick, ids: [selected(snapshots.encore).id] };
+      else if (intent.type === 'kill-ids') {
+        // Explicit ids (console, scripts): validated against the roster, sorted and de-duplicated once.
+        for (const id of intent.ids) if (!Number.isInteger(id) || id < 0 || id >= context.params.n0) throw new Error(`Drone id ${id} is not in this roster.`);
+        if (intent.ids.length === 0) throw new Error('No drone ids given.');
+        event = { type: 'KILL', tick, ids: [...new Set(intent.ids)].sort((x, y) => x - y) };
+      }
       else if (intent.type === 'kill-random') {
         const live = snapshots.encore.drones.filter(drone => drone.alive).map(drone => drone.id);
         event = { type: 'KILL', tick, ids: randomIds((context.getTransport().seed ^ tick ^ log.length) >>> 0, live, Math.ceil(context.params.n0 * 0.1)) };

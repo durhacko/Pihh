@@ -29,7 +29,7 @@ import { createReadout } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
 import { createToasts } from './ui/Toasts';
-import { ARMS, controlContext, createFrameLoop, createTickPipeline, createWorlds, hudPayload, killEvent, type Arm, type Pair } from './worlds';
+import { ARMS, controlContext, createFrameLoop, createTickPipeline, createWorlds, hudPayload, type Arm, type Pair } from './worlds';
 import './ui/styles.css';
 
 const root = document.querySelector<HTMLElement>('#app');
@@ -376,6 +376,14 @@ const unbindKeys = bindShortcuts({
   timeline: later('The show timeline', '#94'), console: later('The console', '#93'), demo: later('The scripted demo', '#94'),
 }, () => { handleEscape(store, surfaces, () => controls.selectDrone(null)); refreshChrome(); });
 
+// ---------- reserved for #109 (Show timeline tray) and #104 (demo runner) ----------
+// Until they merge, Show (T) and D say "coming in #94". When #109 merges, wire it here and nowhere else:
+//   const timeline = connectTimeline({ getScore: () => worlds.score, getEvents: () => controls.getEventLog(),
+//     getSeries: () => worlds.series(), getTick: () => worlds.tick, onClose: () => surfaces.close('timeline') });
+//   surfaces.register({ id: 'timeline', kind: 'tray', el: timeline.el, onOpen: () => timeline.update() });
+//   dock `show` and the `timeline` key: surfaces.toggle('timeline'); refreshChrome(): if open, timeline.update();
+//   HMR dispose: timeline.dispose(). #104: the Show button starts / stops connectDemo / createDemoRunner.
+
 // ---------- #102 hooks: ghost slots in the frame, and the drone inspector ----------
 /** The single place a view's LayerFrame is built. Ghost slots ride on it while their lens is on. */
 function frameFor(arm: Arm, alpha: number, dtReal: number): LayerFrame {
@@ -470,13 +478,13 @@ interface EncoreDebug {
   store: Store;
 }
 declare global { interface Window { encore?: EncoreDebug } }
+function debugEvent(result: ControlResult): EnvEvent { if (!result.ok || !result.event) throw new Error(result.message); refreshChrome(); return result.event; }
 window.encore = {
-  killIds(ids) { const event = killEvent(worlds, ids); worlds.scheduleBoth(event); return structuredClone(event); },
+  // Through the controller, like every other control, so these kills appear in its event log (and the timeline).
+  killIds(ids) { return debugEvent(controls.handle({ type: 'kill-ids', ids })); },
   killRegion(centre, radius) {
-    if (!Number.isFinite(radius) || radius <= 0) throw new RangeError('Radius must be a positive number');
-    const ids = idsInSphere(snapshots().encore, centre, radius);
-    if (ids.length === 0) throw new Error('No live Encore drones in that region');
-    const event = killEvent(worlds, ids); worlds.scheduleBoth(event); return structuredClone(event);
+    if (idsInSphere(snapshots().encore, centre, Math.max(0, radius)).length === 0) throw new Error('No live Encore drones in that region');
+    return debugEvent(controls.handle({ type: 'kill-region', centre, radius }));
   },
   reset(seed = worlds.seed) { const result = controls.handle({ type: 'reset', seed }); if (!result.ok) throw new Error(result.message); },
   snapshots,

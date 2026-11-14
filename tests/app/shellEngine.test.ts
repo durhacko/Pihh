@@ -172,3 +172,19 @@ describe('tick pipeline (main.ts advance) and WorldView forwarding', () => {
     expect(t.pushed.static).toEqual([1, 2]);
   });
 });
+
+describe('explicit-id kills go through the controller (console path)', () => {
+  it('kill-ids schedules one KILL into both worlds and lands in the event log; bad ids are refused', () => {
+    const worlds = createWorlds({ seed: 2, n0: 20 });
+    worlds.stepBoth();
+    const controller = createActionController(controlContext(worlds, shell(worlds)));
+    const result = controller.handle({ type: 'kill-ids', ids: [7, 3, 7] });
+    expect(result.event).toEqual({ type: 'KILL', tick: 2, ids: [3, 7] });
+    expect(controller.getEventLog()).toEqual([result.event]);
+    const snaps = worlds.stepBoth();
+    for (const arm of ARMS) expect(snaps[arm].drones.filter(d => !d.alive).map(d => d.id)).toEqual([3, 7]);
+    expect(controller.handle({ type: 'kill-ids', ids: [20] }).ok).toBe(false);
+    expect(controller.handle({ type: 'kill-ids', ids: [] }).ok).toBe(false);
+    expect(controller.getEventLog()).toHaveLength(1);
+  });
+});
