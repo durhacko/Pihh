@@ -172,6 +172,7 @@ describe('replay and accounting', () => {
     expect(first.stateHash()).toBe(second.stateHash());
     expect(first.stateHash()).toBe(reverse.stateHash());
     expect(first.stateHash()).not.toBe(other.stateHash());
+    expect((first.inspect(0)!.state as State).seed).not.toBe((other.inspect(0)!.state as State).seed);
   });
   it('counts one near-miss and collision on entry, then excludes dead drones', () => {
     const world = createWorld(config(2, { aMax: 20, vMax: 1 }, fixture({ send: false, accel: id => [id === 0 ? 20 : -20, 0, 0] })));

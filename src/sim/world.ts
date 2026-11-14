@@ -98,7 +98,10 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     const outputs = new Map<number, AgentOutput>();
     for (const id of test.reverseStepOrder ? [...live].reverse() : live) {
       const input = inputs.get(id)!;
-      const evidenceInput = clone(input);
+      const evidenceInput: AgentInput = {
+        tick: input.tick, pos: [...input.pos], vel: [...input.vel], inbox: [...input.inbox],
+        sensed: input.sensed.map(peer => ({ rel: [...peer.rel], vel: [...peer.vel] })),
+      };
       const output = clone(brain.step(bodies[id].state, input));
       if (output.accel.length !== 3 || !output.accel.every(Number.isFinite)) throw new Error('Brain returned invalid acceleration');
       outputs.set(id, output);
@@ -110,13 +113,16 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     for (const id of live) for (const message of outputs.get(id)!.outbox) {
       if (message.from !== id || message.sentTick !== tick) throw new Error('Brain broadcast must identify its actual sender and current tick');
       const log: RadioEvent = { tick, from: id, type: message.type, claimSlot: message.type === 'HB' ? message.claim?.slot ?? null : null, delivered: [], lost: 0, jammed: 0, partitioned: 0 };
+      // One immutable packet per broadcast; recipients cannot change each other's
+      // inbox content. Delivery lists/brain inbox arrays remain private.
+      const packet = freeze(clone(message));
       for (const receiver of grid.within(bodies[id].pos, params.rRadio)) {
         if (receiver === id) continue;
         if (jammed(bodies[id].pos) || jammed(bodies[receiver].pos)) { log.jammed++; continue; }
         if (rng() < params.loss) { log.lost++; continue; }
         const latency = params.latencyMin + Math.floor(rng() * (params.latencyMax - params.latencyMin + 1));
         const queue = pending.get(tick + latency) ?? [];
-        queue.push({ receiver, message: clone(message) });
+        queue.push({ receiver, message: packet });
         pending.set(tick + latency, queue);
         log.delivered.push(receiver);
       }
