@@ -71,7 +71,7 @@ Take the first rung that passes the three G1 tests. Never fake healing in the re
 
 ## Red-team answers
 
-Answers after the review rounds recorded in [development-plan.md](development-plan.md#review-history). "Tested" means a named automated test exists in the evaluation doc; none has run yet, because no code exists.
+Answers after the review rounds recorded in [development-plan.md](development-plan.md#review-history). "Tested" means a named automated test exists in the evaluation doc; see `docs/CURRENT_STATE.md` for which of them run on `main` today.
 
 | # | Question | Answer |
 |---|---|---|

@@ -18,8 +18,8 @@ Agents do **not** share memory, sessions or filesystems. The only shared state i
 
 ### The three Encore rules (break one and the project's claim is false)
 
-1. **Agent isolation.** Code under `src/agent/` (the Encore brain and the static baseline brain) may import only from `src/contracts/` and `src/score/`. A drone's decision function receives only its `AgentInput` and returns an `AgentOutput`. It never sees the world, another drone's state, or ground truth. See [contracts §1](docs/design/contracts-and-algorithms.md).
-2. **The observer never decides.** `src/observer/` and `src/app/` may read everything, but may change the simulation only by scheduling **environment events** (kill, jam, partition, inject a score into one drone, pause). They never set a drone's slot, target or belief.
+1. **Agent isolation.** Code under `src/agent/` (the Encore brain and the static baseline brain) may import only from `src/contracts/` and `src/score/`. A drone's decision function receives only its `AgentInput` and returns an `AgentOutput`. It never sees the world, another drone's state, or ground truth. See [contracts §4](docs/design/contracts-and-algorithms.md).
+2. **The observer never decides.** `src/observer/` and `src/app/` may read everything, but may change the simulation only by scheduling **environment events** (kill, jam, partition, packet loss, inject a score into one drone) and by play, pause and reset. They never set a drone's slot, target or belief.
 3. **Nothing is invented on screen.** Every message spark, belief colour and metric comes from a real simulation event or state.
 
 ### Shared contracts
@@ -79,7 +79,7 @@ A human teammate may waive the wait for their own issues, and the team lead may 
 
 ## 4. On completion
 
-1. Run `scripts/check.sh` (typecheck, lint, tests, build) and `python scripts/check_links.py`.
+1. Run `npm ci` once per clone or worktree, then `bash scripts/check.sh` (typecheck, lint, tests, build, docs links).
 2. Review your own diff (`git diff origin/main...`) for stray files and anything outside your allowed files.
 3. Open a PR with the template. The body must contain `Closes #<N>`, the requirement IDs it covers, and the handoff block. Set the issue to `status:in-review`.
 4. A human other than the author reviews and merges (rules in [`docs/development/WORKFLOW.md`](docs/development/WORKFLOW.md)).

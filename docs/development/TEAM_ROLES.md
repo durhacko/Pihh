@@ -1,12 +1,12 @@
 # Team roles
 
-Purpose: who is accountable for what. Lanes as they stand at 20:10 Sat: Arnav runs lane A; Williams's team has claimed lane B **and** the render slice of lane C (#18) and the isolation tests (#20), and asked Arnav to keep lane A. Haris has not yet acted on GitHub, so the rest of lane C is unowned. A lane becomes real when its owner claims an issue. Lanes are defaults for picking work, not limits.
+Purpose: who is accountable for what. Lanes as they stand at 21:00 Sat: Arnav's agents run lane A (contracts, score, brains, integration). Williams's team has lane B and, in lane C, the render slice (#18, merged), controls (#22) and X-ray (#25), plus the isolation tests (#20) and the observer (#23). Haris (`sirahmo`) owns readiness (#34, done), the sponsor brief (#1), demo and pitch (#7) and submission (#8), and is reviewing the documentation. Unowned in lane C: #24, #27, #28, #29. A lane becomes real when its owner claims an issue.
 
 | Human | GitHub | Lane (see [development plan](../planning/development-plan.md#lanes)) | Owns these shared files |
 |---|---|---|---|
 | Arnav Chitriv | `reverez` (verified) | **A. Brain and contracts**: `src/contracts`, `src/score`, `src/agent`; integration; runs the orchestrator | `src/contracts/**`, the contracts doc |
 | Williams (William Pimentel) | `wpimento` (confirmed: closed #2) | **B. World and evidence**: `src/sim`, `src/observer`, `src/cli`, build and CI | `package.json`, build config, `scripts/check.sh`, CI |
-| Haris | `sirahmo` (inferred by elimination) | **C. Experience**: `src/app/**`, demo, pitch, submission | `src/app/main.ts`, `index.html`, README |
+| Haris | `sirahmo` (confirmed: readiness PR #59, 20:41 Sat) | **C. Experience**: `src/app/**`, demo, pitch, submission | `src/app/main.ts`, `index.html`, README |
 
 ## Agents
 
@@ -22,7 +22,7 @@ Arnav's session also runs an **orchestrator** with local sub-agents. It keeps is
 
 ## Readiness
 
-Cross-laptop coordination is **exercised between two laptops only** (Arnav's and Williams's: each has reviewed and merged the other's PRs, #38, #40, #42, #43). It is **not** tested for Haris. Readiness checks: Arnav #36 closed; Williams #35 and Haris #34 open. Each check proves GitHub auth, Node and npm, repo access, issue claiming and one PR, and records the details in `docs/development/readiness/<handle>.md`. Haris's check also confirms his GitHub handle.
+Cross-laptop coordination is **exercised on all three laptops**: each has authored PRs that someone on another laptop reviewed and merged (Arnav #40, Williams #38, Haris #59). Readiness checks: Arnav #36 and Haris #34 closed; Williams #35 is still open as a formality.
 
 ## Skills inventory (fill in on first contact; it decides the final lanes)
 
