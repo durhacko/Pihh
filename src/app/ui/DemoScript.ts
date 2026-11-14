@@ -15,16 +15,21 @@ import type { PanelContext } from './index';
 export const DEMO_SEED = 101;
 export const DEMO_N0 = 200;
 const SECOND = Math.round(1 / DT);
-/** When each beat lands. FORMATION is the default score's movement 1 start; NEW_MOVEMENT is INJECT + scoreLead. */
+/**
+ * When each beat lands. FORMATION is the default score's movement 1 start; NEW_MOVEMENT is INJECT + scoreLead.
+ * With paced steering targets (#96) the swarm arrives on the sphere about 60 ticks before its hold: every live drone
+ * is within rOcc of its own target from tick 1216 (measured, seed 101, either brain). The jam therefore starts at
+ * 61 s, on the formed sphere, so it covers a cap of it rather than whoever is passing through mid-flight.
+ */
 export const DEMO_TICKS = Object.freeze({
   LAUNCH: 1, XRAY: 12 * SECOND, SPLIT: 16 * SECOND, KILL: 20 * SECOND, REPAIR: 21 * SECOND, FORMATION: 963,
-  JAM_ON: 54 * SECOND, INJECT: 58 * SECOND, NEW_MOVEMENT: 58 * SECOND + 60, JAM_OFF: 68 * SECOND,
+  JAM_ON: 61 * SECOND, INJECT: 64 * SECOND, NEW_MOVEMENT: 64 * SECOND + 60, JAM_OFF: 73 * SECOND,
   FINAL: 82 * SECOND, END: 90 * SECOND,
 });
 /** Regional kill: half of the first E of ENCORE, during its hold. 20 drones (10% of n0), none from another letter. */
 export const KILL_CENTRE: Vec3 = [-35, 30.4, 0];
 export const KILL_RADIUS = 6;
-/** Jam: the top cap of the sphere formation (it reaches down to y = 33 on the axis; about 18 drones). */
+/** Jam: the top cap of the formed sphere (it reaches down to y = 33 on the axis; 18 of 180 live drones at JAM_ON). */
 export const JAM_CENTRE: Vec3 = [0, 39, 0];
 export const JAM_RADIUS = 6;
 /** Score injection target: near the bottom of the sphere (slot y ≈ 21), far below the jam; in the last E during
@@ -49,7 +54,7 @@ export const DEMO_BEATS: readonly DemoBeat[] = [
   { id: 'xray', tick: T.XRAY, action: { kind: 'view', xray: true, beliefColours: false }, caption: 'X-ray on. Each line is a real heartbeat from the radio log, sampled. The static baseline sends none.' },
   { id: 'split', tick: T.SPLIT, action: null, caption: 'In split view, the static baseline flies below: same seed, same physics, same failures, no radio.' },
   { id: 'kill', tick: T.KILL, action: control({ type: 'kill-region', centre: KILL_CENTRE, radius: KILL_RADIUS, at: T.KILL }), caption: 'Knock out part of one letter in both worlds: about 10% of the swarm, the same drones on the same tick.' },
-  { id: 'repair', tick: T.REPAIR, action: null, caption: 'Encore arm: neighbours sense the gap, claim its most important slots by heartbeat, and the letter refills from its rim. Static baseline: the hole stays.' },
+  { id: 'repair', tick: T.REPAIR, action: null, caption: 'Encore arm: neighbours sense the gap and claim its most important slots by heartbeat, so part of the hole refills from its rim. Static baseline: the hole stays.' },
   { id: 'formation', tick: T.FORMATION, action: null, caption: 'Next movement: the survivors re-form as a sphere by the shared clock; no message is needed to do it.' },
   { id: 'jam', tick: T.JAM_ON, action: control({ type: 'jam', centre: JAM_CENTRE, radius: JAM_RADIUS, at: T.JAM_ON }), caption: 'Jam the radio over the top of the formation: nothing in or out. Encore arm: drones inside turn deaf and keep flying their score.' },
   { id: 'belief', tick: T.JAM_ON, action: { kind: 'view', xray: true, beliefColours: true }, caption: '' },
