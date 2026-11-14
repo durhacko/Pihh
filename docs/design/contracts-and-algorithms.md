@@ -1,10 +1,10 @@
 # Contracts and algorithms
 
-> **CONTRACT file. Owner: Arnav.** Change it only through a `[contract]` PR (see [`AGENTS.md`](../../AGENTS.md)). The TypeScript blocks here are copied verbatim into `src/contracts/` by issue WP-0b; after that, the code is the source of truth for types and this file for behaviour.
+> **CONTRACT file. Owner: Arnav.** Change it only through a `[contract]` PR (see [`AGENTS.md`](../../AGENTS.md)). The TypeScript declarations here are implemented in `src/contracts/` (merged, #12): declarations copied as written, `import type` lines added between files, and `DEFAULT_PARAMS` / `makeParams` given bodies. **The code is the source of truth for types; this file is the source of truth for behaviour.**
 
 Purpose: everything two work packages must agree on. Types (§1–§5), the composition format (§6), the drone protocol and healing algorithm (§7–§9), motion (§10), the static baseline (§11), and what is deliberately left out (§12). Component boundaries are in [`system-architecture.md`](system-architecture.md); reasons are in [`../planning/decisions-and-risks.md`](../planning/decisions-and-risks.md).
 
-Conventions: metres, seconds, ticks (`DT = 0.05 s`). y is up; formations stand in the XY plane centred near (0, 30, 0); the audience looks from +z. Drone ids are `0 … n0-1`. All contract data is plain JSON-serialisable (no classes, Maps or typed arrays).
+Conventions: metres, seconds, ticks (`DT = 0.05 s`). y is up; formations stand in the XY plane centred near (0, 30, 0); the audience looks from +z. Drone ids are `0 … n0-1`. All contract *data* (messages, snapshots, events, run records, brain state) is plain JSON-serialisable: no classes, Maps or typed arrays. `AgentBrain`, `World` and `Observer` are interfaces of functions, not data.
 
 ## 1. Parameters
 
@@ -57,7 +57,7 @@ export const DEFAULT_PARAMS: Params;                                   // the va
 export function makeParams(n0: number, overrides?: Partial<Params>): Params;   // sets n0 and claimGap = max(2, ceil(0.03 * n0))
 ```
 
-Always build parameters with `makeParams(n0)` when the roster is not 200: `claimGap` depends on `n0` (it is 2 at `n0 = 40`), and a stale value silently disables claims.
+Always build parameters with `makeParams(n0)` when the roster is not 200: `claimGap` depends on `n0` (it is 2 at `n0 = 40`), and a stale value silently disables claims. Overrides are applied last: never put `n0` in the overrides (pass it as the first argument), and an explicit `claimGap` override wins over the formula.
 
 ## 2. Score and formation types
 
@@ -222,7 +222,10 @@ export interface World {
 
 World behaviour that other packages rely on:
 
-- **Launch:** drone `i` starts at rest on a ground grid (`y = 0`, 1.5 m pitch) with `initialSlot = i`.
+- **Launch:** drone `i` starts at rest at `launchPos(i, n0)` (imported from `src/score`, one implementation) with `initialSlot = i`. The grid: `cols = ceil(sqrt(n0))`, `rows = ceil(n0 / cols)`, `x = (i % cols - (cols - 1) / 2) * 1.5`, `y = 0`, `z = (floor(i / cols) - (rows - 1) / 2) * 1.5`.
+- **Sensing** never includes the drone itself. A dead drone's `DroneSnap.belief` is its last belief.
+- **Seeds:** `AgentInit.seed` comes from `agentSeed(runSeed, id)`, defined once in `src/sim` and exported, so tests can rebuild the same stream.
+- **Events:** `SET_LOSS` replaces `loss` for every broadcast sent from that tick on. A `JAM_ON` or `PARTITION_ON` whose `id` is already active replaces it. `schedule()` throws if the event's tick is not later than the current tick.
 - **Kill:** the drone becomes `alive: false` at that tick and is removed from sensing and radio immediately (it falls out of the show). Messages it had already sent are still delivered. A drone that fails by hovering dark in place is not modelled (§12).
 - **Radio:** for each broadcast, every live drone within `rRadio` of the sender at send time is a candidate. It is `jammed` if sender or receiver is inside an active jam sphere at send time, `partitioned` if the two drones are in different groups of an active partition, `lost` with probability `loss`, otherwise delivered after a uniform `latencyMin…latencyMax` ticks.
 - **Partition:** at `PARTITION_ON` the world puts every drone in group 0 or 1 by which side of the plane it is on. Until `PARTITION_OFF` the groups cannot hear each other, **wherever the drones then fly**. (A purely geometric plane would leak: drones flying to new slots would carry the new score across it within seconds.) A jam sphere, by contrast, is geometric: it silences whoever is inside it at the time.
@@ -252,7 +255,7 @@ export interface RunRecord {
 ```
 
 ```ts
-// src/observer exports (one observer per world)
+// One observer per world. These two types live in src/contracts/metrics.ts; src/observer exports createObserver.
 export type SlotStatus = 'occupied' | 'inTransit' | 'vacant' | 'contested';
 export interface Observer {
   registerScore(score: Score): void;                     // call for the preloaded score and for every score scheduled with INJECT_SCORE
@@ -277,6 +280,8 @@ currentMovement(score: Score, tick: number): { index: number; movement: Movement
 newerVersion(a: ScoreVersion, b: ScoreVersion): boolean                 // (issuedTick, origin) lexicographic
 composeNext(score: Score, tick: number, recipe: Recipe, origin: number, n0: number, params: Params): Score
 launchPos(id: number, n0: number): Vec3
+transitionTicksBetween(from: Vec3[], to: Vec3[], params: Params): number          // the authoring formula under "Timing"
+makeScore(recipes: Recipe[], n0: number, params: Params, holdTicks?: number): Score   // builds the preloaded score
 ```
 
 **Expansion.** (1) Generate a dense candidate cloud for the shape: about `4·n0` points for slot selection, and about 2000 for `dense`. Text uses a built-in 5×7 bitmap font table (no canvas, so Node and browser agree), supersampling each lit cell 3×3. Sphere uses a Fibonacci lattice. Helix samples two strands. (2) Pick `n0` slots by **farthest-point sampling**: slot 0 is the candidate nearest the centroid; each next slot is the candidate farthest from all slots chosen so far (ties: lowest candidate index). (3) Scale the shape uniformly about its centre, up or down, so that the closest pair of slots is `slotSpacingMin` (times 1.001, so rounding cannot leave it below), then translate it so the centre of `bounds` is (0, 30, 0). Local slot density is therefore the same at every `n0`. Choose each shape's proportions so that `bounds.min.y ≥ 2` at `n0` 40 and 200 (a squat helix, not a tall one). (4) Colour each slot from the palette as a gradient along x.
@@ -472,7 +477,7 @@ steer(pos, vel, target, sensed, params):
 
 `dAvoid < slotSpacingMin`, so drones at rest on their slots do not push each other. Light colour is the slot's colour.
 
-SHOULD (`transitLanes`): while more than 3 m from the target, aim at `target + [0, 0, ((id % 3) - 1) * 2]` so crossing traffic is spread over three depth layers, then go straight in. Turn it on only if transitions gridlock or collision counts are ugly.
+SHOULD (`transitLanes`): `steer` takes no id, so the lane offset is a separate function, `steerTarget(id, pos, target, params)`, which returns the point to aim at (the target itself when `transitLanes` is off). While more than 3 m from the target, aim at `target + [0, 0, ((id % 3) - 1) * 2]` so crossing traffic is spread over three depth layers, then go straight in. Turn it on only if transitions gridlock or collision counts are ugly.
 
 Collisions (`d < dCollide`) and near-misses (`d < dNear`) are **counted from true positions by the world and have no physical effect**. A pair is counted once each time it enters the distance. At `vMax` two drones can close 0.8 m in one tick, so end-of-tick sampling can miss a fast pass: counts are lower bounds unless the world uses the closest approach within the tick (SHOULD). We never claim collision-freedom; we report the counts. This is a simulated proof of concept, not flight-control software.
 
