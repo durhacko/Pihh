@@ -101,10 +101,10 @@ describe('world tick and isolation', () => {
     const world = createWorld(config(4, {}, brain));
     expect(world.step().drones.map(d => d.pos)).toEqual(Array.from({ length: 4 }, (_, id) => launchPosition(id, 4)));
   });
-  it('rejects scheduling into the past and unsupported WP-2b events explicitly', () => {
+  it('rejects scheduling into the past and invalid packet-loss events', () => {
     const world = createWorld(config());
     expect(() => world.schedule({ type: 'KILL', tick: 0, ids: [] })).toThrow();
-    expect(() => world.schedule({ type: 'SET_LOSS', tick: 1, loss: 0.3 })).toThrow('WP-2a');
+    expect(() => world.schedule({ type: 'SET_LOSS', tick: 1, loss: 1.3 })).toThrow('Invalid packet loss');
   });
 });
 
