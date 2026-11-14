@@ -7,7 +7,7 @@ import { createRandom, hashSeed, hashText } from './random';
 interface Body {
   id: number; alive: boolean; diedTick: number | null;
   pos: Vec3; vel: Vec3; colour: Vec3; state: unknown;
-  last: { input: AgentInput; output: AgentOutput } | null;
+  last: { input: Given; output: AgentOutput } | null;
 }
 interface Pending { receiver: number; message: Message }
 type Jam = WorldSnapshot['jams'][number];
@@ -24,6 +24,21 @@ function clone<T>(value: T): T {
   }
   return value;
 }
+/** What a brain was given, recorded before its step. Sensed vectors are packed six per peer
+ * (rel xyz, vel xyz): one allocation per drone, not three per neighbour. Inbox packets are
+ * deep-frozen and shared, so only the inbox array is copied. */
+interface Given { tick: number; pos: Vec3; vel: Vec3; inbox: readonly Message[]; sensed: Float64Array }
+function record(input: AgentInput): Given {
+  const sensed = new Float64Array(input.sensed.length * 6);
+  for (let i = 0; i < input.sensed.length; i++) { sensed.set(input.sensed[i].rel, i * 6); sensed.set(input.sensed[i].vel, i * 6 + 3); }
+  return { tick: input.tick, pos: [...input.pos], vel: [...input.vel], inbox: input.inbox.slice(), sensed };
+}
+function replay(given: Given): AgentInput {
+  const s = given.sensed;
+  const sensed: AgentInput['sensed'][number][] = [];
+  for (let i = 0; i < s.length; i += 6) sensed.push({ rel: [s[i], s[i + 1], s[i + 2]], vel: [s[i + 3], s[i + 4], s[i + 5]] });
+  return { tick: given.tick, pos: [...given.pos], vel: [...given.vel], inbox: clone(given.inbox), sensed };
+}
 function freeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const entry of Object.values(value)) freeze(entry);
@@ -39,7 +54,9 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
   if (!Number.isInteger(params.latencyMin) || !Number.isInteger(params.latencyMax) || params.latencyMin < 1 || params.latencyMax < params.latencyMin) throw new Error('Invalid radio latency');
   if (!Number.isFinite(params.loss) || params.loss < 0 || params.loss > 1) throw new Error('Invalid packet loss');
   const score = freeze(clone(source.score));
-  const brain = Object.freeze({ ...source.brain });
+  // By reference: spreading would drop a class-instance brain's prototype methods. Not frozen,
+  // because that would freeze the caller's (possibly shared) object; config itself is frozen.
+  const brain = source.brain;
   const config = Object.freeze({ seed: source.seed, params, score, brain, events: freeze(clone(source.events ?? [])) });
   const rng = createRandom(hashSeed(source.seed, -1));
   let tick = 0;
@@ -60,6 +77,7 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
   function schedule(event: EnvEvent) {
     if (!Number.isInteger(event.tick) || event.tick <= tick) throw new Error('Events must be scheduled after the current tick');
     if (event.type === 'JAM_ON' && (!Number.isFinite(event.radius) || event.radius < 0)) throw new Error('Invalid jam radius');
+    if (event.type === 'JAM_ON' && !event.centre.every(Number.isFinite)) throw new Error('Invalid jam centre');
     if (event.type === 'SET_LOSS' && (!Number.isFinite(event.loss) || event.loss < 0 || event.loss > 1)) throw new Error('Invalid packet loss');
     if (event.type === 'PARTITION_ON' && (!event.normal.every(Number.isFinite) || event.normal.every(v => v === 0) || !event.point.every(Number.isFinite))) throw new Error('Invalid partition plane');
     if (event.type === 'INJECT_SCORE' && (!Number.isInteger(event.droneId) || event.droneId < 0 || event.droneId >= params.n0)) throw new Error('Invalid injection target');
@@ -118,10 +136,12 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     const outputs = new Map<number, AgentOutput>();
     for (const id of test.reverseStepOrder ? [...live].reverse() : live) {
       const input = inputs.get(id)!;
+      // Taken before the call, so inspect() shows what the brain was given even if it mutates its input.
+      const given = record(input);
       const output = clone(brain.step(bodies[id].state, input));
       if (output.accel.length !== 3 || !output.accel.every(Number.isFinite)) throw new Error('Brain returned invalid acceleration');
       outputs.set(id, output);
-      bodies[id].last = { input, output };
+      bodies[id].last = { input: given, output };
     }
     // 5. Sender/receiver ordering is independent of the brain invocation order.
     const radio: RadioEvent[] = [];
@@ -172,10 +192,11 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     collisionPairs = nowCollision;
     nearPairs = nowNear;
     // 8. Snapshot vectors and beliefs never alias a body or brain state.
+    // partitionSide reports the oldest active partition (Map insertion order; a replaced id keeps its place).
     return {
       tick, drones: bodies.map(body => ({
         id: body.id, alive: body.alive, diedTick: body.diedTick, pos: clone(body.pos), vel: clone(body.vel), colour: clone(body.colour),
-        partitionSide: activePartitions.length === 1 ? activePartitions[0].groups[body.id] : null, belief: clone(brain.belief(body.state)),
+        partitionSide: activePartitions.length ? activePartitions[0].groups[body.id] : null, belief: clone(brain.belief(body.state)),
       })), radio, jams: clone([...jams.values()]), partitions: activePartitions.map(({ id, point, normal }) => ({ id, point: clone(point), normal: clone(normal) })), collisions, nearMisses,
     };
   }
@@ -183,7 +204,7 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     config, step, schedule,
     inspect(id) {
       const body = bodies[id];
-      return body?.last ? clone({ ...body.last, state: body.state }) : null;
+      return body?.last ? { input: replay(body.last.input), output: clone(body.last.output), state: clone(body.state) } : null;
     },
     stateHash() {
       return hashText(JSON.stringify({ seed: config.seed, tick, bodies: bodies.map(({ id, alive, diedTick, pos, vel, colour, state }) => ({ id, alive, diedTick, pos, vel, colour, state })) }));

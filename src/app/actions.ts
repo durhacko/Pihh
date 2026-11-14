@@ -1,4 +1,5 @@
-import type { EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
+import type { EnvEvent, Params, Recipe, Score, World, WorldSnapshot } from '../contracts';
+import { idsInSphere, randomIds } from '../sim';
 
 export type ControlIntent =
   | { type: 'play' } | { type: 'reset'; seed: number } | { type: 'speed'; speed: number }
@@ -32,19 +33,10 @@ export interface ControlStatus {
 }
 export interface ControlResult { ok: boolean; message: string; event?: EnvEvent }
 
-export function idsInRegion(snapshot: WorldSnapshot, centre: Vec3, radius: number): number[] {
+/** The radius a regional kill uses: positive and finite (idsInSphere itself accepts 0). */
+function killRadius(radius: number): number {
   if (!Number.isFinite(radius) || radius <= 0) throw new Error('Radius must be positive.');
-  return snapshot.drones.filter(drone => drone.alive && Math.hypot(...drone.pos.map((value, index) => value - centre[index])) <= radius).map(drone => drone.id).sort((a, b) => a - b);
-}
-
-function sampledIds(snapshot: WorldSnapshot, count: number, seed: number): number[] {
-  const ids = snapshot.drones.filter(drone => drone.alive).map(drone => drone.id).sort((a, b) => a - b);
-  let state = seed >>> 0;
-  for (let i = ids.length - 1; i > 0; i--) {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-    const j = state % (i + 1); [ids[i], ids[j]] = [ids[j], ids[i]];
-  }
-  return ids.slice(0, Math.min(count, ids.length)).sort((a, b) => a - b);
+  return radius;
 }
 
 /** App boundary: resolve an intent once, then schedule equal explicit events into both arms. */
@@ -111,9 +103,12 @@ export function createActionController(context: ControlContext) {
       if (snapshots.encore.tick !== snapshots.static.tick) throw new Error('World clocks are not aligned.');
       const tick = snapshots.encore.tick + 1;
       let event: EnvEvent;
-      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInRegion(snapshots.encore, selected(snapshots.encore).pos, intent.radius ?? context.params.rClaim) };
+      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, selected(snapshots.encore).pos, killRadius(intent.radius ?? context.params.rClaim)) };
       else if (intent.type === 'kill-selected') event = { type: 'KILL', tick, ids: [selected(snapshots.encore).id] };
-      else if (intent.type === 'kill-random') event = { type: 'KILL', tick, ids: sampledIds(snapshots.encore, Math.ceil(context.params.n0 * 0.1), (context.getTransport().seed ^ tick ^ log.length) >>> 0) };
+      else if (intent.type === 'kill-random') {
+        const live = snapshots.encore.drones.filter(drone => drone.alive).map(drone => drone.id);
+        event = { type: 'KILL', tick, ids: randomIds((context.getTransport().seed ^ tick ^ log.length) >>> 0, live, Math.ceil(context.params.n0 * 0.1)) };
+      }
       else {
         if (!context.radioFaults) throw new Error('Radio fault controls are not connected yet.');
         if (intent.type === 'jam') {
