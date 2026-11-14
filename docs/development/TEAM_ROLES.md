@@ -1,6 +1,6 @@
 # Team roles
 
-Purpose: who is accountable for what. Lanes are **proposed, not confirmed**: the team's skills and availability have not been recorded, and Haris has not yet acted on GitHub. A lane becomes real when its owner claims an issue. Lanes are defaults for picking work, not limits.
+Purpose: who is accountable for what. Lanes as they stand at 20:10 Sat: Arnav runs lane A; Williams's team has claimed lane B **and** the render slice of lane C (#18) and the isolation tests (#20), and asked Arnav to keep lane A. Haris has not yet acted on GitHub, so the rest of lane C is unowned. A lane becomes real when its owner claims an issue. Lanes are defaults for picking work, not limits.
 
 | Human | GitHub | Lane (see [development plan](../planning/development-plan.md#lanes)) | Owns these shared files |
 |---|---|---|---|
@@ -22,7 +22,7 @@ Arnav's session also runs an **orchestrator** with local sub-agents. It keeps is
 
 ## Readiness
 
-Cross-laptop coordination is **untested** until each person's readiness check is closed: Haris #34, Williams #35, Arnav #36. Each check proves GitHub auth, Node and npm, repo access, issue claiming and one PR, and records the details in `docs/development/readiness/<handle>.md`. Haris's check also confirms his GitHub handle.
+Cross-laptop coordination is **exercised between two laptops only** (Arnav's and Williams's: each has reviewed and merged the other's PRs, #38, #40, #42, #43). It is **not** tested for Haris. Readiness checks: Arnav #36 closed; Williams #35 and Haris #34 open. Each check proves GitHub auth, Node and npm, repo access, issue claiming and one PR, and records the details in `docs/development/readiness/<handle>.md`. Haris's check also confirms his GitHub handle.
 
 ## Skills inventory (fill in on first contact; it decides the final lanes)
 
