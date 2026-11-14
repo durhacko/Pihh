@@ -22,7 +22,7 @@ Gate evidence: [evaluation doc §7](validation/evaluation-and-tests.md#7-gates).
 
 | Who | Issue | State |
 |---|---|---|
-| Williams (proposed) | [#5](https://github.com/durhacko/Pihh/issues/5) WP-0a scaffold + CI | **READY. Nothing else can start until this merges.** No activity on it yet; under the release rule in `AGENTS.md` it is free to anyone |
+| Williams (proposed) | [#5](https://github.com/durhacko/Pihh/issues/5) WP-0a scaffold + CI | **READY. Nothing else can start until this merges.** Not claimed yet (Williams closed #2 at 19:03, so he is on GitHub); under the release rule in `AGENTS.md` it is free to anyone if unclaimed |
 | Arnav | [#12](https://github.com/durhacko/Pihh/issues/12) WP-0b contract types + fixtures | Blocked by #5 (30 minutes of work) |
 | Haris (proposed) | [#1](https://github.com/durhacko/Pihh/issues/1) verify the Neptune North brief and theme wording at the booth | READY |
 | Everyone | Read `AGENTS.md`, the [contracts](design/contracts-and-algorithms.md) and your lane in the [plan](planning/development-plan.md#lanes) | — |
@@ -33,7 +33,7 @@ All work-package issues (#12–#29) are labelled `status:blocked` until their de
 
 ## Blockers and open questions
 
-- **Nobody but Arnav has acted on GitHub yet.** Haris's and Williams's handles (`sirahmo`, `wpimento`) are inferred, and lanes B and C are proposals until they claim an issue.
+- **Haris has not yet acted on GitHub**, and his handle (`sirahmo`) is inferred. Williams's handle (`wpimento`) is confirmed: he closed #2. Lanes B and C stay proposals until their owners claim an issue.
 - **Research handoff packet not received** ([placeholder](context/research-handoff.md)). The design was not checked against it.
 - **Neptune North brief and theme wording are team-reported, not verified** (#1).
 - **The review loop was stopped after its second full round.** All 27 confirmed findings were fixed, but the fixes were not re-reviewed ([review history](planning/development-plan.md#review-history)).
