@@ -11,7 +11,7 @@ import createPreviewLayer, { connectPreview } from '../../../src/app/render/laye
 import { adoption, Drafts, injectFromComposer, setPreview, validateDraft } from '../../../src/app/ui/Composer';
 import { createConsoleEngine, type ConsoleContext, type ConsoleLine } from '../../../src/app/ui/Console';
 import { Store } from '../../../src/app/ui/store';
-import { controlContext, createWorlds, encoreBrainIsFixture, viewModeDisplay } from '../../../src/app/worlds';
+import { controlContext, createWorlds, viewModeDisplay } from '../../../src/app/worlds';
 
 afterEach(() => { resetViewMode(); vi.restoreAllMocks(); });
 
@@ -77,11 +77,12 @@ describe('Composer and Console: one inject path', () => {
         }
       }
     }
-    // The uplink is the only SCORE: one per arm, at the event tick, into drone 5. With the static brain in both arms
-    // nobody relays it; once the Encore brain lands (#16), relayed copies come from drones, never from OPERATOR.
+    // The uplink is the only OPERATOR SCORE: one per arm, at the event tick, into drone 5. The Encore brain gossips it
+    // on (#105), so other Encore drones may receive copies, but only from drones. The static brain never relays.
     const uplinks = received.filter(r => r.from === OPERATOR);
     expect(uplinks).toEqual([{ arm: 'encore', id: 5, tick: event.tick, from: OPERATOR }, { arm: 'static', id: 5, tick: event.tick, from: OPERATOR }]);
-    if (encoreBrainIsFixture) expect(received).toEqual(uplinks);
+    expect(received.filter(r => r.from !== OPERATOR).every(r => r.arm === 'encore' && r.from >= 0 && r.from < fx.worlds.params.n0)).toBe(true);
+    expect(received.filter(r => r.arm === 'static')).toEqual([uplinks[1]]);
   });
 
   it('invalid drafts never dispatch, from either path', async () => {
@@ -177,18 +178,20 @@ describe('adoption reads observer data only', () => {
     expect(measured).toEqual({ state: 'measured', sampleTick: 45, encore: { count: 7, alive: 10, share: 0.7 }, static: { count: 0, alive: 10, share: 0 } });
   });
 
-  it('with the static brain in both arms the bar shows 0, never an invented spread', async () => {
+  it('in the real app worlds the bar and the observed line show exactly the observer’s counts; static stays at 0', async () => {
     const fx = setup();
     const { sent } = await injectFromComposer(fx.ctx, 'd1', 5);
     while ((fx.worlds.samples().encore?.tick ?? 0) < sent!.tick + 20) fx.step();
-    const reading = adoption(fx.worlds.samples(), sent!);
+    const samples = fx.worlds.samples();
+    const reading = adoption(samples, sent!);
     expect(reading.state).toBe('measured');
     expect(reading.static?.count).toBe(0);   // the static arm never adopts
-    if (encoreBrainIsFixture) expect(reading.encore).toMatchObject({ count: 0, share: 0 });
+    const count = samples.encore!.versions[sent!.key] ?? 0;
+    expect(reading.encore).toEqual({ count, alive: samples.encore!.alive, share: count / samples.encore!.alive });
     fx.engine.poll();
     const observed = fx.lines.filter(line => line.kind === 'observed');
-    expect(observed).toHaveLength(1);
-    if (encoreBrainIsFixture) expect(observed[0].text).toMatch(/Encore 0\/\d+ live drones hold it · static 0\/\d+/);
+    expect(observed.length).toBeGreaterThanOrEqual(1);
+    expect(observed[0].text).toContain(`Encore ${count}/${samples.encore!.alive} live drones hold it · static 0/${samples.static!.alive}`);
   });
 });
 
