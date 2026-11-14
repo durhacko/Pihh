@@ -86,7 +86,7 @@ describe('scripted demo run', () => {
   let jammedAtOn = 0;
   const leadIds: number[][] = [];
   const seen: Partial<Record<number, Pair<WorldSnapshot>>> = {};
-  const watched = [DEMO_TICKS.KILL - 1, DEMO_TICKS.KILL, DEMO_TICKS.JAM_ON, DEMO_TICKS.JAM_OFF - 1, DEMO_TICKS.JAM_OFF];
+  const watched = [DEMO_TICKS.KILL - 1, DEMO_TICKS.KILL, DEMO_TICKS.JAM_ON, DEMO_TICKS.INJECT, DEMO_TICKS.JAM_OFF - 1, DEMO_TICKS.JAM_OFF];
   beforeAll(() => {
     r = rig();
     expect(r.runner.start()).toBe(true);
@@ -133,16 +133,24 @@ describe('scripted demo run', () => {
       expect(seen[DEMO_TICKS.JAM_OFF - 1]![arm].jams).toHaveLength(1);
       expect(seen[DEMO_TICKS.JAM_OFF]![arm].jams).toEqual([]);
     }
-    // The jam covers the top cap: a minority of the swarm (18 drones with today's static brain).
+    // The jam starts on the FORMED sphere (paced targets, #96, arrive before the hold): every live drone in both arms
+    // is within rOcc of its own target, so the jam covers a cap of the formation, not whoever is passing mid-flight.
+    for (const arm of ['encore', 'static'] as const) {
+      const live = seen[DEMO_TICKS.JAM_ON]![arm].drones.filter(d => d.alive);
+      expect(live.filter(d => dist(d.pos, d.belief.target) > r.worlds.params.rOcc).map(d => d.id)).toEqual([]);
+    }
+    // The jam covers the top cap: a minority of the swarm (measured 18 of 180, either brain).
     expect(jammedAtOn).toBeGreaterThan(10);
     expect(jammedAtOn).toBeLessThan(30);
-    // INJECT_SCORE: an OPERATOR score in the target drone's inbox in both arms on its tick; the target was alive,
-    // low in the sphere and outside the jam.
+    // INJECT_SCORE: an OPERATOR score in the target drone's inbox in both arms on its tick; at that tick the target
+    // was alive, low in the sphere and outside the jam, in both arms.
     expect(injected).toEqual({ encore: true, static: true });
-    const target = seen[DEMO_TICKS.JAM_OFF - 1]!.encore.drones[INJECT_DRONE];
-    expect(target.alive).toBe(true);
-    expect(target.pos[1]).toBeLessThan(22);
-    expect(dist(target.pos, JAM_CENTRE)).toBeGreaterThan(JAM_RADIUS);
+    for (const arm of ['encore', 'static'] as const) {
+      const target = seen[DEMO_TICKS.INJECT]![arm].drones[INJECT_DRONE];
+      expect(target.alive).toBe(true);
+      expect(target.pos[1]).toBeLessThan(22);
+      expect(dist(target.pos, JAM_CENTRE)).toBeGreaterThan(JAM_RADIUS);
+    }
     // View beats went through the display intents; the run ends on the audience view with overlays off.
     expect(viewAtEnd).toMatchObject({ xray: false, beliefColours: false, selectedDroneId: INJECT_DRONE });
     expect(r.cameras).toEqual(['audience', 'audience']);
