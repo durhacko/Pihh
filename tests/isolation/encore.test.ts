@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeParams, OPERATOR } from '../../src/contracts';
-import type { AgentBrain, AgentInput, Score, WorldConfig, WorldSnapshot } from '../../src/contracts';
+import type { Score, WorldConfig, WorldSnapshot } from '../../src/contracts';
 import { encoreBrain } from '../../src/agent/encoreBrain';
 import { createWorld } from '../../src/sim';
 
@@ -12,35 +12,8 @@ const SCORE: Score = {
   ],
 };
 
-function worldConfig(seed = 101, n0 = 40, checked = false): WorldConfig {
-  return {
-    seed, params: makeParams(n0), score: structuredClone(SCORE),
-    brain: checked ? inputCheckedEncore() : encoreBrain,
-  };
-}
-
-function inputCheckedEncore(): AgentBrain {
-  const brain: AgentBrain = encoreBrain;
-  function checkFrozen(value: unknown): void {
-    if (!value || typeof value !== 'object') return;
-    if (!Object.isFrozen(value)) throw new Error('Encore received mutable input');
-    Object.values(value).forEach(checkFrozen);
-  }
-  function checkInput(input: AgentInput): void {
-    if (Object.keys(input).sort().join(',') !== 'inbox,pos,sensed,tick,vel') {
-      throw new Error('AgentInput exposes fields outside the local contract');
-    }
-    for (const sensed of input.sensed) {
-      if (Object.keys(sensed).sort().join(',') !== 'rel,vel') throw new Error('Encore sensing exposes non-anonymous data');
-    }
-    checkFrozen(input);
-  }
-  return {
-    kind: brain.kind,
-    init(init) { return brain.init(init); },
-    step(state, input) { checkInput(input); return brain.step(state, input); },
-    belief(state) { return brain.belief(state); },
-  };
+function worldConfig(seed = 101, n0 = 40): WorldConfig {
+  return { seed, params: makeParams(n0), score: structuredClone(SCORE), brain: encoreBrain };
 }
 
 function configCopy(config: WorldConfig): WorldConfig {
@@ -52,48 +25,10 @@ function bodyData(snapshot: WorldSnapshot) {
   return snapshot.drones.map(({ id, alive, pos, vel, colour }) => ({ id, alive, pos, vel, colour }));
 }
 
+// T02 (locality), T03 (order) and T04 (replay) run against the real Encore brain in the shared brains table in
+// isolation.test.ts, with the #65 hardening. This file keeps only what is Encore-specific.
 describe('real Encore isolation', () => {
-  it('Encore T02: a distant kill cannot change local frozen inputs, output or private state over two ticks', () => {
-    const config = worldConfig(101, 200, true);
-    config.params = makeParams(200, { loss: 0, latencyMin: 1, latencyMax: 1 });
-    const control = createWorld(config, { freezeInputs: true });
-    const changed = createWorld(configCopy(config), { freezeInputs: true });
-    const launch = control.step();
-    expect(changed.step()).toEqual(launch);
-    const observer = launch.drones[0];
-    const distant = [...launch.drones].reverse().find(drone =>
-      Math.hypot(...drone.pos.map((value, axis) => value - observer.pos[axis])) >
-        Math.max(config.params.rRadio, 2 * config.params.rSense) + 1);
-    expect(distant).toBeDefined();
-    const killTick = launch.tick + 1;
-    changed.schedule({ type: 'KILL', tick: killTick, ids: [distant!.id] });
-    for (let offset = 0; offset < 2; offset++) {
-      const clearSnapshot = control.step();
-      const killedSnapshot = changed.step();
-      expect(killedSnapshot.tick).toBe(killTick + offset);
-      expect(clearSnapshot.drones[distant!.id].alive).toBe(true);
-      expect(killedSnapshot.drones[distant!.id].alive).toBe(false);
-      expect(changed.inspect(observer.id)).not.toBeNull();
-      expect(changed.inspect(observer.id)).toEqual(control.inspect(observer.id));
-    }
-  }, 30_000);
-
-  it('Encore T03: reversing decision order preserves snapshots and state hashes through tick 400', () => {
-    const config = worldConfig();
-    config.params.loss = 0.3;
-    const ascending = createWorld(config, { freezeInputs: true });
-    const descending = createWorld(configCopy(config), { reverseStepOrder: true, freezeInputs: true });
-    for (let tick = 1; tick <= 400; tick++) {
-      const first = ascending.step();
-      const reversed = descending.step();
-      if (tick % 100 === 0) {
-        expect(reversed).toEqual(first);
-        expect(descending.stateHash()).toBe(ascending.stateHash());
-      }
-    }
-  }, 30_000);
-
-  it('Encore T04: replaying the same seed and event script preserves checkpoints; a new seed changes real agent state', () => {
+  it('Encore T04: a new seed changes real Encore agent state, not only a seed field (replay itself: isolation.test.ts)', () => {
     const config = worldConfig();
     config.params.loss = 0.3;
     config.events = [
@@ -124,7 +59,7 @@ describe('real Encore isolation', () => {
     expect(changedActualState, 'a changed hash seed field alone does not validate seeded real-agent state').toBe(true);
   }, 30_000);
 
-  it('Encore T05: a no-kill full jam preserves body motion and slot ownership while blocking real radio', () => {
+  it('Encore jam continuity (beyond T05, which is static-only): a no-kill full jam preserves body motion and slot ownership while blocking real radio', () => {
     const config = worldConfig();
     const clear = createWorld(config, { freezeInputs: true });
     const jamConfig = configCopy(config);
