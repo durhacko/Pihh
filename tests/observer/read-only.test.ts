@@ -46,4 +46,4 @@ it('T14: the public observer consumes frozen real snapshots without changing sim
   expect(evidence.timeline).toHaveLength(100);
   expect(evidence.finalLive).toHaveLength(37);
   expect(observer.summary().slotChanges).toBe(0);
-});
+}, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.

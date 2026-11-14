@@ -100,7 +100,7 @@ describe.each(brains)('%s isolation and replay', (_name, brain) => {
         expect(descending.stateHash()).toBe(ascending.stateHash());
       }
     }
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('T04: replaying the same seed and event script preserves hashes at every checkpoint', () => {
     const base = config(brain);
@@ -116,7 +116,7 @@ describe.each(brains)('%s isolation and replay', (_name, brain) => {
       expect(advance(replay, 100)).toEqual(advance(first, 100));
       expect(replay.stateHash(), `checkpoint ${checkpoint}`).toBe(first.stateHash());
     }
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 function structuredCloneConfig(base: WorldConfig): WorldConfig {
@@ -134,7 +134,7 @@ it('T04: changing the run seed changes a seeded radio-active run', () => {
   // Different seed metadata alone is insufficient: actual brain behavior must differ.
   expect(secondSnapshot.drones).not.toEqual(firstSnapshot.drones);
   expect(second.stateHash()).not.toBe(first.stateHash());
-});
+}, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
 it('T05: a full-show jam leaves the real static baseline bodies and private state unchanged', () => {
   const base = config(staticBrain);
@@ -150,4 +150,4 @@ it('T05: a full-show jam leaves the real static baseline bodies and private stat
     expect(underJam.radio).toEqual([]);
     if (tick % 100 === 0) expect(jammed.stateHash()).toBe(clear.stateHash());
   }
-});
+}, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.

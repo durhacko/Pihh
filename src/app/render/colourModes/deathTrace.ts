@@ -6,8 +6,11 @@ export class DeathTrace {
   private previous = new Map<number, DroneSnap>();
   private lastTick = -1;
 
+  /** Drop all retained deaths (the world was rebuilt). */
+  reset(): void { this.deaths.clear(); this.previous.clear(); this.lastTick = -1; }
+
   update(prev: WorldSnapshot, curr: WorldSnapshot): void {
-    if (curr.tick < this.lastTick) { this.deaths.clear(); this.previous.clear(); this.lastTick = -1; }
+    if (curr.tick < this.lastTick) this.reset();
     if (curr.tick === this.lastTick) return;
     for (const drone of curr.drones) {
       const before = this.previous.get(drone.id) ?? prev.drones.find(candidate => candidate.id === drone.id);

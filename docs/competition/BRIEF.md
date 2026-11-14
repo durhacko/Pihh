@@ -1,9 +1,9 @@
 # DurHack 2026: Competition brief
 
 Purpose: the single source of truth for event facts. Other docs link here instead of restating them.
-Researched 2026-11-14 ~15:00 GMT by a research agent. **Status key:** ✅ verified for 2026 · 🕘 previous year (2025), not verified for 2026 · ❓ unverified or inferred · ❌ not found online.
+Researched 2026-11-14 ~15:00 GMT by a research agent; re-searched ~22:00 GMT for #1. Sources checked: the Devpost overview, rules, dates and gallery pages; durhack.com and its JS bundles; api.durhack.com; the ducompsoc GitHub repos; MLH; Instagram, LinkedIn and general web search; neptunenorth.co.uk. Devpost returns 403 to some fetch tools, but a browser user agent works. **Status key:** ✅ verified for 2026 · 🕘 previous year (2025), not verified for 2026 · ❓ unverified or inferred · ❌ not found online.
 
-> **Highest-value gap:** sponsor challenge briefs and the "Composition" theme wording are **not published online**. Someone must capture them in person (opening-ceremony slides, sponsor booths, Discord) and add them here. Tracked as a P0 issue.
+> **Highest-value gap:** sponsor challenge briefs and the "Composition" theme wording are **not published online** (re-checked ~22:00 Sat; still absent). Someone must capture them in person (opening-ceremony slides, sponsor booths, Discord) and add them here. Tracked as a P0 issue.
 
 ## 1. Schedule (GMT)
 
@@ -22,7 +22,7 @@ Note: the MLH listing shows 14:30Z–23:00Z, which conflicts with the above. Tre
 
 | ID | Fact | Status | Source |
 |---|---|---|---|
-| T1 | Theme is **"Composition"** | ❓ | Team handoff. It does not appear on Devpost, durhack.com or the site repo. **Confirm the wording and how it is judged** (is it a judging criterion, a prize, or flavour?) |
+| T1 | Theme is **"Composition"** | ❓ | Team handoff. It does not appear on Devpost, durhack.com (including its JS bundles), the ducompsoc repos or the MLH page (re-checked ~22:00 Sat). Devpost's only theme tags are those in T2. **Confirm the wording and how it is judged** (is it a judging criterion, a prize, or flavour?) |
 | T2 | Devpost tags: Beginner Friendly / Open Ended / Social Good | ✅ | Devpost overview |
 | T3 | Venue "Guilds": Skyline, Plaza, Metro (city art), "DurHack Dino" mascot | ✅ | durhack.com |
 
@@ -33,7 +33,7 @@ Note: the MLH listing shows 14:30Z–23:00Z, which conflicts with the above. Tre
 | **J1** | **Criteria: Creativity/Innovation · Polish/Completion · Technical Competence/Execution · Research/Learning** | ✅ | Devpost overview |
 | J2 | FAQ wording: "creativity, technical accomplishments, polish and usefulness" | ✅ | github.com/ducompsoc/durhack `client/src/config/faqs.tsx` |
 | J3 | Judging is in person; judges are "DurHack Selected Judges" | ✅ | https://durhack-26.devpost.com/rules |
-| J4 | Probably expo-style pairwise ranking (org runs a fork of the "Jury" app) | ❓ | github.com/ducompsoc/durhack-jury |
+| J4 | Probably expo-style table judging (the org runs a fork of the "Jury" app). In its code the per-project timer defaults to **300 s**, and admins can change it. Its docs say judges go to a table number and start the countdown when the team starts presenting. This is a code default, not an announced pitch length | ❓ | https://github.com/ducompsoc/durhack-jury/blob/main/server/models/options.go · https://github.com/ducompsoc/durhack-jury/blob/main/docs/docs/walkthrough.md |
 
 **Implication:** prepare a 60–90 second table pitch that hits all four J1 criteria, and a live demo a judge can touch.
 
@@ -48,7 +48,8 @@ Note: the MLH listing shows 14:30Z–23:00Z, which conflicts with the above. Tre
 | R5 | **No work on the project before the event** | ✅ | /rules |
 | R6 | Teams of up to 4. Multiple challenges per project allowed. Multiple projects per team "not recommended". No cross-posting to other hackathons. | ✅ | /rules, FAQ |
 | R7 | MLH Code of Conduct applies; IP stays with the team | ✅ | FAQ, Devpost |
-| R8 | Video or specific Devpost form fields | ❌ | not stated; check the Devpost form early |
+| R8 | Video or specific Devpost form fields. The rules page does not mention a video. The project gallery (not yet published) filters by **guild (Skyline/Plaza/Metro), room (TLC…) and table row and column**, so the form probably asks for these. Check the form itself early | ❓ | https://durhack-26.devpost.com/rules · https://durhack-26.devpost.com/project-gallery |
+| R9 | Travel reimbursement depends on having a ticket, being checked in **and submitting a Devpost project** | ✅ | https://github.com/ducompsoc/durhack/blob/main/client/src/config/faqs.tsx |
 
 ## 5. Prize tracks
 
@@ -62,7 +63,7 @@ Devpost lists titles and prizes only. **No challenge briefs, eligibility or requ
 | P4 | SGX FX "Protect Your Assets" (Ch 1), "Get Creative" (Ch 2) | TBC | ✅ title | "SGX" lead **verified as SGX FX**. Brief ❌. Likely linked to Platinum sponsor bidfx ❓ |
 | P5 | P&G Challenge 1 and 2 | TBC | ✅ title | Brief ❌ |
 | P6 | Accenture | Keyboard, Sony headphones, bag | ✅ | Brief ❌ |
-| P7 | **Neptune North** | £1000 team voucher + keyboards | ✅ | Brief ❌. 2025: "Anticipate macroeconomic data" with alternative high-frequency data 🕘 |
+| P7 | **Neptune North** | £1000 team voucher + keyboards | ✅ | Brief ❌. Re-checked ~22:00 Sat: not on Devpost, durhack.com, the ducompsoc repos, MLH or neptunenorth.co.uk. Gold sponsor with CV sharing on ✅ (https://github.com/ducompsoc/durhack/blob/main/client/src/config/sponsors.tsx). The company describes itself as a technical consultancy (data, AI, software), founded in 2024 as a joint venture of Oliver Wyman and Rokos Capital Management, working in finance and defence ✅ (https://www.neptunenorth.co.uk/). 2025: "Anticipate macroeconomic data" with alternative high-frequency data 🕘 |
 | P8 | **QRT** | TBC | ✅ title | Brief ❌. 2025: security/AWS CTF and a carbon/fairness location optimiser, £500 per person 🕘 |
 | P9 | **RS** | TBC | ✅ title | Brief ❌. **Arduino UNO Q link ❓**: RS distributes the UNO Q but no source ties it to DurHack |
 | P10 | Waterstons | Pi Pico + Inventors Kit | ✅ | Brief ❌ |
@@ -84,6 +85,7 @@ Sponsor tiers ✅ (durhack.com): Platinum: Marshall Wace, QRT, bidfx · Gold: Ac
 
 - [ ] Theme wording and whether/how it's judged
 - [ ] Each sponsor brief: P3, P4, P5, P6, P7, P8, P9, P10
+- **The Neptune North brief and the theme wording are not online.** The agent re-search at ~22:00 Sat found neither (sources in the header). A human must capture both at the venue; no agent can close this.
 - [x] ~~Hardware library inventory~~ Not needed: Encore is software-only (no hardware in scope)
 - [ ] Judging time, format, pitch length
 - [ ] Devpost form fields (video required?)
