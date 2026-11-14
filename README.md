@@ -21,7 +21,7 @@ npm run preview
 Open **http://127.0.0.1:4173/?seed=101&split=1**, or the address Vite prints if port 4173 is taken. Both worlds start from seed 101.
 
 - **Camera:** drag to orbit, right-drag to pan, scroll to zoom. Keys `1`–`3` choose camera presets.
-- **Select a drone:** click one in the Encore view, or type its id in the panel. Region kill, jam, partition and inject act around the selected drone.
+- **Select a drone:** click one in the Encore view, or type its id in the panel. Region kill and jam act around the selected drone, and inject sends to it; partition splits the swarm along a fixed plane.
 - **Keys:**
 
   | Key | Action |
@@ -69,7 +69,7 @@ These cases were written down before any evaluation run, in [evaluation and test
 | **Partition with failures (S4, optional)** | Smaller gain than S2. Drones on opposite sides can claim the same slot, so expect duplicates, more slot changes and losses on some seeds. | `[RESULT: S4, or "not run"]` |
 | **New composition during a partition (S5)** | Two versions fly at once until reconnection. The group left behind repairs its old formation and then unwinds. The static show can't adopt, which is a capability difference, not a win. | `[RESULT: S5 adoption on the injected side, time to one version]` |
 | **Message cost (all scenarios)** | The static show sends nothing, so it is always cheaper. | `[RESULT: messages per drone-second, Encore]` |
-| **Collisions (all scenarios)** | Encore ≥ static. The static world collides during formation changes. Before any fix it recorded about 60 collisions and 310 near-misses per null run (200 drones, 5 seeds, measured before the freeze; [#80](https://github.com/durhacko/Pihh/issues/80)). The Encore world shares the same motion code. Counts are lower bounds, sampled at 20 Hz. | `[RESULT: collisions and near-misses per run, both arms, all scenarios]` |
+| **Collisions (all scenarios)** | Encore ≥ static. The static world collides during formation changes. Before any fix, one deterministic run of the no-event scenario recorded about 60 collisions and 310 near-misses (200 drones, identical for seeds 1-5, measured on an experiment branch; [#80](https://github.com/durhacko/Pihh/issues/80)). The Encore world shares the same motion code. Counts are lower bounds, sampled at 20 Hz. | `[RESULT: collisions and near-misses per run, both arms, all scenarios]` |
 
 Design limits to state alongside the results:
 
