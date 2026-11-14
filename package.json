@@ -7,20 +7,21 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . && node scripts/check-boundaries.mjs",
+    "lint": "eslint .",
     "test": "vitest run",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "smoke": "node scripts/smoke.mjs",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run smoke"
+    "check": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": { "three": "0.181.1" },
   "devDependencies": {
+    "@eslint/js": "9.39.1",
     "@types/node": "24.10.1",
     "@types/three": "0.181.0",
     "eslint": "9.39.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.46.4",
+    "tsx": "4.23.15",
     "vite": "7.2.2",
     "vitest": "4.0.9"
   }

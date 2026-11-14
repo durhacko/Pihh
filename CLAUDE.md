@@ -16,7 +16,8 @@ Then read [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md), [`docs/design/contra
 
 ```bash
 python scripts/check_links.py      # internal Markdown links (CI runs this)
-bash scripts/check.sh              # clean install + typecheck + lint + tests + build + smoke
+npm ci                            # install pinned dependencies once
+bash scripts/check.sh              # typecheck + lint + tests + build + docs links
 npm run dev                       # local app (Windows PowerShell: npm.cmd run dev)
 npm run check                     # checks using installed dependencies
 gh issue list --assignee @me       # your work

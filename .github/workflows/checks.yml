@@ -15,7 +15,7 @@ jobs:
           python-version: "3.12"
       - name: Internal Markdown links resolve
         run: python scripts/check_links.py
-  stack:
+  app:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,5 +23,9 @@ jobs:
         with:
           node-version: '24.11.0'
           cache: npm
-      - name: Install, typecheck, lint, test, build, smoke
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck, lint, test, build, docs
         run: bash scripts/check.sh

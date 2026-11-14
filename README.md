@@ -48,17 +48,17 @@ npm ci
 npm run dev
 ```
 
-Open the loopback URL printed by Vite. The page currently confirms scaffold readiness; it does not simulate drones yet. On Windows PowerShell use `npm.cmd` if script execution policy blocks `npm`.
+Open the loopback URL printed by Vite. The page currently shows a blank Three.js canvas; it does not simulate drones yet. On Windows PowerShell use `npm.cmd` if script execution policy blocks `npm`.
 
 Encore always runs in simulation mode. Optional `.env` setting `VITE_SIM_MODE=true` is documented in `.env.example`; setting it to false is rejected. No credentials are needed. Dependency installation needs internet; the app uses local assets at runtime.
 
-Run all checks with `bash scripts/check.sh` (Git Bash on Windows). This performs a clean dependency install, typecheck, lint, import-boundary checks, Node tests, production build and loopback preview smoke check. Alternatively use `npm ci` followed by `npm run check` in PowerShell. The smoke check verifies HTTP delivery of the built page and JS bundle; it does not execute a browser or verify WebGL.
+After `npm ci`, run all checks with `bash scripts/check.sh` (Git Bash on Windows). This performs typecheck, lint, import-boundary tests, Node tests, production build and the Python docs link check. Python 3 is required. Alternatively run `npm run check` and `python scripts/check_links.py` in PowerShell. The T01 test scans all source files and tests deliberate violations against the same checker.
 
 Use `npm run build` then `npm run preview` to serve the production files locally.
 
 ## Built with
 
-TypeScript, Vite, Three.js, Vitest, ESLint and typescript-eslint, with Node.js and TypeScript definitions from `@types/node` and `@types/three`. Exact direct versions and the transitive dependency tree are pinned in `package.json` and `package-lock.json`. Three.js is installed for the upcoming renderer; the scaffold does not render a scene yet.
+TypeScript, Vite, Three.js, Vitest, ESLint, `@eslint/js`, typescript-eslint and tsx, with Node.js and TypeScript definitions from `@types/node` and `@types/three`. Exact direct versions and the transitive dependency tree are pinned in `package.json` and `package-lock.json`. The canvas has an empty scene until the renderer work package lands.
 
 ## AI use
 
