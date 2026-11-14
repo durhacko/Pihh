@@ -79,6 +79,7 @@ let refreshControls = (): void => {};
 function reset(seed: number): void {
   worlds.reset(seed);
   for (const { view } of views) view.reset();   // retained radio/death evidence belongs to the old worlds
+  if (loopError) transport.playing = true;       // R after a stopped loop is the recovery: run the new show
   loopError = null;
   delete readout.dataset.error;
   advance();
@@ -284,9 +285,10 @@ const loop = createFrameLoop(transport, {
     }
   },
   onError(error) {
-    loopError = error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
+    if (message !== loopError) console.error('Encore loop stopped', error);   // once, not every frame it repeats
+    loopError = message;
     readout.dataset.error = loopError;
-    console.error('Encore loop stopped', error);
     try { readout.textContent = readoutText(aliveNow(), lastFps, worlds.tick); } catch { readout.textContent = `Stopped: ${loopError} · press R to reset`; }
     refreshControls();
   },
