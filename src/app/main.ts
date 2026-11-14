@@ -1,5 +1,5 @@
 import { DT } from '../contracts';
-import type { EnvEvent, Vec3, WorldSnapshot } from '../contracts';
+import type { EnvEvent, MetricsSample, Vec3, WorldSnapshot } from '../contracts';
 import { bindControls } from './actions';
 import { CameraRig, type CameraPreset } from './render/CameraRig';
 import { SnapshotBuffer } from './render/SnapshotBuffer';
@@ -121,6 +121,9 @@ interface EncoreDebug {
   snapshots(): Pair<WorldSnapshot>;
   alive(): Pair<number>;
   stateHashes(): Pair<string>;
+  /** Newest observer MetricsSample per world (every 5 ticks); the HUD is #24. */
+  samples(): Pair<MetricsSample | null>;
+  series(): Pair<readonly MetricsSample[]>;
   tick(): number;
   setPlaying(playing: boolean): void;
   setSpeed(speed: number): void;
@@ -137,6 +140,8 @@ window.encore = {
   snapshots: current,
   alive: () => { const s = current(); return { encore: s.encore.drones.filter(d => d.alive).length, static: s.static.drones.filter(d => d.alive).length }; },
   stateHashes: () => ({ encore: worlds.worlds.encore.stateHash(), static: worlds.worlds.static.stateHash() }),
+  samples: () => worlds.samples(),
+  series: () => worlds.series(),
   tick: () => worlds.tick,
   setPlaying,
   setSpeed,

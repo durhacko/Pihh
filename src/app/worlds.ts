@@ -4,8 +4,9 @@
 // lockstep, so they always share a tick. The app changes a world only by scheduling EnvEvents and stepping;
 // it never sets a drone's slot, target or belief. Pure TypeScript: no DOM, no clock, no randomness.
 import { makeParams } from '../contracts';
-import type { AgentBrain, EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
+import type { AgentBrain, EnvEvent, MetricsSample, Observer, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
 import { staticBrain } from '../agent/staticBrain';
+import { createObserver } from '../observer';
 import { composeNext, makeScore } from '../score';
 import { createWorld } from '../sim';
 import type { ControlContext } from './actions';
@@ -29,9 +30,21 @@ export interface WorldsOptions {
   params?: Params;        // default makeParams(n0)
   score?: Score;          // default makeScore(ENCORE, sphere, helix)
   events?: EnvEvent[];    // scripted events, scheduled into both worlds at build time
+  /** Test seam only: replace an arm's brain. The app never passes this. */
+  brains?: Partial<Pair<AgentBrain>>;
 }
 
 export interface Worlds {
+  /** One read-only observer per world (src/observer), rebuilt on reset. */
+  readonly observers: Pair<Observer>;
+  /** The newest MetricsSample per world (one every 5 ticks), or null before the first. */
+  samples(): Pair<MetricsSample | null>;
+  /** Every sample since the last build or reset, per world, oldest first. */
+  series(): Pair<readonly MetricsSample[]>;
+  /** Registers a score with BOTH observers. Call before any drone can believe it (INJECT_SCORE). */
+  registerScore(score: Score): void;
+  /** Tells BOTH observers about an event that both worlds accepted. scheduleBoth calls this itself. */
+  recordEvent(event: EnvEvent): void;
   readonly params: Params;
   readonly score: Score;
   readonly seed: number;
@@ -41,9 +54,12 @@ export interface Worlds {
   readonly tick: number;
   /** The snapshots returned by the last stepBoth(), or null before the first step after a build or reset. */
   latest(): Pair<WorldSnapshot> | null;
-  /** Advances both worlds by exactly one tick and returns both snapshots. */
+  /** Advances both worlds by exactly one tick, feeds each snapshot to its observer, returns both snapshots. */
   stepBoth(): Pair<WorldSnapshot>;
-  /** Schedules the SAME event object into both worlds. Its tick must be later than the shared tick. */
+  /**
+   * Schedules the SAME event object into both worlds (its tick must be later than the shared tick), then
+   * records it with both observers. An INJECT_SCORE's score is registered with both observers first.
+   */
   scheduleBoth(event: EnvEvent): void;
   /** Rebuilds both worlds from `seed` (default: the current seed) with the same params, score and scripted events. */
   reset(seed?: number): void;
@@ -61,17 +77,35 @@ export function createWorlds(options: WorldsOptions): Worlds {
   const score = options.score ?? makeScore([...DEFAULT_RECIPES], n0, params);
   const scripted = options.events ?? [];
   let seed = checkSeed(options.seed);
+  const brains: Pair<AgentBrain> = { encore: options.brains?.encore ?? ENCORE_BRAIN, static: options.brains?.static ?? staticBrain };
   let pair: Pair<World>;
+  let observers: Pair<Observer>;
   let latest: Pair<WorldSnapshot> | null;
+  let latestSamples: Pair<MetricsSample | null>;
+  let series: Pair<MetricsSample[]>;
   let tick: number;
 
+  function registerScore(next: Score): void {
+    for (const arm of ARMS) observers[arm].registerScore(next);
+  }
+  function recordEvent(event: EnvEvent): void {
+    for (const arm of ARMS) observers[arm].recordEvent(event);
+  }
   function build(): void {
     // createWorld deep-copies params, score and events, so both arms may share these inputs.
     pair = {
-      encore: createWorld({ seed, params, score, brain: ENCORE_BRAIN, events: scripted }),
-      static: createWorld({ seed, params, score, brain: staticBrain, events: scripted }),
+      encore: createWorld({ seed, params, score, brain: brains.encore, events: scripted }),
+      static: createWorld({ seed, params, score, brain: brains.static, events: scripted }),
     };
+    observers = { encore: createObserver(params), static: createObserver(params) };
+    registerScore(score);
+    for (const event of scripted) {
+      if (event.type === 'INJECT_SCORE') registerScore(event.score);
+      recordEvent(event);
+    }
     latest = null;
+    latestSamples = { encore: null, static: null };
+    series = { encore: [], static: [] };
     tick = 0;
   }
   build();
@@ -80,8 +114,13 @@ export function createWorlds(options: WorldsOptions): Worlds {
     params, score,
     get seed() { return seed; },
     get worlds() { return pair; },
+    get observers() { return observers; },
     get tick() { return tick; },
     latest: () => latest,
+    samples: () => ({ ...latestSamples }),
+    series: () => ({ encore: series.encore, static: series.static }),
+    registerScore,
+    recordEvent,
     stepBoth() {
       const next = { encore: pair.encore.step(), static: pair.static.step() };
       if (next.encore.tick !== next.static.tick || next.encore.tick !== tick + 1) {
@@ -89,14 +128,22 @@ export function createWorlds(options: WorldsOptions): Worlds {
       }
       tick = next.encore.tick;
       latest = next;
+      // Every tick, exactly once per snapshot: the observer keeps per-tick evidence and returns a sample
+      // only every fifth tick (and null on a repeated tick), so the non-null result must be kept here.
+      for (const arm of ARMS) {
+        const sample = observers[arm].sample(next[arm]);
+        if (sample) { latestSamples[arm] = sample; series[arm].push(sample); }
+      }
       return next;
     },
     scheduleBoth(event) {
       // Checked here first so a bad tick cannot reach one world and not the other. The remaining checks in
       // World.schedule do not depend on the brain, so both worlds accept or reject the same event.
       if (!Number.isInteger(event.tick) || event.tick <= tick) throw new Error(`Event tick ${event.tick} must be after the current tick ${tick}`);
+      if (event.type === 'INJECT_SCORE') registerScore(event.score);   // before any drone can believe it
       pair.encore.schedule(event);
       pair.static.schedule(event);
+      recordEvent(event);
     },
     reset(next = seed) {
       seed = checkSeed(next);
@@ -127,7 +174,7 @@ export function killEvent(worlds: Pick<Worlds, 'tick' | 'params'>, ids: readonly
 /** What the app shell owns and the control binder needs: the clock (transport) and the view. */
 export type ShellHooks = Pick<ControlContext, 'getSnapshots' | 'getTransport' | 'setPlaying' | 'setSpeed' | 'reset' | 'display'>;
 
-/** The ControlContext the app hands to bindControls (#22): real worlds, real score composer, radio faults on. */
+/** The ControlContext the app hands to bindControls (#22): real worlds, real score composer, radio faults on, both observers. */
 export function controlContext(worlds: Worlds, shell: ShellHooks): ControlContext {
   return {
     ...shell,
@@ -136,5 +183,9 @@ export function controlContext(worlds: Worlds, shell: ShellHooks): ControlContex
     getScore: () => worlds.score,
     composeScore: composeNext,
     radioFaults: true,   // the world implements JAM, PARTITION, SET_LOSS and INJECT_SCORE (#19)
+    // The adapter schedules into both worlds itself, then calls these: the injected score (synchronously, so
+    // well before its tick is reached) and every accepted event go to BOTH observers.
+    registerScore: next => worlds.registerScore(next),
+    onScheduledEvent: event => worlds.recordEvent(event),
   };
 }
