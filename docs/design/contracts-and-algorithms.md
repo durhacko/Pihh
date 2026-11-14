@@ -350,8 +350,7 @@ step(s, in):
   for m in in.inbox:
     if m.from != OPERATOR: s.lastRx = now
     if m.type == SCORE:
-      if newerVersion(m.score.version, s.score.version): adopt(m.score)            # section 9
-      elif same version and s.scoreSendAt != null: s.scoreSendAt = null            # someone nearby just sent it
+      if newerVersion(m.score.version, s.score.version): adopt(m.score)            # section 9; an equal or older score is ignored
     if m.type == HB:
       s.peers[m.from] = {slot, heldSince, version, claim, heard: now}
       s.slotHeard[m.slot] = now
@@ -439,8 +438,9 @@ If test 2 cannot be made to pass by about 23:30, use the fallback ladder in [`de
 ## 9. Score dissemination and partitions (ADR-005, ADR-008)
 
 - **Adopt** a received score only if its version is newer: `s.score = score; recompute mvIndex; targetChanged(); scheduleScoreSend()`.
-- **`scheduleScoreSend()`:** if no send is pending and `now - lastScoreSent >= scoreResendMin`, set `scoreSendAt = now + 1 + (rng % scoreJitter)`. If the same version is heard before then, cancel (someone nearby already sent it).
+- **`scheduleScoreSend()`:** if no send is pending, set `scoreSendAt = max(now + 1 + (rng % scoreJitter), lastScoreSent + scoreResendMin)`. `lastScoreSent` starts at `-scoreResendMin`, so the first send is not delayed. **A scheduled send always fires; it is never cancelled.** Hearing the same version from someone else proves nothing about my other neighbours: with A in range of B, B in range of C, and A out of range of C, only B can reach C, so B must not stand down because it heard A. The rate limit (`scoreResendMin`) bounds the traffic instead: each drone sends at most one `SCORE` per two seconds.
 - **Anti-entropy:** every heartbeat carries the sender's version. A drone that hears an older version schedules a `SCORE` send. A drone that hears a newer one does nothing: the newer drone will hear its heartbeat and send.
+- **Why it cannot stall:** a stale drone keeps sending heartbeats. Each one that an up-to-date neighbour hears leads to a `SCORE` send within `scoreResendMin + scoreJitter` ticks, and each send reaches the stale drone with probability `1 - loss`. So any stale drone with a working link to an up-to-date drone adopts with probability 1, and a chain relays hop by hop. This is an argument; test T18 (a three-drone relay line and a hidden-terminal variant) checks it.
 - **Late adopters** join by the clock: `currentMovement` puts them straight into whatever movement is current, and `canHeal` keeps them from judging vacancies until they have arrived and settled.
 
 What each kind of convergence means, and what we claim:

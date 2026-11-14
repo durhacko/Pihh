@@ -91,7 +91,7 @@ Areas: **core-agent** (`src/agent`), **core-sim** (`src/sim`, `src/contracts`), 
 | FR-28 | MUST | Audience view: lit drones, orbit camera, Encore above and static below (fallback: a one-key toggle) | Text legible at default `n0`; both arms show the same kill | app-render |
 | FR-29 | MUST | Radio layer drawn from the real `RadioEvent` log (I8), with jam spheres and partition groups | Every spark maps to a logged event; none crosses an active jam or partition | app-render |
 | FR-30 | MUST | Belief layer: drones coloured by `belief.version` | Colour counts match `versions` | app-render |
-| FR-31 | MUST | Ghost layer: unoccupied target slots are marked | Marks match `coverage` | app-render |
+| FR-31 | SHOULD | Ghost layer: unoccupied target slots are marked | Marks match `coverage` | app-render |
 | FR-32 | SHOULD | Inspector: click a drone to see only what it knows, from its `Belief` and `world.inspect`; state shown as a generic JSON tree | Values equal that brain's state; any ground truth shown is labelled as observer data | app-ui |
 | FR-33 | MUST | HUD for both arms: alive, nPWC, `dupSlots`, versions, messages, collisions, near-misses | Matches FR-25 | app-ui |
 
@@ -112,7 +112,7 @@ Areas: **core-agent** (`src/agent`), **core-sim** (`src/sim`, `src/contracts`), 
 | NFR-01 | MUST | Performance: both worlds live at 20 Hz simulation, at the frame-rate target of architecture §6 and never below its floor | Measured on a team laptop at G2 on a single view with both worlds stepping; re-measured at G5 with split view and X-ray on. Recorded in [CURRENT_STATE](../CURRENT_STATE.md) | app-render |
 | NFR-02 | MUST | Scaling: sensing and radio use a uniform spatial grid. No brain solves a global assignment | Tick time at `n0` and at half of it, reported | core-sim |
 | NFR-03 | MUST | Determinism: same seed, parameters and event script give the same run on the same JavaScript engine | Replay test on `stateHash()` at fixed ticks (T04), within one host | core-sim |
-| NFR-04 | MUST | Offline, one laptop: static files, no server, no internet and no external services, at run time and in the demo | The built app runs on one laptop with networking off | ops |
+| NFR-04 | MUST | Offline, one laptop: no internet and no external services, at run time and in the demo. The app is opened through a local server on the same laptop (`npm run dev` while developing, `npm run build && npm run preview` for the demo); that server is part of the app, not an external service. Internet is needed only for the one-off `npm ci` | With networking off, `npm run build && npm run preview` serves the demo and it runs; the built files request nothing outside `localhost` | ops |
 | NFR-05 | MUST | Headless tests: the core has no DOM dependency; unit and G1 tests run in Node with one command | Suite passes before every merge to `main` | ops |
 | NFR-06 | MUST | README lists every public framework and library used (BRIEF R3) | Section matches `package.json` | ops |
 | NFR-07 | MUST | README credits AI/LLM use explicitly: which tools, for what (BRIEF R4) | Section present | ops |

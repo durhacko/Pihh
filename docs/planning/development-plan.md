@@ -28,7 +28,7 @@ Directories are the collision boundary: one lane owns each. Owners are **provisi
 | B. World and evidence | `src/sim`, `src/observer`, `src/cli`, build and CI | Williams | `package.json`, `tsconfig`, `vite.config`, `scripts/check.sh`, CI |
 | C. Experience | `src/app/**`, demo, submission | Haris | `src/app/main.ts`, `index.html`, README |
 
-If a lane has nobody active, its READY issues are free to claim: the orchestrator's sub-agents take them, one issue per worktree.
+If a lane has nobody active, its READY issues can be taken over under the takeover rule in [`AGENTS.md`](../../AGENTS.md) §1: the orchestrator's sub-agents take them, one issue per worktree.
 
 ## Work table
 
@@ -47,19 +47,19 @@ If a lane has nobody active, its READY issues are free to claim: the orchestrato
 | WP-3b [#6](https://github.com/durhacko/Pihh/issues/6) | Integrate: app steps two real worlds; kill a drone from the console | A | `src/app/main.ts`, `src/app/worlds.ts` | WP-3a, WP-2a, WP-1a | `staticBrain` in both worlds until WP-1b merges (one-line swap to `encoreBrain`) | **G2** | MUST |
 | WP-2b [#19](https://github.com/durhacko/Pihh/issues/19) | Radio faults and events: partition groups, `SET_LOSS`, `INJECT_SCORE`, drop reasons in the radio log, `idsInSphere`, `randomIds` | B | `src/sim/**`, `tests/sim/**` | WP-2a | — | G3 | MUST |
 | WP-2c [#20](https://github.com/durhacko/Pihh/issues/20) | Isolation and determinism tests: differential locality, order independence, replay, pure-jam continuity | B | `tests/isolation/**` | WP-2a, WP-1a | — | G3 | MUST |
-| WP-6a [#21](https://github.com/durhacko/Pihh/issues/21) | Brain: score adoption, anti-entropy send with jitter and suppression; tests on partition and reconnection | A | `src/agent/encoreBrain.ts`, `tests/agent/score*` | WP-1b, WP-2b | — | **G4** | MUST |
+| WP-6a [#21](https://github.com/durhacko/Pihh/issues/21) | Brain: score adoption, anti-entropy send with jitter and a rate limit (never cancelled); tests on partition, reconnection and the relay line (T18) | A | `src/agent/encoreBrain.ts`, `tests/agent/score*` | WP-1b, WP-2b | — | **G4** | MUST |
 | WP-5a [#22](https://github.com/durhacko/Pihh/issues/22) | Controls and actions: panel, kill region / random / selected, jam, inject, play / pause / reset / speed / seed; same events to both worlds; UI integration test | C | `src/app/ui/**`, `src/app/actions.ts` | WP-3b | — | G3 | MUST |
 | WP-7a [#23](https://github.com/durhacko/Pihh/issues/23) | Observer: metrics per the evaluation doc, `MetricsSample` stream, `slotStatus`, reference formation, observer-read-only test | B | `src/observer/**`, `tests/observer/**` | WP-2a, WP-4a | — | G5 | MUST |
 | WP-5b [#24](https://github.com/durhacko/Pihh/issues/24) | Split view (Encore above, static below) and HUD | C | `src/app/render/WorldView.ts`, `src/app/ui/Hud.ts` | WP-3b, WP-7a | — | G5 | MUST |
 | WP-8a [#25](https://github.com/durhacko/Pihh/issues/25) | X-ray: radio layer from `RadioEvent`, jam and partition volumes, belief colours, death marker | C | `src/app/render/layers/{Radio,Zone}Layer.ts`, `colourModes/**` | WP-3b, WP-2b | — | G3, G4 | MUST |
 | WP-7b [#26](https://github.com/durhacko/Pihh/issues/26) | Scenarios S0–S5, CLI batch runner, run records, results table generator | B | `src/cli/**`, `src/sim/scenarios.ts`, `results/**` | WP-7a, WP-2b, WP-6a | — | **G5** | MUST |
 | WP-9a [#27](https://github.com/durhacko/Pihh/issues/27) | Scripted 90-second demo and captions | C | `src/app/ui/DemoScript.ts` | WP-5a, WP-8a, WP-6a | — | G6 | MUST |
-| WP-8b [#28](https://github.com/durhacko/Pihh/issues/28) | Ghost slots (faint target points, vacant ones highlighted) from `Observer.slotStatus`; tethers are SHOULD | C | `src/app/render/layers/GhostSlotLayer.ts` | WP-3b, WP-7a | — | G5 | MUST |
+| WP-8b [#28](https://github.com/durhacko/Pihh/issues/28) | Ghost slots (faint target points, vacant ones highlighted) from `Observer.slotStatus`; tethers are SHOULD | C | `src/app/render/layers/GhostSlotLayer.ts` | WP-3b, WP-7a | — | G5 | SHOULD |
 | WP-8c [#29](https://github.com/durhacko/Pihh/issues/29) | Drone inspector from `World.inspect` and `Belief` | C | `src/app/ui/Inspector.ts`, `layers/SelectionLayer.ts` | WP-3b | — | — | SHOULD |
 | WP-9b [#7](https://github.com/durhacko/Pihh/issues/7) | Demo plan, 90-second pitch, rehearsals, backup video | C | `docs/demo/**`, `assets/**` | WP-9a | — | G6 | MUST |
 | WP-9c [#8](https://github.com/durhacko/Pihh/issues/8) | README (run steps, frameworks, AI credit, where Encore ties or loses), Devpost submission | C | `README.md`, `docs/demo/**` | WP-7b | — | **G6** | MUST |
 
-Shared-file rule for lane C: each layer and panel is its own file, registered by one line in `src/app/render/layers/index.ts` or `src/app/ui/index.ts`. Those two index files are the only ones several issues touch; keep the edits to one line each.
+Shared-file rules. Each layer and panel is its own file and **self-registers**: WP-3a sets up `src/app/render/layers/index.ts` and `src/app/ui/index.ts` with `import.meta.glob`, so no later issue edits an index. `src/app/main.ts` belongs to WP-3b: other issues ask for a hook there instead of editing it. WP-0a installs every dependency, so no later issue edits `package.json`. With those three rules, no two issues that can run at the same time list the same file.
 
 ## Dependency graph
 
@@ -98,7 +98,7 @@ flowchart LR
   7b --> 9c{{WP-9c G6}}
 ```
 
-**Critical path:** WP-0a → WP-0b → WP-4a → WP-1a → WP-1b → WP-1c (G1). Everything else has slack behind it. WP-1b is the riskiest issue in the project and starts the moment WP-1a merges.
+**Critical path:** WP-0a → WP-0b → WP-4a → WP-1a → WP-1b → WP-1c (G1). Everything else has slack behind it. WP-1b is the riskiest issue in the project and starts the moment WP-1a merges. Inside WP-1a, `steer.ts` needs nothing from WP-4a and can be written while WP-4a is in progress; only the static brain waits for it.
 
 ## What can run in parallel, and when
 
@@ -112,6 +112,20 @@ flowchart LR
 | From 06:30 | Fixes only | Batch runs, results table | WP-9a, WP-9b, WP-9c |
 
 Three issues are open to three laptops at once from the moment WP-0b merges (WP-4a, WP-2a, WP-3a), with no shared files.
+
+## Core and optional
+
+The MVP is the **core**: the locality invariant (agent isolation and its tests), genuine local healing, a real communication simulation, 3D rendering of real state, and fair baseline evidence. Optional work is cut before any of that is weakened.
+
+| Core (never cut) | Optional (cut first) |
+|---|---|
+| WP-0a, 0b, 4a, 2a, 1a, 1b, 1c: the mechanism and G1 | WP-8c inspector |
+| WP-2c locality and determinism tests (P0) | WP-8b ghost slots |
+| WP-3a, 3b: 3D view of real state (G2) | Split view in WP-5b (a toggle is enough) |
+| WP-2b, 6a: jam, partition, score gossip (G3, G4) | Belief and partition extras in WP-8a beyond radio lines and version colours |
+| WP-5a controls; WP-8a radio lines from the real log | The 20-seed matrix and S4 in WP-7b (5 seeds on S0, S1, S2, S3, S5 is the minimum) |
+| WP-7a metrics; WP-7b minimum evidence | Tethers, follow camera, 3-minute script, glow post-processing |
+| WP-9a, 9b, 9c: scripted demo, video, submission | `transitLanes`, judge-typed text |
 
 ## If we fall behind: cut order
 
@@ -133,4 +147,5 @@ Cut from the top. Never cut agent isolation, real radio lines, or the regional k
 |---|---|---|
 | 0 | First healing draft, by an adversarial sub-agent | 3 fatal, 6 serious flaws; redesigned (ADR-007) |
 | 1 | The four dependent docs, by their own writers against the contract | 10 contract gaps fixed: group-based partition, per-world reference formation, `makeParams`, observer API, yield only in hold |
+| 3 | Independent development-readiness audit (external), 14 Nov 19:40 | Fixed: same-version cancellation removed from score gossip (it could silence the only drone able to reach a stale neighbour); relay test T18 added; offline vs local server clarified; takeover rule tightened; lane C shared index files removed; MVP core vs optional recorded; readiness checks created for all three laptops. Still open: the research handoff packet |
 | 2 | All docs, by five reviewers (decentralisation, algorithm, consistency, evaluation, delivery), each finding independently verified | 27 confirmed findings, about 16 distinct, all fixed: dependent docs realigned to the contract; G1 jam moved into WP-2a; `Belief.target` and slot positions exposed for the renderer; shape scaling defined; T02 made deterministic; claim-release rule added. **The review loop was stopped by the team after this round; the fixes themselves have not been re-reviewed** |
