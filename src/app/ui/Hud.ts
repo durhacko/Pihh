@@ -123,43 +123,92 @@ export function bindHud(host: HTMLElement, timing: HudClock = clock): HudBinding
 }
 
 const panels = new WeakMap<HTMLElement, { dispose(): void }>();
+const ESSENTIAL: [keyof ArmHud, string][] = [['npwc', 'nPWC'], ['alive', 'Alive'], ['collisions', 'Collisions'], ['messages', 'Messages']];
+const DETAIL: [keyof ArmHud, string][] = [
+  ['coverage', 'Coverage'], ['nearMisses', 'Near misses'], ['duplicates', 'Duplicate slots'], ['slotChanges', 'Slot changes'],
+  ['fidelity', 'Shape fidelity'], ['delivered', 'Delivered'], ['versions', 'Score beliefs'], ['npwcNote', 'nPWC note'], ['tick', 'Tick'],
+];
+const ARM_NAMES = { encore: 'Encore arm', static: 'Static baseline' } as const;
+function placeholder(name: keyof ArmHud): string {
+  return name === 'npwc' ? 'Waiting' : name === 'npwcNote' ? 'Waiting for observer samples' : name === 'alive' ? '— / ?' : '—';
+}
+const row = ([name, label]: [keyof ArmHud, string], key = false) =>
+  `<tr${key ? ' class="key"' : ''}><th scope="row">${label}</th>${(['encore', 'static'] as const).map(arm => `<td data-arm="${arm}" data-field="${name}">${placeholder(name)}</td>`).join('')}</tr>`;
+
+/**
+ * Compact, semi-transparent comparison: the essential numbers (nPWC, alive, collisions, messages for both
+ * arms) above the fold, everything else under "More measurements". H (or the button) collapses it to a
+ * one-line summary; it starts collapsed on narrow screens. Every rule is scoped to .encore-hud.
+ */
 export function createPanel({ host }: PanelContext) {
   const existing = panels.get(host);
   if (existing) return existing;
   const panel = document.createElement('section');
-  panel.className = 'encore-hud'; panel.tabIndex = 0; panel.setAttribute('aria-label', 'Observer comparison');
+  panel.className = 'encore-hud'; panel.setAttribute('aria-label', 'Observer comparison');
   panel.innerHTML = `<style>
-    .encore-hud{position:absolute;right:24px;bottom:105px;width:min(680px,calc(100vw - 380px));max-height:calc(100dvh - 260px);overflow:auto;overscroll-behavior:contain;border:1px solid #406475;border-radius:10px;background:#06111d;padding:18px;color:#d2e5ed;font:16px/1.45 system-ui;z-index:2;pointer-events:auto;scrollbar-gutter:stable}
-    .encore-hud h2{font-size:16px;font-weight:600;letter-spacing:.06em;color:#a8c5d2;margin:0 0 14px}
-    .encore-hud .arms{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
-    .encore-hud .arm{min-width:0;overflow-wrap:anywhere}.encore-hud .arm+.arm{border-left:1px solid #406475;padding-left:20px}
-    .encore-hud .name,.encore-hud .note,.encore-hud .versions,.encore-hud .meta,.encore-hud .status{font-size:16px;color:#a8c5d2}
-    .encore-hud .npwc{font-size:38px;letter-spacing:-.04em;font-variant-numeric:tabular-nums;color:#d9f5ee;margin-top:5px;line-height:1.2}.encore-hud .npwc.transition{color:#a8b8c2}
-    .encore-hud .note{margin:5px 0 12px}.encore-hud dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 12px;margin:0;font-variant-numeric:tabular-nums}
-    .encore-hud dt{color:#a8c5d2}.encore-hud dd{min-width:0;margin:0;text-align:right;overflow-wrap:anywhere}.encore-hud .versions{margin-top:12px;overflow-wrap:anywhere}
-    .encore-hud .meta{border-top:1px solid #406475;margin-top:16px;padding-top:12px;display:flex;flex-wrap:wrap;gap:8px 16px}.encore-hud .status{margin-top:12px}
-    .encore-hud:focus-visible{outline:2px solid #71d5dd;outline-offset:2px}
-    @media(max-width:900px){.encore-hud{right:12px;width:calc(100vw - 330px);padding:12px}.encore-hud .arms{grid-template-columns:1fr}.encore-hud .arm+.arm{border-left:0;border-top:1px solid #406475;padding:16px 0 0}.encore-hud .npwc{font-size:32px}}
-    @media(max-width:700px){.encore-control{left:12px;right:12px;top:150px;width:auto;max-height:calc((100dvh - 260px)/2)}.encore-hud{left:12px;right:12px;bottom:90px;width:auto;max-height:calc((100dvh - 260px)/2)}}
-  </style><h2>nPWC / OBSERVER COMPARISON</h2><div class="arms">${(['encore', 'static'] as const).map(arm => `<article class="arm" data-arm="${arm}"><div class="name" data-field="label"></div><div class="npwc" data-field="npwc">Waiting</div><div class="note" data-field="npwcNote">Waiting for observer samples</div><dl><dt>Alive / roster</dt><dd data-field="alive">— / ?</dd><dt>Coverage</dt><dd data-field="coverage">Unavailable</dd><dt>Tick</dt><dd data-field="tick">—</dd><dt>Duplicate slots</dt><dd data-field="duplicates">—</dd><dt>Collisions, measured</dt><dd data-field="collisions">—</dd><dt>Near misses, measured</dt><dd data-field="nearMisses">—</dd><dt class="detail">Slot changes</dt><dd class="detail" data-field="slotChanges">—</dd></dl><div class="versions detail" data-field="fidelity"></div><div class="versions detail" data-field="messages"></div><div class="versions detail" data-field="delivered"></div><div class="versions" data-field="versions"></div></article>`).join('')}</div><div class="meta"><span data-meta="fps">FPS not measured</span><span data-meta="quality">Quality not reported</span><span data-meta="radio">Radio drawing not reported</span><span data-meta="layout">View layout not reported</span></div><div class="status" role="status">Waiting for both observer samples</div>`;
+    .encore-hud{position:absolute;right:24px;bottom:112px;width:min(360px,calc(100vw - 48px));max-height:calc(100dvh - 330px);overflow:auto;overscroll-behavior:contain;box-sizing:border-box;border:1px solid #2f4b5a;border-radius:10px;background:rgba(5,13,22,.74);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);padding:10px 14px;color:#d2e5ed;font:13px/1.4 system-ui;z-index:2;pointer-events:auto}
+    .encore-hud header{display:flex;align-items:center;gap:10px}
+    .encore-hud h2{flex:1;margin:0;font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#9fbccb}
+    .encore-hud .summary{display:none;font-variant-numeric:tabular-nums;color:#d9f5ee;white-space:nowrap}
+    .encore-hud.collapsed .summary{display:inline}.encore-hud.collapsed .body,.encore-hud.collapsed h2{display:none}
+    .encore-hud.collapsed{width:auto;max-width:calc(100vw - 24px)}
+    .encore-hud .toggle{font:11px system-ui;color:#a8c5d2;background:transparent;border:1px solid #2f4b5a;border-radius:5px;padding:4px 8px;cursor:pointer}
+    .encore-hud .toggle:hover{color:#fff;background:#12293a}.encore-hud :focus-visible{outline:2px solid #71d5dd;outline-offset:2px}
+    .encore-hud kbd{font:10px system-ui;opacity:.7;margin-left:4px}
+    .encore-hud table{width:100%;border-collapse:collapse;margin-top:8px;table-layout:fixed;font-variant-numeric:tabular-nums}
+    .encore-hud th,.encore-hud td{padding:3px 0;vertical-align:baseline;overflow-wrap:anywhere}
+    .encore-hud thead th{font-size:11px;font-weight:500;color:#9fbccb;text-align:right;padding-bottom:4px;border-bottom:1px solid #2f4b5a}
+    .encore-hud thead th:first-child,.encore-hud tbody th{text-align:left;font-weight:400;color:#9fbccb;width:31%}
+    .encore-hud td{text-align:right;padding-left:10px}
+    .encore-hud tr.key td{font-size:20px;letter-spacing:-.02em;color:#d9f5ee}.encore-hud tr.key td.transition{color:#a8b8c2}
+    .encore-hud details{margin-top:6px}.encore-hud summary{cursor:pointer;color:#9fbccb;font-size:12px}
+    .encore-hud details table{margin-top:4px;font-size:12px}
+    .encore-hud .meta{margin:8px 0 0;font-size:11px;color:#8fb0bf}
+    @media(max-width:700px){.encore-hud{right:12px;bottom:160px;width:min(360px,calc(100vw - 24px));max-height:calc(100dvh - 330px)}}
+  </style><header><h2>Observer comparison</h2><span class="summary" data-summary></span><button type="button" class="toggle" aria-expanded="true">Hide<kbd>H</kbd></button></header>
+  <div class="body"><table><thead><tr><th scope="col">Measured</th>${(['encore', 'static'] as const).map(arm => `<th scope="col" data-arm-label="${arm}">${ARM_NAMES[arm]}</th>`).join('')}</tr></thead>
+  <tbody>${ESSENTIAL.map((entry, index) => row(entry, index === 0)).join('')}</tbody></table>
+  <details><summary>More measurements</summary><table><tbody>${DETAIL.map(entry => row(entry)).join('')}</tbody></table></details>
+  <p class="meta"><span data-meta="fps">FPS not measured</span> · <span data-meta="layout">View layout not reported</span> · <span data-meta="radio">Radio drawing not reported</span> · <span data-meta="quality">Quality not reported</span><br><span class="status" role="status">Waiting for both observer samples</span></p></div>`;
   host.append(panel);
+  const toggle = panel.querySelector<HTMLButtonElement>('.toggle')!;
+  const summary = panel.querySelector<HTMLElement>('[data-summary]')!;
+  function setCollapsed(collapsed: boolean) {
+    panel.classList.toggle('collapsed', collapsed);
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.innerHTML = `${collapsed ? 'Show' : 'Hide'}<kbd>H</kbd>`;
+  }
+  setCollapsed(typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 700px)').matches);
+  const onToggle = () => setCollapsed(!panel.classList.contains('collapsed'));
+  const onKey = (event: KeyboardEvent) => {
+    if (event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.key.toLowerCase() !== 'h') return;
+    if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable=true]')) return;
+    event.preventDefault(); onToggle();
+  };
+  toggle.addEventListener('click', onToggle);
+  window.addEventListener('keydown', onKey);
   function onPresentation(event: Event) {
     const view = (event as CustomEvent<HudPresentation>).detail;
     for (const arm of ['encore', 'static'] as const) {
-      const article = panel.querySelector<HTMLElement>(`[data-arm=${arm}]`)!;
       const sample = view[arm];
-      for (const field of article.querySelectorAll<HTMLElement>('[data-field]')) {
+      panel.querySelector(`[data-arm-label=${arm}]`)!.textContent = sample ? sample.label : ARM_NAMES[arm];
+      for (const field of panel.querySelectorAll<HTMLElement>(`[data-arm=${arm}][data-field]`)) {
         const name = field.dataset.field as keyof ArmHud;
-        field.textContent = sample ? String(sample[name]) : name === 'label' ? arm === 'encore' ? 'Encore arm' : 'Static baseline' : name === 'npwc' ? 'Waiting' : name === 'npwcNote' ? 'Waiting for observer samples' : name === 'alive' ? '— / ?' : '—';
+        field.textContent = sample ? String(sample[name]) : placeholder(name);
       }
-      article.querySelector('[data-field=npwc]')!.classList.toggle('transition', sample?.transitioning === true);
+      panel.querySelector(`tr.key [data-arm=${arm}]`)!.classList.toggle('transition', sample?.transitioning === true);
     }
+    summary.textContent = `nPWC ${view.encore?.npwc ?? '—'} encore · ${view.static?.npwc ?? '—'} static`;
     for (const field of panel.querySelectorAll<HTMLElement>('[data-meta]')) field.textContent = view[field.dataset.meta as 'fps' | 'quality' | 'radio' | 'layout'];
     panel.querySelector('.status')!.textContent = view.status;
   }
   host.addEventListener('encore:hud-presentation', onPresentation);
   host.dispatchEvent(new Event('encore:hud-query'));
   let disposed = false;
-  const binding = { dispose() { if (disposed) return; disposed = true; host.removeEventListener('encore:hud-presentation', onPresentation); panel.remove(); panels.delete(host); } };
+  const binding = { dispose() {
+    if (disposed) return; disposed = true;
+    host.removeEventListener('encore:hud-presentation', onPresentation); toggle.removeEventListener('click', onToggle); window.removeEventListener('keydown', onKey);
+    panel.remove(); panels.delete(host);
+  } };
   panels.set(host, binding); return binding;
 }
