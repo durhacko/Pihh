@@ -2,7 +2,7 @@
 
 **A drone light show with no central controller.** Encore is a 3D simulation in which every drone decides for itself: the swarm holds a formation, repairs the image when drones fail, and spreads new compositions from drone to drone by radio. Built at DurHack 2026 (theme: Composition) for the Neptune North challenge.
 
-> **Status: scaffold available; simulation implementation pending.** See [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
+> **Status: contracts, score, world core, render slice and the static baseline brain are merged; the Encore brain and the integrated app are in progress.** See [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
 > **Submission deadline: Sun 15 Nov 2026, 11:00 GMT (Devpost).**
 
 ## What it shows
@@ -48,7 +48,7 @@ npm ci
 npm run dev
 ```
 
-Open the loopback URL printed by Vite. The page currently shows a blank Three.js canvas; it does not simulate drones yet. On Windows PowerShell use `npm.cmd` if script execution policy blocks `npm`.
+Open the loopback URL printed by Vite. Until the integration issue (#6) lands, the page shows a renderer preview of fixture drones, labelled as such; it does not run the simulation yet. On Windows PowerShell use `npm.cmd` if script execution policy blocks `npm`.
 
 Encore always runs in simulation mode. Optional `.env` setting `VITE_SIM_MODE=true` is documented in `.env.example`; setting it to false is rejected. No credentials are needed. Dependency installation needs internet; the app uses local assets at runtime.
 

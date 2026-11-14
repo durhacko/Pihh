@@ -32,6 +32,7 @@ The map of the canonical documentation for **Encore**. One fact lives in one pla
 | [context/research-handoff.md](context/research-handoff.md) | The original research packet. **Not received yet**: placeholder |
 | [analysis/feasibility-and-scope.md](analysis/feasibility-and-scope.md) | Feasibility, MVP boundary (MUST / SHOULD / STRETCH), alternatives considered |
 | [development/TEAM_ROLES.md](development/TEAM_ROLES.md) | People, GitHub handles, lanes |
+| [development/readiness/sirahmo.md](development/readiness/sirahmo.md) | Haris's laptop and agent readiness evidence |
 
 ## Demo and submission
 

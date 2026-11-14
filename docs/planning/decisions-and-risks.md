@@ -25,6 +25,8 @@ When sources disagree: (1) the latest explicit instruction from the team, (2) ve
 
 | Date (GMT) | Decision | By | Why |
 |---|---|---|---|
+| 2026-11-14 20:55 | History cap never discards the launch slot (`history[0]`); slot ownership and duplicate resolution are by slot index regardless of score version | Arnav (orchestrator), on Haris's review | Issues #57 (the cap could evict a drone's home) and #55 (version scoping was unstated). Contract §8.3, §8.4; test T19 |
+| 2026-11-14 20:50 | `Observer.recordEvent` added; `npwc`, `sfMean`, `sfMax` are null for an empty swarm | Arnav (orchestrator), on Williams's proposal | Issue #48; contract §5 |
 | 2026-11-14 19:50 | Score gossip: same-version cancellation removed; a scheduled `SCORE` send always fires, rate-limited per drone | Arnav (orchestrator) | Audit finding: in a line A–B–C, B must not stand down because it heard A. Contract §9; test T18 |
 | 2026-11-14 19:50 | "Offline" means no internet and no external services; a local server on the same laptop is allowed | Arnav (orchestrator) | Browsers do not load ES modules from `file://`; NFR-04 |
 | 2026-11-14 19:50 | Takeover of someone's issue needs a request and a 10-minute wait | Arnav (orchestrator) | Prevents accidental task theft; `AGENTS.md` §1 |
@@ -69,7 +71,7 @@ Take the first rung that passes the three G1 tests. Never fake healing in the re
 
 ## Red-team answers
 
-Answers after the review rounds recorded in [development-plan.md](development-plan.md#review-history). "Tested" means a named automated test exists in the evaluation doc; none has run yet, because no code exists.
+Answers after the review rounds recorded in [development-plan.md](development-plan.md#review-history). "Tested" means a named automated test exists in the evaluation doc; see `docs/CURRENT_STATE.md` for which of them run on `main` today.
 
 | # | Question | Answer |
 |---|---|---|
