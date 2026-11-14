@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { performance } from 'node:perf_hooks';
 import { makeParams } from '../../src/contracts';
 import type { AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Params, Score, Vec3 } from '../../src/contracts';
+import { launchPos } from '../../src/score';
 import { agentSeed, createWorld } from '../../src/sim';
 import { launchPosition } from '../../src/sim/math';
 import { dummyBrain } from '../fixtures/dummyBrain';
@@ -33,6 +34,10 @@ function config(n0 = 4, overrides: Partial<Params> = {}, brain = fixture()) {
 }
 
 describe('world tick and isolation', () => {
+  it('keeps its private launch grid identical to launchPos in src/score', () => {
+    // src/sim may not import src/score, so math.ts holds a copy; this pins the two together.
+    for (const n0 of [40, 200]) for (let id = 0; id < n0; id++) expect(launchPosition(id, n0)).toEqual(launchPos(id, n0));
+  });
   it('launches at rest on a 1.5m grid, first advances to tick 1, and clamps motion', () => {
     const world = createWorld(config(4, { aMax: 2, vMax: 1 }, fixture({ accel: () => [1000, -1000, 1000], send: false })));
     expect(world.inspect(0)).toBeNull();
