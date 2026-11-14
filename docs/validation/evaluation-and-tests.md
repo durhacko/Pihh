@@ -118,8 +118,8 @@ vitest, headless. All MUST except T15 and T16 (SHOULD). "Gate" is the latest gat
 | T06 | Packet loss | core-sim | `loss` 0: every in-range live receiver, latency in `latencyMin…latencyMax`; `loss` 1: none; `loss` 0.3 over 10 000 candidates: 0.67–0.73 delivered; beyond `rRadio`: none | G1 |
 | T07 | Partition and jam | core-sim | While on: no delivery between partition groups (also after drones cross the plane) or into, out of or inside the sphere; `partitioned` and `jammed` counted; after off: deliveries resume | G3 |
 | T08 | G1 null run | core-agent | [Contract §8.6](../design/contracts-and-algorithms.md#86-the-first-falsification-test-gate-g1) test 1 | G1 |
-| T09 | G1 clumped kill | core-agent | §8.6 test 2, all five conditions | G1 |
-| T10 | G1 silence is not death | core-agent | §8.6 test 3 | G1 |
+| T09 | G1 clumped kill | core-agent | §8.6 test 2, all five conditions, kill centre drawn per seed by `randomIds(seed, slots, 1)`. The result depends on the centre: see the known limitation under §8.6 | G1 |
+| T10 | G1 silence is not death | core-agent | §8.6 test 3: jam from 5 s to 40 s after the hold begins | G1 |
 | T11 | Recovery stability | observer | S1 and S2 on dev seeds: `slotChanges ≤ 3 × kills`, at most 3 per drone, every commit lowers the slot index, `lateSlotChanges = 0`, no slot duplicated for more than 3 s | G5 |
 | T12 | Collision accounting | core-sim | Two scripted drones passing head-on at 2 m/s closing speed: exactly one near-miss entry and one collision entry; dead drones never counted | G1 |
 | T13 | UI event to simulation | app-ui | The kill-10% action schedules one `KILL` with the same `0.1 · n0` ids into both worlds; next snapshot shows them dead in both; the app's event log replayed headless gives the same `stateHash()` | G3 |

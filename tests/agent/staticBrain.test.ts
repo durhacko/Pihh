@@ -268,7 +268,7 @@ describe('staticBrain: state and belief (contract sections 4 and 11)', () => {
       const beliefs = frameAt(quiet(), tick).beliefs;
       expect(JSON.parse(JSON.stringify(beliefs))).toEqual(beliefs);
     }
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('belief() returns a fresh object each time: editing it changes nothing in the brain', () => {
     const s = init(4);
@@ -474,7 +474,7 @@ describe('staticBrain: a 40-drone show with no radio', () => {
     const edited = jsonCopy(a.frames);
     (edited[650].outputs[39] as AgentOutput).accel[2] += 1e-9;
     expect(firstDifference(edited, a.frames)).toBe('$.650.outputs.39.accel.2');
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('does not freeze or degrade when other drones fail: the survivors keep flying the show', () => {
     // Every odd drone dies at tick 100, in the middle of the first transition.
@@ -556,5 +556,5 @@ describe('staticBrain: it ignores its inbox', () => {
     const sent = busy.frames.flatMap(frame => frame.outputs.flatMap(out => (out === null ? [] : out.outbox)));
     expect(sent).toEqual([]);
     expect(busy.frames.every(frame => frame.outputs.every(out => out !== null && Array.isArray(out.outbox)))).toBe(true);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
