@@ -4,7 +4,7 @@ Purpose: which components exist, what each is responsible for, and which informa
 
 ## 1. Shape of the system
 
-One TypeScript codebase. A deterministic simulation core with no DOM dependency runs in two hosts: the browser app (live 3D show) and Node (tests and batch experiments). There is no server and no network: the built app is static files and works offline on one laptop. There is no hardware either: every drone, radio link, sensor and failure is simulated ([NFR-10](../specification/requirements.md)). One runtime hosts all the drones, but it plays the environment, not a controller: it never chooses a slot, target or belief for any drone (§3).
+One TypeScript codebase. A deterministic simulation core with no DOM dependency runs in two hosts: the browser app (live 3D show) and Node (tests and batch experiments). There is no backend and no internet: the built app is static files, served by a local server on the same laptop (Vite's dev server while developing, `vite preview` for the demo). "Offline" means nothing leaves the laptop, not that there is no `localhost`. There is no hardware either: every drone, radio link, sensor and failure is simulated ([NFR-10](../specification/requirements.md)). One runtime hosts all the drones, but it plays the environment, not a controller: it never chooses a slot, target or belief for any drone (§3).
 
 ```mermaid
 flowchart LR

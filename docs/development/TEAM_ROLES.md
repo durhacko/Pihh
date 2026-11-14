@@ -20,6 +20,10 @@ Arnav's session also runs an **orchestrator** with local sub-agents. It keeps is
 - **Demo and pitch:** Haris owns them, but all three must be able to run the scripted demo by 08:30 Sun.
 - **Any lane with nobody active:** its READY issues are open to anyone; say so on the issue.
 
+## Readiness
+
+Cross-laptop coordination is **untested** until each person's readiness check is closed: Haris #34, Williams #35, Arnav #36. Each check proves GitHub auth, Node and npm, repo access, issue claiming and one PR, and records the details in `docs/development/readiness/<handle>.md`. Haris's check also confirms his GitHub handle.
+
 ## Skills inventory (fill in on first contact; it decides the final lanes)
 
 | Human | TypeScript | Three.js / graphics | Testing / tooling | Laptop OS, Node version | Awake overnight? |
