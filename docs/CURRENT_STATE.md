@@ -1,12 +1,12 @@
 # Current state
 
-> **Canonical snapshot. Keep it short and edit in place; it is not a log.** Last updated: 2026-11-14 ~15:40 GMT by Arnav's agent (bootstrap).
+> **Canonical snapshot. Keep it short and edit in place; it is not a log.** Last updated: 2026-11-14 ~16:55 GMT by Arnav's agent (post-bootstrap audit).
 
 ## Phase: **M0, selecting the idea** (no idea selected)
 
 | Key time (GMT) | |
 |---|---|
-| Now | Sat ~15:40 |
+| Last snapshot | Sat ~16:55 |
 | M0 idea selected | **Sat 17:00** |
 | M1 architecture agreed | Sat 18:30 |
 | M2 first end-to-end demo | Sat 22:00 |
@@ -16,14 +16,14 @@
 | **Hard deadline (Devpost)** | **Sun 11:00** ([BRIEF S3](competition/BRIEF.md#1-schedule-gmt)) |
 | Winners announced | Sun 17:00 |
 
-Milestone times are proposals set by the bootstrap agent. Change them in GitHub milestones and here.
+Milestone times are proposals set by the bootstrap agent. **This table is the source of truth for times.** GitHub milestones store only the date, so their descriptions repeat the target time. Change both together.
 
 ## Active work (the board = [open issues](https://github.com/durhacko/Pihh/issues), filtered by milestone and P0)
 
 | Issue | Owner | Status |
 |---|---|---|
-| [#1](https://github.com/durhacko/Pihh/issues/1) Capture theme, sponsor briefs, judging format in person | Haris | **Ready, P0, due 16:15** |
-| [#2](https://github.com/durhacko/Pihh/issues/2) Hardware library check + feasibility spike | Williams | **Ready, P0, due 16:30** |
+| [#1](https://github.com/durhacko/Pihh/issues/1) Capture theme, sponsor briefs, judging format in person | Haris | **P0, was due 16:15. No GitHub update as of 16:55** |
+| [#2](https://github.com/durhacko/Pihh/issues/2) Hardware library check + feasibility spike | Williams | **P0, was due 16:30. No GitHub update as of 16:55** |
 | [#3](https://github.com/durhacko/Pihh/issues/3) DECISION: select the idea | Arnav (facilitator), all | Needs decision, **17:00** |
 | [#4](https://github.com/durhacko/Pihh/issues/4) Architecture + contracts + MVP scope | Arnav | Blocked by #3 |
 | [#5](https://github.com/durhacko/Pihh/issues/5) Stack scaffold + check.sh + CI | Williams | Blocked by #3 |
@@ -44,7 +44,7 @@ Milestone times are proposals set by the bootstrap agent. Change them in GitHub 
 
 ## Blockers / open questions
 
-- **Bootstrap PR [#10](https://github.com/durhacko/Pihh/pull/10) must be merged by a human** before agents can read these docs from `main`.
+- #1 and #2 (inputs to the decision) show no progress on GitHub. If their results won't be ready, run #3 on the preliminary scores, or move M0 later (here and in the milestone).
 - GitHub handles inferred, not confirmed: Haris = `sirahmo`, Williams = `wpimento`. Confirm in #3.
 - No branch protection (free private org). PR-only is by convention.
 - No Projects board (token scope). Issues + labels + milestones are the board (#9).
