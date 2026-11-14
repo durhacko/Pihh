@@ -23,7 +23,7 @@ body:
   - type: textarea
     id: resources
     attributes:
-      label: Hardware, APIs or credentials needed
+      label: Anything needed beyond the repo (should be nothing - Encore is offline and software-only)
   - type: textarea
     id: acceptance
     attributes:

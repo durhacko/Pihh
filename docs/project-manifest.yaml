@@ -9,6 +9,10 @@ one_liner: >
   the swarm holds a formation, repairs it when drones fail, and spreads new
   compositions by radio gossip, with no central controller.
 
+scope: >
+  Software-only simulation. No physical drones or hardware of any kind, no internet,
+  no external services; the whole application runs on one laptop (NFR-10).
+
 deadlines_gmt:
   hard_submission: "2026-11-15T11:00"
   internal_submission_target: "2026-11-15T10:15"

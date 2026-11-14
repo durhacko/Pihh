@@ -492,3 +492,4 @@ Collisions (`d < dCollide`) and near-misses (`d < dNear`) are **counted from tru
 | Dark-but-hovering failures | Indistinguishable from a live jammed drone by sensing | — |
 | Rotating or animated holds | Makes "settled" and vacancy sensing harder | STRETCH (camera auto-orbit gives motion for free) |
 | Malicious drones | All drones are assumed honest; any drone can inject a score | — |
+| Any physical hardware (drones, microcontrollers, LEDs, sensors, GPS, radios), any network or external service | Out of scope by team decision: Encore is software-only and runs on one laptop ([NFR-10](../specification/requirements.md)) | Never |

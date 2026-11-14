@@ -84,6 +84,6 @@ Sponsor tiers ✅ (durhack.com): Platinum: Marshall Wace, QRT, bidfx · Gold: Ac
 
 - [ ] Theme wording and whether/how it's judged
 - [ ] Each sponsor brief: P3, P4, P5, P6, P7, P8, P9, P10
-- [ ] Hardware library inventory (is the UNO Q available? servos? LED strips?)
+- [x] ~~Hardware library inventory~~ Not needed: Encore is software-only (no hardware in scope)
 - [ ] Judging time, format, pitch length
 - [ ] Devpost form fields (video required?)

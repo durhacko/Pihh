@@ -23,4 +23,4 @@
 | C04 Palette | Needs consumables; calibration risk | — |
 | C05 Combinator | Least visual | A finance brief fits and Encore fails G1 early |
 | C06 Thirds | Close to commodity auto-framing | — |
-| C07 Chorus | Venue Wi-Fi risk | Could become a physical add-on to Encore (stretch, not planned) |
+| C07 Chorus | Venue Wi-Fi risk | — (a physical add-on to Encore is ruled out: Encore is software-only) |

@@ -4,7 +4,7 @@
 
 ## Phase: **architecture done, implementation starting**
 
-Project: **Encore** (selected 18:05, issue #3). Stack: TypeScript, Vite, Three.js, vitest. No application code exists yet.
+Project: **Encore** (selected 18:05, issue #3). Stack: TypeScript, Vite, Three.js, vitest. **Scope: software only**, one laptop, no hardware, no internet ([NFR-10](specification/requirements.md)). No application code exists yet.
 
 | Gate | Target (GMT) | Status |
 |---|---|---|

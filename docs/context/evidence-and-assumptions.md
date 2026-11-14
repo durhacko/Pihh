@@ -17,7 +17,7 @@ Details and URLs are in [BRIEF](../competition/BRIEF.md); the IDs in the source 
 | EV-01 | Submission closes Sun 15 Nov 11:00 GMT on Devpost | BRIEF S3 | verified | Fixes every gate time; submit target 10:15 |
 | EV-02 | Judged on creativity, polish, technical competence, research/learning | BRIEF J1 | verified | Pitch must hit all four; §1.2 serves "research" |
 | EV-03 | README must list libraries; AI use must be credited; no pre-event work; GitHub link preferred | BRIEF R2–R5 | verified | Both README sections are MUST; make the repo public before submitting |
-| EV-04 | No loan hardware is confirmed | BRIEF H2 | unverified | Simulation only |
+| EV-04 | No hardware is used: Encore is software-only | Team decision, 14 Nov ([NFR-10](../specification/requirements.md)) | verified | Simulation only; nothing to borrow or plug in |
 | EV-05 | Judging time, format and pitch length | BRIEF S6, J4 | unverified | Plan a 60–90 s table pitch and a demo a judge can operate |
 | EV-06 | Theme is "Composition" | team-reported (BRIEF T1) | unverified | Use the word; build nothing only for the theme |
 | EV-07 | A Neptune North prize track exists | BRIEF P7 | verified (title and prize only) | Primary target track |
@@ -47,13 +47,13 @@ Source for all rows: agent desk research 14 Nov, from the pages linked. Read the
 
 ## 2. Assumptions
 
-AS-01 to AS-04 are the assumptions the contract calls A1–A4. Limits that follow from the algorithm itself (not from the model) are in [contracts §8.5](../design/contracts-and-algorithms.md#85-known-limits-state-these-dont-hide-them).
+AS-01 to AS-04 are the assumptions the contract cites in its §12. Limits that follow from the algorithm itself (not from the model) are in [contracts §8.5](../design/contracts-and-algorithms.md#85-known-limits-state-these-dont-hide-them).
 
 | ID | Assumption | Why we make it | Risk if a judge challenges it | How we word it |
 |---|---|---|---|---|
-| AS-01 | Synced clock: every drone reads the same `tick` | A timed score needs a shared time base; there is no time to model drift | "That is a central clock" | "Drones share a time reference, as satellite time would give them. Drift is not modelled" |
+| AS-01 | Synced clock: every drone reads the same `tick` | A timed score needs a shared time base; there is no time to model drift | "That is a central clock" | "Drones share a time reference, and drift is not modelled" |
 | AS-02 | Ideal anonymous sensing: exact relative position and velocity of every live drone within `rSense`; no noise, no occlusion, no ids | A vacancy must rest on physical evidence, not on radio silence | With noise, only `tVacant` and `rOcc` guard against false vacancies | "Idealised short-range sensing. A drone never learns who it sees" |
-| AS-03 | Disc radio: delivery within `rRadio`, uniform latency, independent `loss`; jam is a sphere, partition is a plane | Simple, deterministic, enough to show loss, jam and partition | Real links fade and fail in bursts; results do not transfer to hardware | "A disc radio model with configurable loss, jams and partitions" |
+| AS-03 | Disc radio: delivery within `rRadio`, uniform latency, independent `loss`; jam is a sphere, a partition is two fixed groups | Simple, deterministic, enough to show loss, jam and partition | Real links fade and fail in bursts; results say nothing about real radio links | "A disc radio model with configurable loss, jams and partitions" |
 | AS-04 | Collisions have no physical effect: pairs closer than `dCollide` are counted, nothing breaks | Keeps the kill set identical in both arms | "Your drones fly through each other" | "We count collisions and near-misses and report them. We make no safety claim" |
 | AS-05 | Killed drones leave the airspace at the kill tick | A dark hovering drone cannot be told from a live jammed one by sensing | A stuck drone is never replaced and becomes an obstacle | "We model drones that drop out, not ones that fail in place" |
 | AS-06 | Honest drones: every message is trusted, any drone accepts an uplink | No time for a security model | One forged `SCORE` with a late `issuedTick` redirects the swarm | "No security model; agents are assumed honest" |
