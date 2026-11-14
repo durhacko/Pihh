@@ -25,8 +25,8 @@ Directories are the collision boundary: one lane owns each. Owners are **provisi
 | Lane | Directories | Proposed owner | Shared files owned |
 |---|---|---|---|
 | A. Brain and contracts | `src/contracts`, `src/score`, `src/agent` | Arnav (integration lead; runs the orchestrator and its local sub-agents) | `src/contracts/**`, contracts doc |
-| B. World and evidence | `src/sim`, `src/observer`, `src/cli`, build and CI | Williams | `package.json`, `tsconfig`, `vite.config`, `scripts/check.sh`, CI |
-| C. Experience | `src/app/**`, demo, submission | Haris | `src/app/main.ts`, `index.html`, README |
+| B. World and evidence | `src/sim`, `src/observer`, `src/cli`, build and CI | Arnav's agents (Williams built most of it and paused development at 21:20 Sat) | `package.json`, `tsconfig`, `vite.config`, `scripts/check.sh`, CI |
+| C. Experience | `src/app/**`, demo, submission | Haris for HUD, demo and submission; Arnav's agents for app integration (`main.ts`, `worlds.ts`, controls wiring) | `src/app/main.ts`, `index.html`, README |
 
 If a lane has nobody active, its READY issues can be taken over under the takeover rule in [`AGENTS.md`](../../AGENTS.md) §1: the orchestrator's sub-agents take them, one issue per worktree.
 
