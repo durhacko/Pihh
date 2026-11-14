@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { performance } from 'node:perf_hooks';
 import { makeParams } from '../../src/contracts';
 import type { AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Params, Score, Vec3 } from '../../src/contracts';
-import { createWorld } from '../../src/sim';
+import { agentSeed, createWorld } from '../../src/sim';
 import { launchPosition } from '../../src/sim/math';
 import { dummyBrain } from '../fixtures/dummyBrain';
 
@@ -193,6 +193,19 @@ describe('radio medium', () => {
 });
 
 describe('replay and accounting', () => {
+  it('exports exactly the seed derivation passed into each brain init', () => {
+    const world = createWorld(config(4));
+    world.step();
+    const seeds: number[] = [];
+    for (let id = 0; id < 4; id++) {
+      const actual = (world.inspect(id)!.state as State).seed;
+      expect(actual).toBe(agentSeed(101, id));
+      expect(agentSeed(101, id)).toBe(agentSeed(101, id));
+      expect(agentSeed(102, id)).not.toBe(actual);
+      seeds.push(actual);
+    }
+    expect(new Set(seeds).size).toBe(4);
+  });
   it('same seed and reversed brain order reproduce hashes at tick 400; another seed differs', () => {
     const first = createWorld(config());
     const second = createWorld(config());
