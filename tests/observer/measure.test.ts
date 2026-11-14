@@ -51,7 +51,7 @@ describe('observer formation measurements', () => {
     const measured = measureFormation(snapshot([drone(0, 0, 0, false)]), formation, params);
     expect(measured.alive).toBe(0);
     expect(measured.coverage).toBe(0);
-    expect(measured.npwc).toBe(0);
+    expect(measured.npwc).toBeNull();
     expect(measured.sfMean).toBeNull();
     expect(measured.sfMax).toBeNull();
     expect(JSON.parse(JSON.stringify(measured))).toEqual(measured);

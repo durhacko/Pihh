@@ -41,9 +41,9 @@ export function measureFormation(snapshot: WorldSnapshot, formation: Formation, 
   }
   return {
     alive: live.length, status, coverage: occupied / params.n0,
-    pwc, npwc: capacity === 0 ? 0 : pwc / capacity,
+    pwc, npwc: capacity === 0 ? null : pwc / capacity,
     capacityLoss: 1 - capacity, coordLoss: capacity - pwc,
-    // Empty-swarm convention awaits contract-owner confirmation (#48).
+    // Approved contract #48: no nearest drone means no defined fidelity.
     sfMean: live.length && formation.dense.length ? sumDistance / formation.dense.length : null,
     sfMax: live.length && formation.dense.length ? maxDistance : null,
     dupSlots: [...owners.values()].filter(count => count > 1).length,
