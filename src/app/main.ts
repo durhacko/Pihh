@@ -249,10 +249,8 @@ feedHud();
 // A throw from a tick or a render pauses the show and is reported here; the loop keeps running, so R recovers.
 let loopError: string | null = null;
 function readoutText(alive: Pair<number>, fps: number | null, tick: number): string {
-  const main = `encore ${alive.encore} / static ${alive.static} alive of ${params.n0}${split ? '' : ` · showing ${views[0].arm}`}
-${fps === null ? '—' : fps.toFixed(0)} rendered fps · tick ${tick}${transport.playing ? '' : ' · paused'}`;
-  return loopError ? `${main}
-Stopped: ${loopError} · press R to reset` : main;
+  const main = `encore ${alive.encore} / static ${alive.static} alive of ${params.n0}${split ? '' : ` · showing ${views[0].arm}`}\n${fps === null ? '—' : fps.toFixed(0)} rendered fps · tick ${tick}${transport.playing ? '' : ' · paused'}`;
+  return loopError ? `${main}\nStopped: ${loopError} · press R to reset` : main;
 }
 function aliveNow(): Pair<number> {
   const s = current();
@@ -264,7 +262,10 @@ const loop = createFrameLoop(transport, {
     if (steps > 0 && now - lastControlRefresh >= 200) { refreshControls(); lastControlRefresh = now; }   // ≤ 5 Hz
     if (steps > 0 && (worlds.samples().encore?.tick ?? -1) !== lastHudTick) feedHud();   // a new sample landed
     lastAlpha = alpha;
-    for (const { arm, view } of views) view.render(buffers[arm].frame(alpha, dtReal));
+    // Views sharing one camera (split) must not each advance its damped OrbitControls: update it once.
+    const sharedRig = views.length > 1;
+    if (sharedRig) rig.update();
+    for (const { arm, view } of views) view.render(buffers[arm].frame(alpha, dtReal), !sharedRig);
     measuredTime += dtReal;
     measuredFrames++;
     if (measuredTime >= 1) {
