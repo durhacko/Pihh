@@ -12,6 +12,7 @@ Agents do **not** share memory, sessions or filesystems. The only shared state i
 - **Never commit to `main` directly.** Branch → PR → merge.
 - **Stay inside the issue's "Allowed files".** Anything else becomes a comment or a new issue, not a drive-by edit.
 - **Never commit secrets.** There should be none: Encore runs fully offline.
+- **Software only.** No hardware, no network calls and no external services, in code, tests or the demo ([NFR-10](docs/specification/requirements.md)). Everything about a drone is simulated.
 - Do not make product decisions, change repo settings, or force-push. Ask your human.
 - Report honestly: say what was tested and what wasn't. Never fake a result in the renderer or in metrics.
 

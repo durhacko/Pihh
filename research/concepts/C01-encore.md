@@ -12,14 +12,14 @@
 | Demo | A 3D browser sim of about 150 drones forms the DurHack logo, then the word "Composition". A judge clicks to kill 20% of the drones or cut comms between groups, and the swarm visibly redistributes. Message lines and a coverage % readout are shown. |
 | Mechanism | Drones gossip with their neighbours and bid for target positions (an auction, or a simplified distributed CBBA). Collisions are avoided with ORCA or boids rules. Targets come from sampled SVG or text points. Message loss is injected deliberately. |
 | Likely stack | Three.js plus a TypeScript or Python sim |
-| Dependencies | None required. Optional: 8–16 LED nodes (ESP32 or UNO Q with WS2812 LEDs). Real drones are unrealistic (venue safety, access). |
+| Dependencies | None. **Software only** (scope decision, 14 Nov): the optional LED nodes first noted here are dropped. |
 | Prior art | Skybrush is open source but central, with trajectories computed in advance. SwarMer / Flying Light Specks (arXiv 2312.04571) is decentralised but only handles localisation. **We differ by** assigning positions live with no centre, self-healing, and an interactive failure demo. |
 | MVP | The sim, 3 formations, failure injection, metrics overlay |
-| Stretch | Music-reactive choreography, LED tabletop nodes, judges draw a shape on their phone, phones as physical nodes (see C07) |
+| Stretch | Music-reactive choreography, judges draw a shape. Software only: the hardware ideas first noted here (LED nodes, phones as nodes) are dropped. |
 | Fallback | If consensus oscillates, a toggle switches to central assignment, and the comparison becomes a feature |
 | Effort | M |
 | Risks | Looks like "just a particle sim" unless the lack of a centre is made visible |
-| Sponsor fit | Hardware / RS / Arduino if LED nodes are added (**unverified**) |
+| Sponsor fit | Neptune North (brief team-reported). No hardware track. |
 
 ## Hard gates
-- [ ] Hardware confirmed (only needed for the stretch) · [x] Sim-only MVP has no external dependencies · [ ] Rules check
+- [x] No hardware: software-only by scope decision · [x] Sim-only MVP has no external dependencies · [ ] Rules check

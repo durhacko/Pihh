@@ -16,14 +16,13 @@
 1. <start command>
 2. ...
 ```
-Startup time: ? · Shutdown/reset: ? · Needs: power, screen/projector, network? hardware?
+Startup time: ? · Shutdown/reset: ? · Needs: one laptop on mains power, optionally an external screen. No network, no hardware.
 
 ## Fallbacks
 
 | If this fails | Do this |
 |---|---|
-| Network / API | Run with the sim/mock flag |
-| Hardware | Sim mode |
+| The live app misbehaves | `Reset` (rebuilds both worlds from the seed), then restart the scripted demo |
 | Everything | Backup video (link: TBD) plus screenshots in `assets/` |
 
 ## Judging traceability

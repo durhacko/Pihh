@@ -112,12 +112,13 @@ Areas: **core-agent** (`src/agent`), **core-sim** (`src/sim`, `src/contracts`), 
 | NFR-01 | MUST | Performance: both worlds live at 20 Hz simulation, at the frame-rate target of architecture §6 and never below its floor | Measured on a team laptop at G2 on a single view with both worlds stepping; re-measured at G5 with split view and X-ray on. Recorded in [CURRENT_STATE](../CURRENT_STATE.md) | app-render |
 | NFR-02 | MUST | Scaling: sensing and radio use a uniform spatial grid. No brain solves a global assignment | Tick time at `n0` and at half of it, reported | core-sim |
 | NFR-03 | MUST | Determinism: same seed, parameters and event script give the same run on the same JavaScript engine | Replay test on `stateHash()` at fixed ticks (T04), within one host | core-sim |
-| NFR-04 | MUST | Offline: static files, no server, no network at runtime | The built app runs with networking off | ops |
+| NFR-04 | MUST | Offline, one laptop: static files, no server, no internet and no external services, at run time and in the demo | The built app runs on one laptop with networking off | ops |
 | NFR-05 | MUST | Headless tests: the core has no DOM dependency; unit and G1 tests run in Node with one command | Suite passes before every merge to `main` | ops |
 | NFR-06 | MUST | README lists every public framework and library used (BRIEF R3) | Section matches `package.json` | ops |
 | NFR-07 | MUST | README credits AI/LLM use explicitly: which tools, for what (BRIEF R4) | Section present | ops |
 | NFR-08 | MUST | Submission: feature freeze 08:30, backup video 09:00, Devpost submitted by 10:15, hard deadline Sun 15 Nov 11:00 GMT (BRIEF S3). Repo public or access granted (R2) | Devpost timestamp; [submission checklist](../demo/SUBMISSION_CHECKLIST.md) complete | ops |
 | NFR-09 | MUST | Every number said or written traces to a `RunRecord`. The limits in contract §8.5 appear in the README | Spot check of README and pitch | ops |
+| NFR-10 | MUST | **Software only.** Encore is an exclusively virtual simulation. No physical drones, Arduino boards, LED devices, robotics hardware, external sensors, GPS devices or physical communication equipment are used or in scope, not even as stretch goals. Every drone is a simulated software agent: movement, radio, sensing, failures, collision avoidance, coordination and recovery are all simulated. One simulation runtime hosts every drone, but it is the environment, never a controller (rules I1–I8) | No doc, issue or dependency names a hardware device; the demo needs one laptop and nothing plugged in; the isolation tests (T01–T03) pass | ops |
 
 ## 4. User stories
 

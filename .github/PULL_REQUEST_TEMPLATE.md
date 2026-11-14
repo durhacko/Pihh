@@ -23,7 +23,7 @@ Closes #
 - [ ] Other:
 
 ## How to integrate / run
-<!-- Anything the reviewer or next person must do: env vars, new deps, migration, hardware setup. -->
+<!-- Anything the reviewer or next person must do: new dependencies, commands or flags. (Encore needs no hardware, network or secrets.) -->
 
 ## Reviewer checklist
 - [ ] Does what the issue asks; nothing unrelated

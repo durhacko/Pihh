@@ -14,6 +14,6 @@ Purpose: the index of every idea considered. **Each candidate lives in its own f
 | [C06](../../research/concepts/C06-thirds.md) | Thirds | Pan-tilt camera that optimises and explains photographic composition | archived | Bootstrap research |
 | [C07](../../research/concepts/C07-chorus.md) | Chorus | Audience phones become pixels and voices composed into one display and choir | archived | Bootstrap research |
 
-Noted combinations: C01 + C07 (phones as physical swarm nodes); C03 + C06 (both suit the UNO Q's vision-on-Linux plus real-time microcontroller split).
+Pre-selection notes, kept for history (Encore is now software-only, so no hardware combination is planned): C01 + C07 (phones as physical swarm nodes); C03 + C06 (both suit the UNO Q's vision-on-Linux plus real-time microcontroller split).
 
 No other previous team ideas were found in the repository. If teammates had others, add them.

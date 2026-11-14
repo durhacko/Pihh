@@ -15,7 +15,7 @@ Feasible as a simulation, **on condition that G1 passes**. Everything except hea
 | Time | 16 h to the hard deadline (BRIEF S3), 13.5 h to feature freeze (08:30), 4.5 h to G1 (23:30) | No second design attempt. One fallback step per gate, decided in advance |
 | People | Three, working overnight; lanes in the [development plan](../planning/development-plan.md) | One owner per directory; the contract freezes early so work runs in parallel |
 | Skills | TypeScript and Three.js experience is not recorded | Plain data, pure functions, no framework beyond Vite, Three.js and vitest |
-| Hardware | None confirmed (BRIEF H2) | Simulation only; nothing in the demo needs a network |
+| Hardware | None, by scope decision (NFR-10) | Simulation only; one laptop, nothing plugged in, no network |
 | Rules | Libraries listed, AI use credited, no pre-event work (BRIEF R3, R4, R5) | README sections are MUST |
 | Evidence | The sponsor brief and theme wording are team-reported, not verified ([evidence](../context/evidence-and-assumptions.md)) | Scope serves the four verified judging criteria (J1) first |
 
@@ -54,7 +54,7 @@ The MVP in one paragraph: about 200 drones, each stepping only on its own `Agent
 
 ## 6. Out of scope
 
-See [contracts §12](../design/contracts-and-algorithms.md#12-deliberately-not-in-the-mvp). In addition: real drones or LED hardware, flight-control realism, any server or network, music sync.
+See [contracts §12](../design/contracts-and-algorithms.md#12-deliberately-not-in-the-mvp). In addition, and never as a stretch: any physical hardware ([NFR-10](../specification/requirements.md)), flight-control realism, any server, network or external service. Music sync is also out.
 
 ## 7. Minimum convincing product
 

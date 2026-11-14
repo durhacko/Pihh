@@ -4,7 +4,7 @@ Purpose: which components exist, what each is responsible for, and which informa
 
 ## 1. Shape of the system
 
-One TypeScript codebase. A deterministic simulation core with no DOM dependency runs in two hosts: the browser app (live 3D show) and Node (tests and batch experiments). There is no server and no network: the built app is static files and works offline.
+One TypeScript codebase. A deterministic simulation core with no DOM dependency runs in two hosts: the browser app (live 3D show) and Node (tests and batch experiments). There is no server and no network: the built app is static files and works offline on one laptop. There is no hardware either: every drone, radio link, sensor and failure is simulated ([NFR-10](../specification/requirements.md)). One runtime hosts all the drones, but it plays the environment, not a controller: it never chooses a slot, target or belief for any drone (§3).
 
 ```mermaid
 flowchart LR
@@ -82,7 +82,7 @@ The comparison runs **two independent worlds** from the same seed, roster, score
 
 ## 6. Scale and performance budget
 
-- Target: 200 drones (`n0`) at 20 Hz simulation and 60 fps rendering on a team laptop, for both worlds together. Floor: 100 drones at 30 fps. Measured on team hardware at gate G2; numbers recorded in `CURRENT_STATE.md`.
+- Target: 200 drones (`n0`) at 20 Hz simulation and 60 fps rendering on a team laptop, for both worlds together. Floor: 100 drones at 30 fps. Measured on a team laptop at gate G2; numbers recorded in `CURRENT_STATE.md`.
 - Simulation cost per tick is O(N·k) for sensing and radio with a uniform spatial grid (k = neighbours in range), and O(N) per brain worst case for its peer table.
 - Rendering uses instanced meshes: one draw call for drones, one for ghost slots, one line buffer for radio sparks.
 - Quality fallback, in order: fewer drawn radio sparks → no glow post-processing → lower drone count preset.

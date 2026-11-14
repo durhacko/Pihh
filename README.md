@@ -12,7 +12,7 @@
 3. The judge jams the radio and sends a new composition to a single drone. It spreads as far as the radio allows and no further, and the rest catch up when the jam lifts.
 4. An X-ray view shows the real messages, each drone's beliefs, and the disagreement during a partition.
 
-It is a simulation: the drones are logically independent actors inside one program, not separate machines, and collisions are measured, not ruled out.
+It is a simulation, and software only: no physical drones or other hardware, no internet, one laptop. The drones are logically independent actors inside one program, not separate machines. Each decides for itself; the program plays the air and the radio, not a controller. Collisions are measured, not ruled out.
 
 ## For the team
 

@@ -25,6 +25,7 @@ When sources disagree: (1) the latest explicit instruction from the team, (2) ve
 
 | Date (GMT) | Decision | By | Why |
 |---|---|---|---|
+| 2026-11-14 19:25 | **Scope: software only.** No hardware of any kind, not even as a stretch; one laptop, no internet or external services. One runtime is not a central controller | Arnav | Team scope clarification; recorded as [NFR-10](../specification/requirements.md) |
 | 2026-11-14 18:30 | Healing redesigned after red-team: no floods, no unassigned state, local `canHeal` gate | Arnav (orchestrator) | Three fatal flaws found in the first draft; see ADR-007 |
 | 2026-11-14 18:15 | Keep the existing `docs/` tree and map the directive's `Documentation/` layout onto it | Arnav (orchestrator) | Existing issues and links point there; one canonical tree |
 | 2026-11-14 18:05 | **Encore selected**, Neptune North as primary track | Arnav | [SELECTION_DECISION](../ideation/SELECTION_DECISION.md); three-way scoring skipped |
