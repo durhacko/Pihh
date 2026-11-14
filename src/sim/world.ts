@@ -3,6 +3,7 @@ import type { AgentInput, AgentOutput, EnvEvent, Message, RadioEvent, Vec3, Worl
 import { SpatialGrid } from './grid';
 import { clampLength, distanceSquared, launchPosition, subtract } from './math';
 import { createRandom, hashSeed, hashText } from './random';
+import { senseFrom } from './sensing';
 
 interface Body {
   id: number; alive: boolean; diedTick: number | null;
@@ -108,9 +109,8 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
       const body = bodies[id];
       const input: AgentInput = {
         tick, pos: clone(body.pos), vel: clone(body.vel), inbox: inboxes[id],
-        sensed: grid.within(body.pos, params.rSense).filter(peer => peer !== id).map(peer => ({
-          rel: subtract(bodies[peer].pos, body.pos), vel: subtract(bodies[peer].vel, body.vel),
-        })),
+        // Geometric order, never id order: the order of anonymous entries must not identify a drone.
+        sensed: senseFrom(body, grid.within(body.pos, params.rSense).filter(peer => peer !== id).map(peer => bodies[peer])),
       };
       inputs.set(id, test.freezeInputs ? freeze(input) : input);
     }
