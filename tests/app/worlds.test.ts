@@ -3,7 +3,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { makeParams } from '../../src/contracts';
 import type { EnvEvent, WorldSnapshot } from '../../src/contracts';
-import { ARMS, createWorlds, DEFAULT_N0, encoreBrainIsFixture, idsInRegion, killEvent, type Pair, type Worlds } from '../../src/app/worlds';
+import { idsInSphere } from '../../src/sim';
+import { ARMS, createWorlds, DEFAULT_N0, encoreBrainIsFixture, killEvent, type Pair, type Worlds } from '../../src/app/worlds';
 
 const SEED = 1234;
 const aliveCount = (s: WorldSnapshot) => s.drones.filter(d => d.alive).length;
@@ -116,12 +117,12 @@ describe('scheduleBoth', () => {
   });
 });
 
-describe('idsInRegion', () => {
-  it('returns live drones within the radius, ascending, from one snapshot', () => {
+describe('regional kill (idsInSphere from src/sim)', () => {
+  it('resolves live drones within the radius, ascending, from one Encore snapshot', () => {
     const worlds = createWorlds({ seed: SEED });
     const s = runTo(worlds, 80).encore;
     const centre = s.drones[50].pos;
-    const ids = idsInRegion(s, centre, 4);
+    const ids = idsInSphere(s, centre, 4);
     expect(ids).toContain(50);
     expect(ids).toEqual([...ids].sort((a, b) => a - b));
     for (const d of s.drones) {
@@ -129,8 +130,7 @@ describe('idsInRegion', () => {
       expect(ids.includes(d.id)).toBe(inside && d.alive);
     }
     worlds.scheduleBoth(killEvent(worlds, [50]));
-    expect(idsInRegion(worlds.stepBoth().encore, centre, 4)).not.toContain(50);
-    expect(() => idsInRegion(s, centre, 0)).toThrow(RangeError);
+    expect(idsInSphere(worlds.stepBoth().encore, centre, 4)).not.toContain(50);
   });
 });
 
@@ -154,7 +154,7 @@ describe('determinism', () => {
     const script = (worlds: Worlds) => {
       const snaps: Pair<WorldSnapshot>[] = [];
       while (worlds.tick < 200) {
-        if (worlds.tick === 60) worlds.scheduleBoth(killEvent(worlds, idsInRegion(worlds.latest()!.encore, worlds.latest()!.encore.drones[120].pos, 5)));
+        if (worlds.tick === 60) worlds.scheduleBoth(killEvent(worlds, idsInSphere(worlds.latest()!.encore, worlds.latest()!.encore.drones[120].pos, 5)));
         snaps.push(worlds.stepBoth());
       }
       return snaps;

@@ -4,7 +4,7 @@
 // lockstep, so they always share a tick. The app changes a world only by scheduling EnvEvents and stepping;
 // it never sets a drone's slot, target or belief. Pure TypeScript: no DOM, no clock, no randomness.
 import { makeParams } from '../contracts';
-import type { AgentBrain, EnvEvent, MetricsSample, Observer, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
+import type { AgentBrain, EnvEvent, MetricsSample, Observer, Params, Recipe, Score, World, WorldSnapshot } from '../contracts';
 import { staticBrain } from '../agent/staticBrain';
 import { createObserver } from '../observer';
 import { composeNext, makeScore } from '../score';
@@ -151,17 +151,6 @@ export function createWorlds(options: WorldsOptions): Worlds {
       build();
     },
   };
-}
-
-/** Live drones whose position lies within `radius` of `centre`, ascending id (the contract's idsInSphere). */
-export function idsInRegion(snapshot: WorldSnapshot, centre: Vec3, radius: number): number[] {
-  if (!Number.isFinite(radius) || radius <= 0) throw new RangeError('Radius must be a positive number');
-  if (centre.length !== 3 || !centre.every(Number.isFinite)) throw new RangeError('Centre must be three finite numbers');
-  const r2 = radius * radius;
-  return snapshot.drones
-    .filter(d => d.alive && (d.pos[0] - centre[0]) ** 2 + (d.pos[1] - centre[1]) ** 2 + (d.pos[2] - centre[2]) ** 2 <= r2)
-    .map(d => d.id)
-    .sort((a, b) => a - b);
 }
 
 /** A KILL for the next tick with explicit, validated, sorted, de-duplicated ids. */

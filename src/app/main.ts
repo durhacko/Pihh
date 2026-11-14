@@ -6,7 +6,8 @@ import { resetViewMode } from './render/colourModes/viewMode';
 import { SnapshotBuffer } from './render/SnapshotBuffer';
 import { WorldView } from './render/WorldView';
 import { createPanels } from './ui';
-import { ARMS, controlContext, createWorlds, encoreBrainIsFixture, idsInRegion, killEvent, viewModeDisplay, type Arm, type Pair } from './worlds';
+import { idsInSphere } from '../sim';
+import { ARMS, controlContext, createWorlds, encoreBrainIsFixture, killEvent, viewModeDisplay, type Arm, type Pair } from './worlds';
 import './style.css';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -135,7 +136,8 @@ declare global { interface Window { encore?: EncoreDebug } }
 window.encore = {
   killIds: ids => scheduleKill(ids),
   killRegion(centre, radius) {
-    const ids = idsInRegion(current().encore, centre, radius);
+    if (!Number.isFinite(radius) || radius <= 0) throw new RangeError('Radius must be a positive number');
+    const ids = idsInSphere(current().encore, centre, radius);
     if (ids.length === 0) throw new Error('No live Encore drones in that region');
     return scheduleKill(ids);
   },

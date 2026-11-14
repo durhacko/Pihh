@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentBrain, ScoreVersion, WorldSnapshot } from '../../src/contracts';
 import { createObserver } from '../../src/observer';
+import { idsInSphere, randomIds } from '../../src/sim';
 import { createActionController, type ControlIntent } from '../../src/app/actions';
 import { readViewMode, resetViewMode } from '../../src/app/render/colourModes/viewMode';
 import { ARMS, controlContext, createWorlds, viewModeDisplay, type ShellHooks, type Worlds } from '../../src/app/worlds';
@@ -166,5 +167,29 @@ describe('display adapter (X-ray, belief colours, selection)', () => {
     expect(readViewMode()).toMatchObject({ xray: false, beliefColours: false });
     controller.handle({ type: 'reset', seed: 5 });
     expect(readViewMode().selectedDroneId).toBeNull();
+  });
+});
+
+describe('selection helpers from src/sim', () => {
+  it('kill-random draws its ids with randomIds: the same seed gives the same ids', () => {
+    const draw = (seed: number) => {
+      const { worlds, controller } = setup(60, seed);
+      const event = controller.handle({ type: 'kill-random' }).event!;
+      if (event.type !== 'KILL') throw new Error('expected a KILL');
+      const live = worlds.latest()!.encore.drones.filter(d => d.alive).map(d => d.id);
+      expect(event.ids).toEqual(randomIds((seed ^ event.tick ^ 0) >>> 0, live, 6));   // ceil(60 * 0.1), first event
+      return event.ids;
+    };
+    expect(draw(321)).toEqual(draw(321));
+    expect(draw(321)).not.toEqual(draw(322));
+  });
+
+  it('kill-region resolves with idsInSphere around the selected drone, from the Encore snapshot', () => {
+    const { worlds, controller } = setup();
+    controller.handle({ type: 'select', id: 10 });
+    const snapshot = worlds.latest()!.encore;
+    const event = controller.handle({ type: 'kill-region', radius: 3 }).event!;
+    expect(event).toEqual({ type: 'KILL', tick: snapshot.tick + 1, ids: idsInSphere(snapshot, snapshot.drones[10].pos, 3) });
+    expect(controller.handle({ type: 'kill-region', radius: 0 }).ok).toBe(false);
   });
 });
