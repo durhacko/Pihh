@@ -37,7 +37,7 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
   if (!Number.isInteger(params.n0) || params.n0 < 1) throw new Error('n0 must be a positive integer');
   if (params.rSense <= 0 || params.rRadio <= 0) throw new Error('Sensing and radio radii must be positive');
   if (!Number.isInteger(params.latencyMin) || !Number.isInteger(params.latencyMax) || params.latencyMin < 1 || params.latencyMax < params.latencyMin) throw new Error('Invalid radio latency');
-  if (params.loss < 0 || params.loss > 1) throw new Error('Invalid packet loss');
+  if (!Number.isFinite(params.loss) || params.loss < 0 || params.loss > 1) throw new Error('Invalid packet loss');
   const score = freeze(clone(source.score));
   const brain = Object.freeze({ ...source.brain });
   const config = Object.freeze({ seed: source.seed, params, score, brain, events: freeze(clone(source.events ?? [])) });
