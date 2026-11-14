@@ -853,12 +853,43 @@ describe('encoreBrain: duplicates (section 8.3, step 1)', () => {
     expect(p.state).toMatchObject({ slot: NEAR, heldSince: COMMIT });
   });
 
-  it('a drone with an empty history keeps its slot, and logs the anomaly', () => {
+  it('a drone with an empty history is on its launch home: it keeps its slot, and logs that', () => {
     // A fresh drone on its launch slot hears drone 5 say it holds slot 33 since tick 0 (and 5 < 33).
     const p = play({ extra: tick => (tick === 50 ? [holderHb(5, 50, ME, 0)] : []) }, 60);
     expect(p.state).toMatchObject({ slot: ME, heldSince: 0, history: [], lastTargetChange: 0, settledSince: 1 });
-    expect(p.state.log).toEqual(['t=50 anomaly: lost duplicate to 5, but my history is empty: keep slot 33']);
+    expect(p.state.log).toEqual(['t=50 keep slot 33, my launch home: lost duplicate to 5']);
     expect(slotChanges(p, ME)).toEqual([]);
+  });
+
+  it('T19: an earlier holder on a DIFFERENT score version makes me pop too; slot ownership is by index', () => {
+    const other = { issuedTick: 77, origin: 2 };
+    const p = reference(T + 10, { extra: tick => (tick === T ? [{ ...holderHb(5, T, NEAR, 150), version: other }] : []) });
+    expect(frameAt(p, T - 1).state).toMatchObject({ slot: NEAR, heldSince: COMMIT });
+    expect(frameAt(p, T).state).toMatchObject({ slot: ME, heldSince: 0, history: [] });
+    expect(frameAt(p, T).state.peers[5]?.version).toEqual(other);
+    expect(frameAt(p, T).belief.version).toEqual({ issuedTick: 0, origin: OPERATOR });      // I still fly my own score
+    expect(frameAt(p, T).belief.log.at(-1)).toBe(`t=${T} back to slot 33 (was 0): lost duplicate to 5`);
+    // A later holder on another version does not move me, exactly as on my own version.
+    const later = reference(T + 10, { extra: tick => (tick === T ? [{ ...holderHb(5, T, NEAR, COMMIT + 1), version: other }] : []) });
+    expect(later.state).toMatchObject({ slot: NEAR, heldSince: COMMIT });
+  });
+
+  it('slotHeard and the bid rule ignore the score version as well', () => {
+    const other = { issuedTick: 77, origin: 2 };
+    // Drone 1 is out of radio range, so slot 1 is never heard. A heartbeat holding slot 1 on another
+    // version counts as "slot 1 heard".
+    expect(dist(slotPos(1, 1), slotPos(ME, 1))).toBeGreaterThan(P.rRadio);
+    expect(play({}, 150).state.slotHeard[1]).toBe(0);
+    const heard = play({ extra: tick => (tick === 150 ? [{ ...holderHb(5, 150, 1, 0), version: other }] : []) }, 150);
+    expect(heard.state.slotHeard[1]).toBe(150);
+    // A better bid on another version makes me drop my claim on receipt (tick 260 is not one of my scan ticks).
+    const p = reference(COMMIT + 5, {
+      heartbeat: (id, sent, base) =>
+        (id === NEAR && sent >= KILL ? null : id === 34 && sent === scanAtOrAfter(CLAIM, 34) ? { ...base, version: other, claim: { slot: NEAR, rank: 34 } } : base),
+    });
+    expect(frameAt(p, 259).belief.claiming).toBe(NEAR);
+    expect(frameAt(p, 260).belief.claiming).toBeNull();
+    expect(frameAt(p, 260).belief.log.at(-1)).toBe('t=260 drop claim on slot 0: better bid from 34');
   });
 
   it('pops one entry per lost duplicate, each with its own original heldSince', () => {
@@ -879,7 +910,7 @@ describe('encoreBrain: duplicates (section 8.3, step 1)', () => {
     expect(s.log).toEqual([
       't=1001 back to slot 20 (was 6): lost duplicate to 5',
       't=1002 back to slot 33 (was 20): lost duplicate to 20',
-      't=1003 anomaly: lost duplicate to 5, but my history is empty: keep slot 33',
+      't=1003 keep slot 33, my launch home: lost duplicate to 5',
     ]);
   });
 
@@ -1102,25 +1133,98 @@ describe('encoreBrain: bounded state, plain JSON, determinism', () => {
   });
 
   it('the log keeps the last 20 decisions', () => {
-    // A drone with an empty history that keeps hearing an earlier holder of its slot logs an anomaly each time.
+    // A drone on its launch home that keeps hearing an earlier holder of its slot logs it each time.
     const dupHb = (tick: number): Heartbeat => ({ ...baseHeartbeat(5, tick - 1, SCORE, P), seq: 9000 + tick, slot: ME, heldSince: 0 });
     const p = play({ extra: tick => [dupHb(tick)] }, 50);
     expect(p.state.log).toHaveLength(20);
     expect(encoreBrain.belief(p.state).log).toHaveLength(20);
-    expect(p.state.log[0]).toMatch(/^t=31 anomaly/);
-    expect(p.state.log[19]).toMatch(/^t=50 anomaly/);
+    expect(p.state.log[0]).toMatch(/^t=31 keep slot 33/);
+    expect(p.state.log[19]).toMatch(/^t=50 keep slot 33/);
     expect(p.state.slot).toBe(ME);
   });
 
-  it('history keeps at most historyMax entries, dropping the oldest', () => {
+  it('the history cap removes history[1], never history[0], the launch home', () => {
     // White box: the history is already full when the drone commits in the reference scenario.
+    const full = [39, 38, 37, 36, 35, 34, 32, 31].map((slot, k) => ({ slot, heldSince: 10 * k }));
+    expect(full).toHaveLength(P.historyMax);
     const start = newState();
-    for (let k = 0; k < P.historyMax; k++) start.history.push({ slot: 100 + k, heldSince: k });
+    start.history = jsonCopy(full);
+    start.heldSince = 80;
     const p = play(dies([NEAR], KILL), COMMIT, { state: start, from: 1 });
     expect(p.state.slot).toBe(NEAR);
+    expect(p.state.history).toEqual([full[0], ...full.slice(2), { slot: ME, heldSince: 80 }]);
     expect(p.state.history).toHaveLength(P.historyMax);
-    expect(p.state.history[0]).toEqual({ slot: 101, heldSince: 1 });
-    expect(p.state.history.at(-1)).toEqual({ slot: ME, heldSince: 0 });
+
+    // historyMax = 1: only the home is remembered.
+    const one = makeParams(N, { historyMax: 1 });
+    const first = play({ ...dies([NEAR], KILL), params: one }, COMMIT);
+    expect(first.state.history).toEqual([{ slot: ME, heldSince: 0 }]);
+    const again = newState({ params: one });
+    again.slot = 31;
+    again.heldSince = 150;
+    again.history = [{ slot: ME, heldSince: 0 }];
+    const second = play({
+      params: one, pos: tick => slotPos(31, tick),
+      sensed: (j, tick) => j !== 31 && !(j === NEAR && tick >= KILL),
+      heartbeat: (j, sent, base) => (j === 31 || (j === NEAR && sent >= KILL) ? null : base),
+    }, COMMIT, { state: again, from: 1 });
+    expect(second.state).toMatchObject({ slot: NEAR, history: [{ slot: ME, heldSince: 0 }] });
+  });
+
+  it('T19: more than historyMax commits followed by repeated pops end on the launch slot with heldSince 0', () => {
+    // Sensing wide enough that the next slot is always within rClaim. The body is scripted onto whatever
+    // slot the drone believes. Victim k is there until the drone has committed k times, then dies:
+    // the drone walks 33 -> 30 -> 27 -> ... -> 3, ten commits with historyMax = 8.
+    const params = makeParams(N, { rSense: 60, rClaim: 50 });
+    const victims = [30, 27, 24, 21, 18, 15, 12, 9, 6, 3];
+    expect(victims.length).toBeGreaterThan(params.historyMax);
+    const deadFrom = victims.map((_, i) => (i === 0 ? KILL : Infinity));
+    const state = encoreBrain.init({ id: ME, n0: N, initialSlot: ME, score: SCORE, params, seed: 1 });
+    const gone = (j: number, tick: number): boolean => victims.includes(j) && tick >= deadFrom[victims.indexOf(j)];
+    const stage: Stage = {
+      params,
+      pos: tick => slotPos(state.slot, tick, SCORE, params),
+      sensed: (j, tick) => !gone(j, tick),
+      heartbeat: (j, sent, base) => (gone(j, sent) ? null : base),
+    };
+    const made: { slot: number; heldSince: number }[] = [];
+    let tick = 0;
+    while (made.length < victims.length && tick < 4000) {
+      tick++;
+      const before = state.slot;
+      encoreBrain.step(state, inputAt(stage, tick));
+      if (state.slot !== before) {
+        expect(state.heldSince).toBe(tick);
+        made.push({ slot: state.slot, heldSince: tick });
+        if (made.length < victims.length) deadFrom[made.length] = tick + 1;
+      }
+    }
+    expect(made.map(c => c.slot)).toEqual(victims);
+    // The cap dropped slots 30 and 27, in that order; the home and the six newest older slots remain.
+    expect(state.history).toEqual([{ slot: ME, heldSince: 0 }, ...made.slice(2, 9)]);
+    expect(state.history).toHaveLength(params.historyMax);
+
+    // Now the original holder of each slot the drone sits on "comes back" (heard, held since tick 0),
+    // alternately on the drone's own score version and on another one.
+    const visited: { slot: number; heldSince: number }[] = [];
+    for (let k = 0; k < params.historyMax; k++) {
+      tick++;
+      const holder: Heartbeat = {
+        ...baseHeartbeat(state.slot, tick - 1, SCORE, params), seq: 9000 + k, heldSince: 0,
+        version: k % 2 === 0 ? { ...SCORE.version } : { issuedTick: 77, origin: 2 },
+      };
+      encoreBrain.step(state, inputAt({ ...stage, heartbeat: () => null, extra: () => [holder] }, tick));
+      visited.push({ slot: state.slot, heldSince: state.heldSince });
+    }
+    // Each pop restored the original heldSince; slots 27 and 30 are skipped; the last pop lands on the home.
+    expect(visited).toEqual([...made.slice(2, 9).reverse(), { slot: ME, heldSince: 0 }]);
+    expect(state).toMatchObject({ slot: ME, heldSince: 0, history: [], claim: null });
+    // One more "earlier holder" changes nothing: nobody can outrank the launch home.
+    tick++;
+    const intruder: Heartbeat = { ...baseHeartbeat(5, tick - 1, SCORE, params), seq: 9999, slot: ME, heldSince: 0 };
+    encoreBrain.step(state, inputAt({ ...stage, heartbeat: () => null, extra: () => [intruder] }, tick));
+    expect(state).toMatchObject({ slot: ME, heldSince: 0, history: [] });
+    expect(state.log.at(-1)).toBe(`t=${tick} keep slot 33, my launch home: lost duplicate to 5`);
   });
 
   it('a heartbeat naming no drone or no slot of the roster is ignored and leaves the arrays intact', () => {

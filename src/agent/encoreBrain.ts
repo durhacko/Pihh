@@ -73,7 +73,9 @@ function targetChanged(s: EncoreState, now: number): void {
 function commit(s: EncoreState, now: number, v: number): void {
   const was = s.slot;
   s.history.push({ slot: s.slot, heldSince: s.heldSince });
-  while (s.history.length > s.params.historyMax) s.history.shift();
+  // The cap never removes history[0]: that is the launch home. A later pop skips the removed slot
+  // and lands on the next older one, which I also held earlier than any later claimant.
+  if (s.history.length > s.params.historyMax) s.history.splice(1, 1);
   s.slot = v;
   s.heldSince = now;
   s.claim = null;
@@ -84,7 +86,8 @@ function commit(s: EncoreState, now: number, v: number): void {
 function popHistory(s: EncoreState, now: number, why: string): void {
   const previous = s.history.pop();
   if (previous === undefined) {
-    note(s, now, `anomaly: ${why}, but my history is empty: keep slot ${s.slot}`);
+    // An empty history means I am on my launch home, which nobody can outrank: keep the slot.
+    note(s, now, `keep slot ${s.slot}, my launch home: ${why}`);
     return;
   }
   const was = s.slot;
