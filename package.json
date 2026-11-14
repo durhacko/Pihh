@@ -11,6 +11,7 @@
     "test": "vitest run",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "eval": "tsx src/cli/main.ts",
     "check": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": { "three": "0.181.1" },
