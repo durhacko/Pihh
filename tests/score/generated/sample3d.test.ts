@@ -62,10 +62,24 @@ function chiSquare(values: number[], edges: number[]): number {
 }
 const CHI2_11_P01 = 24.725;   // df = 11 (12 bands), p = 0.01
 
+// Default-suite budget (WP §2.3 item 7): the numerically integrated bands (both shapes, every axis) run only with
+// P2_WIDE=1. The default smoke uses Archimedes' exact equal-area bands of a sphere (equal-height slabs).
+const WIDE = Boolean(process.env.P2_WIDE);
+const SLABS = Array.from({ length: 11 }, (_, k) => -1 + (2 * (k + 1)) / 12);
+
 describe('GF-T11: area-weighted sampling passes the equal-area band test; naive polar sampling fails it', () => {
+  it(`sphere, exact equal-area slabs along y (default smoke): χ² < ${CHI2_11_P01}; polar-angle sampling fails`, () => {
+    const solid = buildSolid(part('e', { type: 'ellipsoid', center: [0, 0, 0], radii: [1, 1, 1] }), 0);
+    expect(chiSquare(solid.surface(4000, testStream('gf-t11:smoke')).map(s => s.pos[1]), SLABS)).toBeLessThan(CHI2_11_P01);
+    const next = testStream('naive');
+    const ys: number[] = [];
+    for (let i = 0; i < 4000; i++) ys.push(Math.cos(Math.PI * next()));
+    expect(chiSquare(ys, SLABS)).toBeGreaterThan(CHI2_11_P01 * 4);
+  });
+
   const cases: [string, Vec3][] = [['sphere', [1, 1, 1]], ['ellipsoid (1, 0.5, 0.3)', [1, 0.5, 0.3]]];
   for (const [name, radii] of cases) {
-    it(`${name}: 12 equal-area bands along each axis, χ² < ${CHI2_11_P01} (p > 0.01)`, () => {
+    it.runIf(WIDE)(`${name}: 12 equal-area bands along each axis, χ² < ${CHI2_11_P01} (p > 0.01; P2_WIDE)`, () => {
       const solid = buildSolid(part('e', { type: 'ellipsoid', center: [0, 0, 0], radii }), 0);
       const samples = solid.surface(4000, testStream(`gf-t11:${name}`));
       for (let axis = 0; axis < 3; axis++) {
@@ -76,7 +90,7 @@ describe('GF-T11: area-weighted sampling passes the equal-area band test; naive 
     }, 30_000);
   }
 
-  it('negative control: uniform polar-angle sampling of the same sphere fails the same test', () => {
+  it.runIf(WIDE)('negative control: uniform polar-angle sampling of the same sphere fails the integrated-band test (P2_WIDE)', () => {
     const next = testStream('naive');
     const ys: number[] = [];
     for (let i = 0; i < 4000; i++) { const theta = Math.PI * next(); ys.push(Math.cos(theta)); void next(); }

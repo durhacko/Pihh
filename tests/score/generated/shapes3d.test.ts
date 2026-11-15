@@ -2,6 +2,8 @@
 // GF-WP-05 (#211): 3D primitives. Depths are exact signed distances (checked against brute force on the analytic
 // surface), samples lie on the analytic surface with outward unit normals, mesh areas match the analytic areas,
 // tube frames are rotation-minimising and orthonormal (GF-T13), and mirror-x is an exact reflection (GF-T15 (1)).
+// Default-suite budget (WP §2.3 item 7): the brute-force distance probes and the large sample counts run only with
+// P2_WIDE=1; the default suite keeps a fast smoke of every check (fewer samples, analytic depth values).
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { Vec3 } from '../../../src/contracts';
@@ -14,6 +16,8 @@ function testStream(label: string): () => number {
   let a = h >>> 0;
   return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
+const WIDE = Boolean(process.env.P2_WIDE);
+const SURFACE_SAMPLES = WIDE ? 3000 : 300;
 const part = (id: string, shape: Part3DInput['shape'], extra: Partial<Part3DInput> = {}): Part3DInput => ({ id, shape, materialId: 'm', importance: 3, ...extra });
 const norm = (v: Vec3) => Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 const dist = (a: Vec3, b: Vec3) => norm([a[0] - b[0], a[1] - b[1], a[2] - b[2]]);
@@ -49,15 +53,33 @@ describe('ellipsoid signed distance (Eberly, exact)', () => {
     expect(ellipsoidSignedDistance([1, 0.5, 0.3], [0, 0, 0])).toBeCloseTo(-0.3, 12);
     expect(ellipsoidSignedDistance([1, 0.5, 0.3], [0, 0, 0.7])).toBeCloseTo(0.4, 12);
   });
+
+  it('capsule, cylinder, cone and straight tube give their analytic depths at known points (default smoke)', () => {
+    const at = (shape: Part3DInput['shape'], p: Vec3) => buildSolid(part('s', shape), 0).insideDepth(p);
+    const capsule: Part3DInput['shape'] = { type: 'capsule', center: [0, 0, 0], radius: 0.2, length: 0.8 };
+    expect(at(capsule, [0, 0, 0])).toBeCloseTo(0.2, 12);
+    expect(at(capsule, [0.1, 0.3, 0])).toBeCloseTo(0.1, 12);
+    expect(at(capsule, [0, 0.7, 0])).toBeCloseTo(-0.1, 12);          // beyond the hemisphere: 0.3 from its centre
+    const cylinder: Part3DInput['shape'] = { type: 'cylinder', center: [0, 0, 0], radius: 0.3, height: 0.4 };
+    expect(at(cylinder, [0, 0, 0])).toBeCloseTo(0.2, 12);             // nearer the caps than the side
+    expect(at(cylinder, [0.25, 0, 0])).toBeCloseTo(0.05, 12);
+    expect(at(cylinder, [0.4, 0.3, 0])).toBeCloseTo(-Math.sqrt(0.02), 12);   // off the rim edge
+    const cone: Part3DInput['shape'] = { type: 'cone', center: [0, 0, 0], baseRadius: 0.4, topRadius: 0, height: 0.6 };
+    expect(at(cone, [0, -0.25, 0])).toBeCloseTo(0.05, 12);            // above the base cap
+    expect(at(cone, [0, 0.4, 0])).toBeCloseTo(-0.1, 12);              // straight above the apex
+    const tube: Part3DInput['shape'] = { type: 'taperedTube', points: [[0, 0, 0], [0, 1 / 3, 0], [0, 2 / 3, 0], [0, 1, 0]], startRadius: 0.1, endRadius: 0.1 };
+    expect(at(tube, [0.05, 0.5, 0])).toBeCloseTo(0.05, 9);
+    expect(at(tube, [0, 1.15, 0])).toBeCloseTo(-0.05, 9);
+  });
 });
 
 describe('every primitive: depth, projection, normals and area', () => {
   for (const [name, shape] of Object.entries(SHAPES)) {
     const solid = buildSolid(part(name, shape), 0);
-    const samples = solid.surface(3000, testStream(name));
+    const samples = solid.surface(SURFACE_SAMPLES, testStream(name));
 
     it(`${name}: samples lie on the analytic surface (|depth| < 1e-9), inside the box, with outward unit normals`, () => {
-      expect(samples).toHaveLength(3000);
+      expect(samples).toHaveLength(SURFACE_SAMPLES);
       for (const { pos, normal } of samples) {
         expect(Math.abs(solid.insideDepth(pos))).toBeLessThan(1e-9);
         expect(Math.abs(norm(normal) - 1)).toBeLessThan(1e-12);
@@ -68,7 +90,7 @@ describe('every primitive: depth, projection, normals and area', () => {
       }
     });
 
-    it(`${name}: insideDepth is the signed distance to the surface (brute force over 20,000 surface points)`, () => {
+    it.runIf(WIDE)(`${name}: insideDepth is the signed distance to the surface (brute force over 20,000 surface points; P2_WIDE)`, () => {
       const cloud = solid.surface(20000, testStream(`${name}:cloud`));
       const next = testStream(`${name}:probe`);
       const { min, max } = solid.box;
@@ -129,7 +151,7 @@ describe('GF-T13: tapered tube frames and radius', () => {
 
   it('just inside a curved, tapered tube, the depth is the inward distance (within 2%)', () => {
     const solid = buildSolid(part('tube', SHAPES.tube), 0);
-    for (const { pos, normal } of solid.surface(500, testStream('inward'))) {
+    for (const { pos, normal } of solid.surface(WIDE ? 500 : 100, testStream('inward'))) {
       const delta = 0.01;
       const d = solid.insideDepth([pos[0] - delta * normal[0], pos[1] - delta * normal[1], pos[2] - delta * normal[2]]);
       expect(Math.abs(d - delta)).toBeLessThanOrEqual(0.02 * delta);
