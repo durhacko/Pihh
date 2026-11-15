@@ -69,22 +69,22 @@ describe('beyond G1: the clumped kill on every kill centre (n0 = 40, seed 1, 20 
     }
   }, 600000);
 
-  // KNOWN MISS, recorded and not hidden. Measured on this branch: 35 of the 40 centres are quiet in the
-  // last 10 s; on centres 7, 15, 21, 23 and 36 the last commit comes 20.20 to 20.95 s after the kill, so it
-  // falls 0.2 to 0.95 s inside the last 10 s of the 30 s window. Cause (traced): a chain of four waves in
+  // KNOWN MISS, recorded and not hidden. Measured with paced targets (#96, main 571c8e4): 38 of the 40 centres
+  // are quiet in the last 10 s; the latest last commit comes 20.20 s after the kill, 0.2 s inside the last 10 s
+  // of the 30 s window. Before pacing it was 35 of 40: centres 7, 15, 21, 23 and 36, at 20.20 to 20.95 s. Cause (traced): a chain of four waves in
   // which one drone hops twice; its second hop waits tStable (6 s) + tVacant (2 s) + claimWindow (1 s) after
   // its first commit (contract section 8.5, limit 3: slow by design). Run for 60 s, each of the five is
   // quiet from that commit on. The gate (./g1.test.ts) did not draw these (seed, centre) pairs.
   // it.fails: this test passes only while the assertion fails. If the brain or the timers change so that
   // all 40 are quiet in time, it turns red: then delete `.fails` and update the numbers in the PR and docs.
-  it.fails('KNOWN MISS: on every one of the 40 centres there is no commit in the last 10 s (measured: 35 of 40)', () => {
+  it.fails('KNOWN MISS: on every one of the 40 centres there is no commit in the last 10 s (measured: 38 of 40)', () => {
     expect(runs).toHaveLength(40);
     expect(runs.filter(r => !r.verdict.quietOk).map(r => r.centre)).toEqual([]);
   });
 
   // Bounds, not the exact list: ADR-002 does not promise identical floats on another host, and one
-  // heartbeat phase more or less moves a commit by 0.25 s. Measured here: 5 centres, latest 20.95 s.
-  it('the miss is small: at most 8 of the 40 centres are late (measured: 5), and no chain ends later than 22 s after the kill (measured: 20.95 s)', () => {
+  // heartbeat phase more or less moves a commit by 0.25 s. Measured at 571c8e4: 2 centres, latest 20.20 s (before pacing: 5, 20.95 s).
+  it('the miss is small: at most 8 of the 40 centres are late (measured: 2), and no chain ends later than 22 s after the kill (measured: 20.20 s)', () => {
     expect(runs).toHaveLength(40);
     expect(runs.filter(r => !r.verdict.quietOk).length).toBeLessThanOrEqual(8);
     for (const r of runs) expect(r.lastCommitSec ?? 0, `centre ${r.centre}: seconds from the kill to the last commit`).toBeLessThan(22);
