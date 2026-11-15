@@ -1,12 +1,13 @@
 <p align="center">
   <img src="docs/assets/readme/encore-hero.svg" width="100%" alt="The word ENCORE drawn as a formation of glowing drone dots in amber fading to rose. In the letter O, an illustration of repair: two drones are lost, their slots show as vacant rings and a neighbouring drone flies in to claim one.">
 </p>
+<p align="center"><sub>Banner: an illustration drawn with the app's own formation font. The animation and screenshots below are captures from the app.</sub></p>
 
 # Encore
 
 **A composition of independent minds.** Encore is a drone light show with no conductor during the performance. In a 3D browser simulation, each of 200 drones decides for itself, using only its own position, what it senses nearby and what it hears on short-range radio. When drones fail, nearby survivors move into the more important parts of the picture. When a new composition reaches one drone, it spreads drone to drone. A conventional pre-programmed show flies alongside from the same seed and gets the same failures.
 
-**Result, 5 of 5 seeds:** after 20 neighbouring drones are killed, the largest gap in Encore's picture shrinks back to 2.4 m while the static show keeps a 7.0 m hole. It costs 4 radio messages per drone-second, and in one reconnection scenario many more collisions ([evidence](#evidence)).
+**Result, 5 of 5 seeds:** after 20 neighbouring drones are killed, the largest gap in Encore's picture shrinks back to a median 2.4 m while the static show keeps a 7.0 m hole (scenario S2, 200 drones, seeds 1–5). It costs 4 radio messages per drone-second, and in one reconnection scenario many more collisions ([evidence](#evidence)).
 
 Built at **DurHack 2026** (Durham, 14–15 November). Software only: no real drones or hardware, and no network access at run time. It runs offline in a browser on one laptop.
 
@@ -15,7 +16,7 @@ Built at **DurHack 2026** (Durham, 14–15 November). Software only: no real dro
 <p align="center">
   <img src="docs/assets/readme/repair.gif" width="100%" alt="Animation from the running app, seed 101. Top: the Encore brain. Bottom: the static baseline. At 20 seconds the same 20 drones in the first E are killed in both worlds. In the Encore world nearby drones move into the vacated important slots over the next seconds, so the E thins instead of keeping a hole; in the static world the hole stays.">
 </p>
-<p align="center"><sub>Recorded from the app with <a href="docs/assets/readme/capture.mjs"><code>capture.mjs</code></a>: seed 101, the same 20 drones killed at 20 s in both worlds. Top: Encore. Bottom: the static show. Two runs of the same seed and kill, one per view; frames are cropped, labelled and stacked, not retouched. One frame every 0.6 s of simulated time.</sub></p>
+<p align="center"><sub>Recorded from the app with <a href="docs/assets/readme/capture.mjs"><code>capture.mjs</code></a>: seed 101, the same 20 drones killed at about 20 s in both worlds. Top: Encore. Bottom: the static show. Two runs of the same seed and kill, one per view; frames are cropped, labelled and stacked, not retouched. About one frame every 0.6 s of simulated time; each frame is labelled with the tick it was taken at.</sub></p>
 
 ---
 
@@ -43,7 +44,7 @@ Encore invents no new algorithm. It combines known ideas (gossip, local failure 
 
 **Measure** (<kbd>M</kbd>). One read-only observer per world computes every number from the world's snapshots: coverage, shape and collisions from true positions, slot and version counts from what each drone reports it believes. Here Encore has refilled its important slots after a regional kill and the static show has not; plain coverage is 90.0% in both.
 
-The dock at the bottom also opens the Composer (<kbd>F</kbd>), a command console (<kbd>/</kbd>), the show timeline (<kbd>T</kbd>) and ghost-slot rings (<kbd>G</kbd>). The full key map is in the [tour](#a-90-second-tour).
+The dock opens the Composer (<kbd>F</kbd>), Disrupt, Lenses (X-ray, belief colours, ghost slots <kbd>G</kbd>, tethers), Show (<kbd>D</kbd>, the scripted demo) and the console (<kbd>/</kbd>); <kbd>T</kbd> opens the show timeline. The full key map is in the [tour](#a-90-second-tour).
 
 ## What it does
 
@@ -208,9 +209,9 @@ The baseline is the floor for message cost (zero) and is immune to radio faults 
 
 ## Evidence
 
-Fifty headless runs: five scenarios × seeds 1–5 × both brains, 200 drones, 90 s of simulated time each. Every run starts from commit `571c8e4` with a frozen parameter set (SHA-256 `6342c662…`). The full generated table, per-seed rows and hand-written notes are in [`results/RESULTS.md`](results/RESULTS.md).
+Fifty headless runs: five scenarios × seeds 1–5 × both brains, 200 drones, 90 s of simulated time each. Every run starts from commit `571c8e4` with a frozen parameter set (SHA-256 `6342c662…`). Main has since changed details of the simulation (for example the geometric sensing order, #82), so numbers from current main differ in detail; to reproduce them exactly, use `571c8e4`. The full generated table, per-seed rows and hand-written notes are in [`results/RESULTS.md`](results/RESULTS.md).
 
-**nPWC** (normalised priority-weighted coverage) is the share of the picture's importance covered by live drones, divided by the best the surviving drones could achieve. It uses our own priority order, so the table also gives plain coverage and the largest gap in metres, which use no labels. The win rule and pass lines were registered in the [evaluation plan](docs/validation/evaluation-and-tests.md#3-scenarios) before the run.
+**nPWC** (normalised priority-weighted coverage) is the share of the picture's importance covered by live drones, divided by the best the surviving drones could achieve. It uses our own priority order, so the table also gives plain coverage and the largest gap in metres (sfMax). sfMax needs no labels, but our farthest-point slot order is built to keep sfMax small, so it is not fully independent of our choices; plain coverage, which ties at 0.900, is the only metric that cannot favour Encore. The win rule and pass lines were registered in the [evaluation plan](docs/validation/evaluation-and-tests.md#3-scenarios) before the run.
 
 <p align="center">
   <img src="docs/assets/readme/s2-recovery.svg" width="100%" alt="Two line charts of scenario S2 between 15 and 45 seconds, 200 drones, seeds 1 to 5, median line with min-max band. At 20 seconds 20 neighbouring drones are killed. Left: priority-weighted coverage drops to 0.909 for both; the static baseline stays at 0.909 while Encore climbs above the 0.95 recovery line and reaches 0.969 by 45 s. Right: the largest gap in the picture jumps from 1.6 m to about 7 m for both; static stays at 7.0 m while Encore falls back to 2.4 m.">
@@ -228,7 +229,7 @@ Fifty headless runs: five scenarios × seeds 1–5 × both brains, 200 drones, 9
 <details>
 <summary><b>How these numbers are defined and computed</b></summary>
 
-- **nPWC** (normalised priority-weighted coverage): the share of slot importance that is physically occupied by a live drone, divided by the best that the surviving drones could achieve. A slot counts as occupied if any live drone's true position is within 0.6 m of it. It uses our own priority order, so read it beside **plain coverage** (occupied slots / 200) and **sfMax**, the largest distance from any point of the target shape to the nearest live drone, which uses no labels at all.
+- **nPWC** (normalised priority-weighted coverage): the share of slot importance that is physically occupied by a live drone, divided by the best that the surviving drones could achieve. A slot counts as occupied if any live drone's true position is within 0.6 m of it. It uses our own priority order, so read it beside **plain coverage** (occupied slots / 200) and **sfMax**, the largest distance from any point of the target shape to the nearest live drone, which needs no labels (though our farthest-point slot order is built to keep it small).
 - **nPWC at 85–90 s** is the mean over ticks 1700–1799, in the hold of the show's second formation (a sphere), after a formation change. On the damaged ENCORE itself (40–45 s, as in the chart) the medians are S1 0.912 → 0.987 and S2 0.909 → 0.969. **Win** if Encore − static > +0.02 on that seed, **loss** if < −0.02, tie otherwise. Pairs are by seed.
 - **Recovery time** (`tRec`): seconds from the kill to the start of the first 3 s stretch with nPWC ≥ 0.95, in a hold. A run that never gets there is *censored*: static in S1 and S2, all 5 seeds.
 - **Collisions** are entry events below 0.4 m between live drones, sampled at 20 Hz, so they are lower bounds. They have no physical effect in the simulation.
@@ -238,7 +239,9 @@ Fifty headless runs: five scenarios × seeds 1–5 × both brains, 200 drones, 9
 
 </details>
 
-**Where Encore ties or costs more.** It ties when nothing fails (S0) and when only the radio fails (S3). It always sends more: 4 messages per drone-second against none. Repairs cost a median of 25 (S1) and 33 (S2) slot changes per run, at most 2 per drone. It has slightly more collisions after a kill (17 and 16 against 14). In S5 it has many more (103 against 14, with the two worlds flying different formation changes), because the half of the swarm that adopts the new score after reconnection joins a formation change already in progress at close to full speed ([#123](https://github.com/durhacko/Pihh/issues/123)). nPWC wins rest on our own slot order; plain coverage ties by physics, because both worlds lose the same drones.
+### Where Encore ties or loses
+
+No seed is a loss on nPWC in this run (0 LOSS rows in [`results/RESULTS.md`](results/RESULTS.md)); S5 has no verdict by design. It ties when nothing fails (S0) and when only the radio fails (S3). It always sends more: 4 messages per drone-second against none. Repairs cost a median of 25 (S1) and 33 (S2) slot changes per run, at most 2 per drone. It has slightly more collisions after a kill (17 and 16 against 14). In S5 it has many more (103 against 14, with the two worlds flying different formation changes), because the half of the swarm that adopts the new score after reconnection joins a formation change already in progress at close to full speed ([#123](https://github.com/durhacko/Pihh/issues/123)). nPWC wins rest on our own slot order; plain coverage ties by physics, because both worlds lose the same drones.
 
 **Gate tests.** The pre-registered healing tests (G1) and dissemination tests (G4) run in CI on the real world, the real radio and the real Encore brain. Details are in the [test section](#tests-and-reproducibility).
 
@@ -289,7 +292,7 @@ For development with hot reload: `npm run dev`, then open the printed address (V
    | <kbd>J</kbd> | Jam the radio within 12 m of it, or click a centre if nothing is selected. Press <kbd>J</kbd> again to lift the jam |
    | <kbd>P</kbd> | Partition the swarm along the plane x = 0 (press again to reconnect) |
    | <kbd>I</kbd> or <kbd>F</kbd> | Open the Composer: choose text, sphere or double helix, pick the target drone, then press **Inject**. Nothing is sent until then |
-   | <kbd>X</kbd> / <kbd>C</kbd> | Radio X-ray: a sample of the radio messages actually sent (3 receivers of every 4th heartbeat), plus each drone's line to its flight target (the Tethers lens, which you can turn off under Lenses) / colour drones by the score version they believe |
+   | <kbd>X</kbd> / <kbd>C</kbd> | Radio X-ray: a sample of the radio messages actually sent: every claim and new score (up to 24 receivers each), and 3 receivers of every 4th other broadcast; plus each drone's line to its flight target (the Tethers lens, which you can turn off under Lenses) / colour drones by the score version they believe |
    | <kbd>Space</kbd> / <kbd>R</kbd> | Play or pause / reset to the seed |
    | <kbd>[</kbd> <kbd>]</kbd> | Slower or faster (0.25× to 4×) |
    | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Camera: front, ¾, top |
@@ -337,7 +340,7 @@ npm run eval -- --report rerun/    # compare with the generated part of results/
 
 Don't write into `results/`: it holds the committed records and hand-written notes, and the runner refuses to overwrite a record from a different commit or parameter set. From the same commit, a re-run gives an identical state hash. In the browser, `window.encore.stateHashes()` returns each world's state hash, so two loads with the same seed and the same actions can be compared.
 
-**Not covered:** there are no browser, GPU or end-to-end tests. The isolation mutation check ([`tests/isolation/check-mutations.mjs`](tests/isolation/check-mutations.mjs)) runs by hand, not in CI. Repair is gated at 40 drones; at 200 drones it is measured by the evidence run but not asserted in a test. Across all 40 kill centres of seed 1, 2 still finish their last repair just after the 20 s quiet limit (20.2 s).
+**Not covered:** there are no browser, GPU or end-to-end tests. The isolation mutation check ([`tests/isolation/check-mutations.mjs`](tests/isolation/check-mutations.mjs)) runs by hand, not in CI. Repair is gated at 40 drones; at 200 drones it is measured by the evidence run but not asserted in a test. Across all 40 kill centres of seed 1 at `571c8e4`, 38 of 40 meet every G1 condition; 2 finish their last repair just after the 20 s quiet limit (20.2 s).
 
 ## Neptune North challenge and sponsor tools
 

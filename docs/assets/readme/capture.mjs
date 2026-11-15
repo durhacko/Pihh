@@ -13,7 +13,9 @@
 // The repair animation is two runs of the same seed with the same scheduled kill: the default (Encore) view and
 // ?arm=static. Both worlds always run in lockstep in the app and get the same event, so each run also carries the
 // other world; the view only chooses which one is drawn. The kill is the scripted demo's regional kill: every live
-// drone within 6 m of (-35, 30.4, 0), the first E of ENCORE, scheduled for tick 400.
+// drone within 6 m of (-35, 30.4, 0), the first E of ENCORE, scheduled at about tick 400 (the label uses the tick
+// of the event the app actually scheduled). Frames are paused near their target tick and labelled with the tick
+// they were actually taken at, so spacing is about, not exactly, 0.6 s.
 //
 // The stills are cropped to the stage and the panel their caption refers to (crop only, no retouching):
 //   stage-split.png         ?split=1, paused at tick 380 in the ENCORE hold, before any event.
@@ -115,10 +117,12 @@ async function run(chrome, query, frameDir, label) {
   await page.eval(WAIT_FOR_APP);
   const frames = [];
   let killed = false;
+  let killTick = null;
   for (const t of FRAME_TICKS) {
     if (!killed && t >= KILL.tick - 1) {
       await pauseAt(page, KILL.tick - 1);
-      await page.eval(`window.encore.killRegion(${JSON.stringify(KILL.centre)}, ${KILL.radius})`);   // lands at tick + 1
+      const event = await page.eval(`window.encore.killRegion(${JSON.stringify(KILL.centre)}, ${KILL.radius})`);   // lands at tick + 1
+      killTick = event.tick;
       killed = true;
       await page.eval('window.encore.setPlaying(true)');
     }
@@ -138,7 +142,7 @@ async function run(chrome, query, frameDir, label) {
   const still = await shot(page, STAGE_CLIP);
   const samples = await page.eval('window.encore.samples()');
   await page.close();
-  return { frames, still, samples };
+  return { frames, still, samples, killTick };
 }
 
 const chrome = await launch(VIEW);
@@ -156,6 +160,7 @@ try {
   const first = encore.frames[0].alive.encore;
   const killed = first - encore.frames.at(-1).alive.encore;
   if (killed !== first - stat.frames.at(-1).alive.static) throw new Error('the two runs lost different numbers of drones');
+  if (encore.killTick !== stat.killTick) throw new Error(`the kill landed on different ticks: ${encore.killTick} vs ${stat.killTick}`);
   const manifest = { url: URL, kill: KILL, frames: encore.frames.map((f, i) => ({ tick: f.tick, encoreAlive: f.alive, staticView: stat.frames[i].tick })), samples: { encoreRun: encore.samples, staticRun: stat.samples } };
   writeFileSync(join(frameDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
@@ -166,7 +171,7 @@ try {
     const tick = encore.frames[i].tick;
     const out = join(frameDir, `stack-${String(i).padStart(3, '0')}.png`);
     const seconds = (tick * 0.05).toFixed(1);
-    const killNote = tick >= KILL.tick ? ` · ${killed} drones killed at ${(KILL.tick * 0.05).toFixed(1)} s` : '';
+    const killNote = tick >= encore.killTick ? ` · ${killed} drones killed at ${(encore.killTick * 0.05).toFixed(2)} s` : '';
     execFileSync('convert', [
       '(', encore.frames[i].file, '-gravity', 'northwest', ...font, '-annotate', '+14+10', 'ENCORE BRAIN', ')',
       '(', stat.frames[i].file, '-gravity', 'northwest', ...font, '-annotate', '+14+10', 'STATIC BASELINE', ')',
