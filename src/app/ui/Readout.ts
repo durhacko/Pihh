@@ -30,13 +30,14 @@ export interface ReadoutInput {
 }
 export interface ReadoutPart { value: string; muted: boolean }
 export interface ReadoutItem {
-  key: 'npwc' | 'transition' | 'alive' | 'phase' | 'fps' | 'stopped'; label: string; value: string; muted?: boolean; title?: string;
+  key: 'npwc' | 'transition' | 'comparable' | 'alive' | 'phase' | 'fps' | 'stopped'; label: string; value: string; muted?: boolean; title?: string;
   /** For a split headline: each arm's number, greyed on its own when that arm is in transition. */
   parts?: ReadoutPart[];
 }
 
 export const TRANSITION_LABEL = 'in transition';
 export const TRANSITION_VALUE = 'measured against the new formation';
+export const NOT_COMPARABLE_LABEL = 'not comparable';
 
 const alive = (s: MetricsSample | null): string => (s ? String(s.alive) : '—');
 const movementName = (recipe: Score['movements'][number]['recipe']): string =>
@@ -78,6 +79,16 @@ export function readoutItems(input: ReadoutInput): ReadoutItem[] {
       title: moving.length ? `In transition (${moving.join(', ')}): measured against the new formation, which the arm is still flying to` : 'Priority-weighted coverage, normalised (observer)',
     },
   ];
+  // Each arm is scored against its OWN reference formation. After an injection the Encore arm can be scored on the
+  // new one and the static arm on the old: the pair is then two different measurements, and says so.
+  const differ = both && phases.encore !== null && phases.static !== null && phases.encore.name !== phases.static.name;
+  if (differ) {
+    items.push({
+      key: 'comparable', label: NOT_COMPARABLE_LABEL, muted: true,
+      value: `different formations: E ${phases.encore!.name} / S ${phases.static!.name}`,
+      title: 'Each arm is measured against the formation its own drones fly; with different formations the two nPWC values do not compare',
+    });
+  }
   if (moving.length) {
     items.push({
       key: 'transition', label: TRANSITION_LABEL, muted: true,
@@ -113,7 +124,7 @@ export function createReadout(onOpen: () => void): Readout {
         // A split headline greys each arm's number on its own; a single one greys as a whole (.transit).
         const value = item.parts
           ? h('span', { class: 'v' }, ...item.parts.flatMap((part, i) => [i ? ' / ' : '', h('span', { style: part.muted ? MUTED : undefined }, part.value)]))
-          : h('span', { class: 'v', style: item.muted && (item.key === 'fps' || item.key === 'transition') ? MUTED : undefined }, item.value);
+          : h('span', { class: 'v', style: item.muted && (item.key === 'fps' || item.key === 'transition' || item.key === 'comparable') ? MUTED : undefined }, item.value);
         return h('span', { class: `${item.key === 'npwc' ? 'npwc' : ''} ${item.muted && item.key === 'npwc' && !item.parts ? 'transit' : ''}`, title: item.title, 'data-item': item.key, style: item.key === 'stopped' ? { color: 'var(--danger)' } : undefined },
           item.label ? h('span', { class: 'k' }, item.label) : null, value);
       }));

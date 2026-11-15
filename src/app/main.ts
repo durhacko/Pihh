@@ -511,13 +511,14 @@ function ghostCounts(arm: Arm): { vacant: number; inTransit: number; contested: 
   const count = (status: string) => reading.slots.status.filter(s => s === status).length;
   return { vacant: count('vacant'), inTransit: count('inTransit'), contested: count('contested'), inHold: reading.slots.inHold };
 }
-function feedHud(): void { hudModel.update(hudPayload(worlds, { fps: lastFps, layout: store.state.view })); }
+// Per arm, from the observer (throttled slot feed), not the preloaded score's plan: after an injection the arms differ.
+function armPhases(): Pair<ArmPhase | null> { const s = worlds.samples(), snaps = snapshots(); return { encore: armPhase(slotFeeds.encore.read(snaps.encore), s.encore, worlds.scores(), worlds.tick), static: armPhase(slotFeeds.static.read(snaps.static), s.static, worlds.scores(), worlds.tick) }; }
+function feedHud(): void { const p = armPhases(); hudModel.update(hudPayload(worlds, { fps: lastFps, layout: store.state.view, inHold: { encore: p.encore?.inHold ?? null, static: p.static?.inHold ?? null } })); }
 function refreshChrome(): void {
   const samples = worlds.samples();
   const view = store.state.view;
   const snaps = snapshots();
-  // Per arm, from the observer (throttled slot feed), not the preloaded score's plan: after an injection the arms differ.
-  const phases = { encore: armPhase(slotFeeds.encore.read(snaps.encore), samples.encore, worlds.scores(), worlds.tick), static: armPhase(slotFeeds.static.read(snaps.static), samples.static, worlds.scores(), worlds.tick) };
+  const phases = armPhases();
   readout.update({ samples, view, n0: params.n0, phases, fps: lastFps, stopped: loopError });
   readout.el.dataset.tick = String(worlds.tick);
   dock.update({ playing: transport.playing, tick: worlds.tick, speed: transport.speed, view, stopped: loopError !== null });

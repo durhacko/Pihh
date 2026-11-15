@@ -4,8 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import { composeNext } from '../../../src/score';
 import { createSlotStatusFeed } from '../../../src/app/render/layers/GhostSlotLayer';
-import { armPhase, readoutItems, TRANSITION_LABEL, TRANSITION_VALUE, type ArmPhase } from '../../../src/app/ui/Readout';
-import { ARMS, createWorlds, type Pair, type Worlds } from '../../../src/app/worlds';
+import { armPhase, NOT_COMPARABLE_LABEL, readoutItems, TRANSITION_LABEL, TRANSITION_VALUE, type ArmPhase } from '../../../src/app/ui/Readout';
+import { formatPercent, HudModel } from '../../../src/app/ui/Hud';
+import { ARMS, createWorlds, hudPayload, type Pair, type Worlds } from '../../../src/app/worlds';
 import { fmt } from '../../../src/app/ui/dom';
 
 function toSample(worlds: Worlds) { do worlds.stepBoth(); while (worlds.tick % 5 !== 0); }
@@ -49,6 +50,33 @@ describe('readout phase and transition, per arm, from the observer', () => {
     const staticView = readoutItems({ samples, view: 'static', n0: 40, phases: p, fps: 30, stopped: null });
     expect(staticView.find(item => item.key === 'npwc')).toMatchObject({ value: fmt(samples.static!.npwc, 3), muted: false });
     expect(staticView.some(item => item.key === 'transition')).toBe(false);
+
+    // Judge red team #134: the split pair compares two arms scored on DIFFERENT formations. It must say so.
+    expect(split.find(item => item.key === 'comparable')).toMatchObject({ label: NOT_COMPARABLE_LABEL, value: 'different formations: E Double helix / S “ENCORE”' });
+    // Only one arm is shown in a single view: there is no pair to compare.
+    expect(single.some(item => item.key === 'comparable')).toBe(false);
+
+    // The Metrics popover's HUD model gets the same per-arm inHold through hudPayload, so its transition note shows.
+    const model = new HudModel();
+    model.update(hudPayload(worlds, { fps: 30, layout: 'split', inHold: { encore: p.encore!.inHold, static: p.static!.inHold } }));
+    const shown = model.present();
+    expect(shown.encore!.transitioning).toBe(true);
+    expect(shown.static!.transitioning).toBe(false);
+    expect(shown.encore!.npwc).toBe(formatPercent(samples.encore!.npwc));   // the observer's value, unchanged
+  });
+
+  it('the pair is comparable again once both arms fly the same formation, and while they always did', () => {
+    const same = { encore: { inHold: true, name: 'Sphere' }, static: { inHold: true, name: 'Sphere' } };
+    const items = readoutItems({ samples: { encore: null, static: null }, view: 'split', n0: 200, phases: same, fps: null, stopped: null });
+    expect(items.some(item => item.key === 'comparable')).toBe(false);
+    // An arm without a reading yet is not called different.
+    const half = readoutItems({ samples: { encore: null, static: null }, view: 'split', n0: 200, phases: { encore: same.encore, static: null }, fps: null, stopped: null });
+    expect(half.some(item => item.key === 'comparable')).toBe(false);
+    // hudPayload without inHold reports none (older callers): the HUD model shows no transition state.
+    const worlds = createWorlds({ seed: 3, n0: 30 });
+    toSample(worlds);
+    expect('inHold' in hudPayload(worlds, { fps: null, layout: 'split' })).toBe(false);
+    expect(hudPayload(worlds, { fps: null, layout: 'split', inHold: { encore: null, static: true } }).inHold).toEqual({ encore: undefined, static: true });
   });
 
   it('marks an arm in transition whenever the observer says it is not in hold, and only then', () => {

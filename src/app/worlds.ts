@@ -229,10 +229,13 @@ export const viewModeDisplay: NonNullable<ControlContext['display']> = {
 
 /** What the comparison HUD (#24) is fed: both observers' latest samples plus view telemetry. After a reset the
  *  samples are null, so the HUD shows "waiting" at once instead of the old run's numbers. */
-export function hudPayload(worlds: Pick<Worlds, 'samples' | 'params' | 'worlds'>, view: { fps: number | null; layout: Arm | 'split' }) {
+/** `view.inHold`: per arm, whether the observer's reference formation is in its hold (from Observer.slotStatus), so the
+ *  HUD model (Metrics popover) can mark a mid-transition nPWC. Omitted or null: not reported. */
+export function hudPayload(worlds: Pick<Worlds, 'samples' | 'params' | 'worlds'>, view: { fps: number | null; layout: Arm | 'split'; inHold?: Pair<boolean | null> }) {
   return {
     ...worlds.samples(), rosterSize: worlds.params.n0, fps: view.fps, layout: view.layout,
     brainKinds: { encore: worlds.worlds.encore.config.brain.kind, static: worlds.worlds.static.config.brain.kind },
+    ...(view.inHold ? { inHold: { encore: view.inHold.encore ?? undefined, static: view.inHold.static ?? undefined } } : {}),
   };
 }
 
