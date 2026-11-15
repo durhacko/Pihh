@@ -18,7 +18,7 @@ This is the one shared optional gateway of [boundaries §6.2](../../docs/design/
 | Path | Owner | Notes |
 |---|---|---|
 | `src/server.ts`, `guard.ts`, `errors.ts`, `config.ts`, `health.ts`, `module.ts`, `modules.ts`, `router.ts` | skeleton (#218) | Single writer: the #218 worker. Lanes never edit these |
-| `test/*.test.ts` (top level), `package.json`, `package-lock.json`, `tsconfig.json`, `.env.example`, this README | skeleton (#218) | |
+| `test/*.test.ts` (top level), `loader/`, `package.json`, `package-lock.json`, `tsconfig.json`, `.env.example`, this README | skeleton (#218) | |
 | `src/gemini/`, `test/gemini/` | Gemini lane (#117) | Interface-only today (GF-WP-12) |
 | `src/shows/`, `test/shows/` | MongoDB lane (#130) | `module.ts` is a placeholder to replace |
 | `src/tiger/`, `test/tiger/` | Tiger Data lane (#142) | `module.ts` is a placeholder to replace. `src/tiger-live/server.ts` exists only if OIB-Q5 is accepted |
@@ -95,6 +95,11 @@ npm run typecheck                      # = npx --no-install tsc -p tsconfig.json
 GATEWAY_ALLOWED_ORIGINS=http://localhost:5173 npm start   # listens on http://127.0.0.1:8787
 ```
 
+- **Importing the app's `src/` (XI-2).** `src/` is written for the bundler, with extensionless imports such as `'../../score'`, which Node's resolver refuses.
+  - At runtime, `npm test` and `npm start` load `loader/register.mjs` (`--import`). It registers `loader/resolve.mjs` with `module.register`, the async hooks that exist from Node 20.6, so the 22.12 floor holds.
+  - The hook retries a failed extensionless relative import as `<path>.ts`, then `<path>/index.ts`. It does so **only when the importing file is under the repo's `src/`**. Gateway code still writes explicit `.ts` extensions.
+  - For typechecking, the tsconfig uses `module: preserve` and `moduleResolution: bundler`, like the root.
+  - `test/imports.test.ts` loads real `src/score` modules through the hook and unit-tests what it does and doesn't rescue.
 - **Not part of the root `bash scripts/check.sh` yet.** The root vitest covers only `tests/**`, and the root `tsc` covers only `src`, `tests` and `vite.config.ts`. Wiring `npm test` and `typecheck` into `check.sh` needs the orchestrator's sign-off.
 - **Root ESLint.** The root `eslint .` does lint these files, with the root config. P2-WP-30b's `integrations/` ignore (owner sign-off, XI-1) would stop that. If it lands, the gateway needs its own lint step.
 - `test/server.test.ts` opens real sockets on `127.0.0.1`, port 0, and sends requests only to them. No test leaves the machine.
