@@ -14,7 +14,9 @@
 //   refusal; it never returns a substitute formation.
 // - injectPreflight: the same checks at the operator's own n0 and slotSpacingMin, run immediately before an
 //   injection (GF-WP-11 step 1, defence in depth on top of the strict compile path).
-import { COMPILER_VERSION, compileGeneratedScene, sceneHash, slotsDigest, validateScene, type CompileResult, type GeneratedFormation, type SceneSpec } from '../score/generated';
+import type { EnvEvent, Params } from '../contracts';
+import { canonicalJson } from '../score/canonical';
+import { COMPILER_VERSION, compileGeneratedScene, sceneHash, sha256Hex, slotsDigest, validateScene, type CompileResult, type GeneratedFormation, type SceneSpec } from '../score/generated';
 
 /** Where a generated scene came from. */
 export type ProvenanceSource = 'fixture' | 'live';
@@ -105,4 +107,50 @@ function check(scene: unknown, p: GeneratedProvenance, params: ProvenanceParams)
   if (digest !== result.slotsDigest) return { ok: false, reason: 'digest-mismatch', detail: 'the compiler reported a digest that its own formation does not reproduce' };
   if (sameParams && digest !== p.slotsDigest) return { ok: false, reason: 'digest-mismatch', detail: `recompiled to ${digest.slice(0, 12)}…, the provenance says ${p.slotsDigest.slice(0, 12)}…` };
   return { ok: true, formation: result.formation, provenance: sameParams ? p : { ...p, n0: params.n0, slotSpacingMin: params.slotSpacingMin, slotsDigest: digest } };
+}
+
+// ------------------------------------------------------------------------------------------- event-log replay
+
+/**
+ * A deterministic replay of one run (GF-WP-11 step 3): the seed, the params it ran with (by hash) and every event the
+ * operator scheduled. Each INJECT_SCORE carries its full score (and, after GF-WP-07, the full scene), so replaying
+ * needs no model, gateway or database. NOT a composition: composition files are encore.composition, saved shows are
+ * saved_shows.composition.
+ */
+export interface ReplayLogFile { format: 1; n0: number; paramsHash: string; seed: number; events: EnvEvent[] }
+
+/** sha256 hex of canonicalJson(params): the same value as src/cli/run.ts paramsHash, computed without node:crypto. */
+export const replayParamsHash = (params: Params): string => sha256Hex(canonicalJson(params));
+
+/** The replay log of a run: deep-copied events in tick order (stable for equal ticks). */
+export function makeReplayLog(seed: number, params: Params, events: readonly EnvEvent[]): ReplayLogFile {
+  const copy = JSON.parse(JSON.stringify(events)) as EnvEvent[];
+  return { format: 1, n0: params.n0, paramsHash: replayParamsHash(params), seed, events: copy.map((e, i) => [e, i] as const).sort((a, b) => a[0].tick - b[0].tick || a[1] - b[1]).map(([e]) => e) };
+}
+
+export type ReplayLogCheck = { ok: true; log: ReplayLogFile } | { ok: false; reason: 'format' | 'params' | 'event'; detail: string };
+const EVENT_TYPES = new Set(['KILL', 'JAM_ON', 'JAM_OFF', 'PARTITION_ON', 'PARTITION_OFF', 'INJECT_SCORE', 'SET_LOSS']);
+
+/**
+ * Checks a replay log read back from a file (it is data, not trusted) against this page's params: the same n0 and
+ * paramsHash, an integer seed, and events of known types with safe-integer ticks ≥ 0 in tick order. A replay with
+ * other params would be another run, so it is refused, never adapted.
+ */
+export function checkReplayLog(input: unknown, params: Params): ReplayLogCheck {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) return { ok: false, reason: 'format', detail: 'not an object' };
+  const log = input as Record<string, unknown>;
+  if (log.format !== 1) return { ok: false, reason: 'format', detail: 'format must be 1' };
+  if (!Number.isSafeInteger(log.seed)) return { ok: false, reason: 'format', detail: 'seed must be an integer' };
+  if (!Array.isArray(log.events)) return { ok: false, reason: 'format', detail: 'events must be an array' };
+  if (log.n0 !== params.n0) return { ok: false, reason: 'params', detail: `recorded at n0 ${String(log.n0)}, this page runs n0 ${params.n0}` };
+  if (log.paramsHash !== replayParamsHash(params)) return { ok: false, reason: 'params', detail: 'recorded with other params' };
+  let last = -1;
+  for (const [i, e] of (log.events as unknown[]).entries()) {
+    const ev = e as Record<string, unknown> | null;
+    if (!ev || typeof ev !== 'object' || typeof ev.type !== 'string' || !EVENT_TYPES.has(ev.type)) return { ok: false, reason: 'event', detail: `events[${i}]: unknown event` };
+    if (!Number.isSafeInteger(ev.tick) || (ev.tick as number) < 0 || (ev.tick as number) < last) return { ok: false, reason: 'event', detail: `events[${i}]: tick must be a non-negative integer, in order` };
+    if (ev.type === 'INJECT_SCORE' && (!Number.isSafeInteger(ev.droneId) || (ev.droneId as number) < 0 || (ev.droneId as number) >= params.n0)) return { ok: false, reason: 'event', detail: `events[${i}]: droneId out of range` };
+    last = ev.tick as number;
+  }
+  return { ok: true, log: input as unknown as ReplayLogFile };
 }

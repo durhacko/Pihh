@@ -127,7 +127,7 @@ describe('injectPreflight (GF-WP-11 step 1)', () => {
 });
 
 describe('src/cli/generated.ts is pure', () => {
-  it('imports only src/contracts and src/score/generated; no Node built-ins, DOM, clock, randomness or network', () => {
+  it('imports only src/contracts, src/score/generated and src/score/canonical; no Node built-ins, DOM, clock, randomness or network', () => {
     const file = 'src/cli/generated.ts';
     const source = readFileSync(resolve(root, file), 'utf8');
     const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
@@ -144,7 +144,7 @@ describe('src/cli/generated.ts is pure', () => {
     expect(banned).toEqual([]);
     for (const spec of imports) {
       expect(spec.startsWith('.'), spec).toBe(true);
-      expect(['src/contracts', 'src/score/generated'], spec).toContain(relative(root, resolve(root, dirname(file), spec)).replaceAll('\\', '/'));
+      expect(['src/contracts', 'src/score/generated', 'src/score/canonical'], spec).toContain(relative(root, resolve(root, dirname(file), spec)).replaceAll('\\', '/'));
     }
   });
 });
