@@ -2,16 +2,19 @@
 // Default suite: restatement pins, generator determinism and uniqueness (P2-T03), units, CLI arguments and a short
 // smoke campaign whose finds replay (P2-T04's replay half). Opt-in: P2_FUZZ=1 runs P2-T05 (positive control and the
 // unaided calibration) and P2-T04's 1-minimality; P2_WIDE=1 runs the byte-identical campaign check of P2-T03.
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { EnvEvent } from '../../src/contracts';
 import { makeScore } from '../../src/score';
 import { KNOWN_LIMIT_3 } from '../../src/observer/invariants';
 import {
-  buildRepro, calibrationSchedule, firstOf, FZ1_TICKS, fromUnits, fz1Setup, generateSchedule, healReadyTick, LONG_HOLD, MAX_KILLED,
-  parseFuzzArgs, replay, runCalibration, runCampaign, runSchedule, shrinkSchedule, sortEvents, toUnits,
+  buildRepro, CALIBRATION_SALT, calibrationSchedule, campaignSummary, firstOf, FZ1_TICKS, fromUnits, fz1Setup, generateSchedule,
+  GENERATOR_SALT, healReadyTick, insideRepoResults, LONG_HOLD, MAX_KILLED, parseFuzzArgs, replay, REPO_RESULTS, runCalibration, runCampaign, RUN_BUDGET, runSchedule,
+  shrinkSchedule, sortEvents, toUnits,
 } from '../../src/cli/fuzz';
 import { readRepro, serialiseRepro, writeRepro } from '../../src/cli/repro';
 import * as g1 from '../g1/helpers';
@@ -102,6 +105,51 @@ describe('CLI arguments', () => {
   });
 });
 
+describe('#285 review follow-ups', () => {
+  it('the generator and calibration streams cannot overlap: salts at least RUN_BUDGET apart', () => {
+    expect(Math.abs(CALIBRATION_SALT - GENERATOR_SALT)).toBeGreaterThanOrEqual(RUN_BUDGET);
+    const generator = new Set(Array.from({ length: RUN_BUDGET }, (_, r) => GENERATOR_SALT + r));
+    for (let r = 0; r < RUN_BUDGET; r++) expect(generator.has(CALIBRATION_SALT + r)).toBe(false);
+    // Nor with the world's stream (-1) or any brain's (an id below n0 <= 400).
+    for (const salt of [GENERATOR_SALT, CALIBRATION_SALT]) expect(salt).toBeGreaterThanOrEqual(400);
+  });
+
+  it('--out is refused inside the repo\'s results/ (anchored to the module, whole segments), wherever the cwd is', () => {
+    const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    expect(REPO_RESULTS).toBe(join(repo, 'results'));
+    for (const inside of [join(repo, 'results'), join(repo, 'results', 'phase2', 'fuzz'), join(repo, 'results', '..', 'results', 'x')]) expect(insideRepoResults(inside), inside).toBe(true);
+    for (const outside of [join(repo, 'results-x'), join(repo, 'resultsx', 'a'), join(repo, 'tmp', 'results'), repo, tmpdir()]) expect(insideRepoResults(outside), outside).toBe(false);
+    expect(() => parseFuzzArgs(['--campaign', 'FZ1', '--seed', '1', '--runs', '1', '--out', join(repo, 'results', 'phase2')])).toThrow(/results\/ \(locked/);
+    expect(() => parseFuzzArgs(['--calibrate', '--seed', '1', '--runs', '1', '--out', join(repo, 'results')])).toThrow(/results\/ \(locked/);
+    expect(() => runCampaign({ campaignSeed: 1, runs: 1, out: join(repo, 'results', 'x') })).toThrow(/results\/ \(locked/);
+    // The real CLI, run from ANOTHER working directory with an absolute path into <repo>/results: refused, exit 2.
+    const cwd = tmp();
+    const tsx = join(repo, 'node_modules', '.bin', 'tsx');
+    let status = 0;
+    let stderr = '';
+    try {
+      execFileSync(tsx, [join(repo, 'src', 'cli', 'fuzz.ts'), '--campaign', 'FZ1', '--seed', '1', '--runs', '1', '--out', join(repo, 'results', 'phase2', 'fuzz')], { cwd, stdio: 'pipe' });
+    } catch (e) {
+      status = (e as { status: number }).status;
+      stderr = String((e as { stderr: Buffer }).stderr);
+    }
+    expect(status).toBe(2);
+    expect(stderr).toMatch(/must not be inside the repo's results\//);
+    expect(readdirSync(cwd)).toEqual([]);
+  }, 60_000);
+
+  it('a campaign with no finds says "calibration not verified", never reading as a "0 violations" claim', () => {
+    const none = campaignSummary(7, 3, []);
+    expect(none).toContain('0 violating');
+    expect(none).toContain('calibration not verified');
+    expect(none).toMatch(/not a "0 violations" claim/);
+    expect(none).toMatch(/Checked properties on these runs, not proofs\.$/);
+    const some = campaignSummary(7, 3, [{ knownLimit: null }, { knownLimit: '§8.5 limit 3' }]);
+    expect(some).toContain('2 violating (1 counterexamples, 1 known-limit instances)');
+    expect(some).not.toContain('calibration not verified');
+  });
+});
+
 describe('smoke campaign (default suite, kept short)', () => {
   it('runs 3 schedules at 810 ticks; every find is shrunk, written under --out only, and replays to the same INV and tick', () => {
     const out = tmp();
@@ -116,7 +164,7 @@ describe('smoke campaign (default suite, kept short)', () => {
       expect(serialiseRepro(repro)).toBe(readFileSync(find.path as string, 'utf8'));
       expect(replay(repro)).toMatchObject({ same: true, expectedTick: repro.violation.firstTick });
     }
-    expect(lines.at(-1)).toMatch(/Checked properties on these runs, not proofs\./);
+    expect(lines.at(-1)).toBe(campaignSummary(2026, 3, result.finds));
   }, 120_000);
 });
 
