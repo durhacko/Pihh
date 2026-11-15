@@ -2,7 +2,7 @@
 // Generates s2-recovery.svg for the README from the committed run records. Run from the repo root:
 //   node docs/assets/readme/make-charts.mjs
 //
-// Source: results/S2_n200_{static,encore}_s{1..5}.json (minimum matrix, commit 571c8e4, see results/RESULTS.md).
+// Source: results/S2_n200_{static,encore}_s{1..5}.json (minimum matrix, evidence freeze 0b2f8f3, see results/RESULTS.md).
 // Every plotted value is a MetricsSample from those records (one sample every 5 ticks = 0.25 s). Nothing is
 // smoothed or interpolated: lines join consecutive samples; the band is the min-max across the 5 seeds and the
 // line is the median. Window: ticks 300-895 (15-44.75 s), the hold of formation A that contains the kill at 20 s.
