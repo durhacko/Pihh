@@ -79,9 +79,10 @@ export class Drafts {
 }
 
 /** A console `form …` result (a recipe) as a draft. */
-export function draftFromRecipe(name: string, recipe: Recipe): DraftInput {
-  // GF-CC-01: callers pass console forms and saved v1 compositions, which are never `generated`.
-  if (recipe.kind === 'generated') throw new Error('A generated formation is not a draft.');
+/** null: a generated recipe is not editable as a draft (GF-CC-01: it has no text or palette; it comes from the
+ *  Generated tab). Callers skip it. */
+export function draftFromRecipe(name: string, recipe: Recipe): DraftInput | null {
+  if (recipe.kind === 'generated') return null;
   return { name, kind: recipe.kind, text: recipe.kind === 'text' ? recipe.text : '', palette: recipe.palette ? structuredClone(recipe.palette) : null };
 }
 
