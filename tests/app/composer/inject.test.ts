@@ -8,7 +8,8 @@ import { createActionController } from '../../../src/app/actions';
 import { versionKey } from '../../../src/app/render/colourModes/belief';
 import { readViewMode, resetViewMode } from '../../../src/app/render/colourModes/viewMode';
 import createPreviewLayer, { connectPreview } from '../../../src/app/render/layers/PreviewLayer';
-import { adoption, Drafts, injectFromComposer, setPreview, validateDraft } from '../../../src/app/ui/Composer';
+import { adoption, dispatchInject, Drafts, injectFromComposer, parseContext, setPreview, validateDraft } from '../../../src/app/ui/Composer';
+import { parse } from '../../../src/app/ui/commands';
 import { createConsoleEngine, type ConsoleContext, type ConsoleLine } from '../../../src/app/ui/Console';
 import { Store } from '../../../src/app/ui/store';
 import { controlContext, createWorlds, viewModeDisplay } from '../../../src/app/worlds';
@@ -197,13 +198,14 @@ describe('adoption reads observer data only', () => {
 
 describe('adoption with the real Encore brain', () => {
   it('never counts a holder that did not receive the score; the static arm never adopts', async () => {
-    // Holds today (score gossip #21 is still a stub, so nobody adopts) and stays a real check once #21 lands:
-    // every observer count of the injected version is bounded by the drones that actually received it.
+    // Score gossip is real (#105): every observer count of the injected version is bounded by the drones that actually
+    // received a SCORE carrying it, and the count must really spread beyond the uplinked drone (not pass trivially).
     const fx = setup(11, 40, { encore: encoreBrain });
     const { sent } = await injectFromComposer(fx.ctx, 'd1', 5);
     const received = new Set<number>();
     let samples = 0;
     let lastSampleTick = -1;
+    let most = 0;
     while (fx.worlds.tick < sent!.tick + 300) {
       fx.step();
       for (let id = 0; id < fx.worlds.params.n0; id++) {
@@ -214,11 +216,14 @@ describe('adoption with the real Encore brain', () => {
       const { encore, static: baseline } = fx.worlds.samples();
       if (!encore || encore.tick === lastSampleTick || encore.tick < sent!.tick) continue;
       lastSampleTick = encore.tick; samples++;
-      expect(encore.versions[sent!.key] ?? 0).toBeLessThanOrEqual(received.size);
+      const holders = encore.versions[sent!.key] ?? 0;
+      expect(holders).toBeLessThanOrEqual(received.size);
       expect(baseline?.versions[sent!.key] ?? 0).toBe(0);
+      most = Math.max(most, holders);
     }
     expect(received.has(5)).toBe(true);   // the uplink itself was delivered
     expect(samples).toBeGreaterThan(50);
+    expect(most, 'remote adoption: drones other than the uplinked one must hold it').toBeGreaterThan(1);
   }, 30_000);
 });
 
@@ -313,5 +318,67 @@ describe('console stream', () => {
     fx.step(3);
     fx.engine.poll();
     expect(fx.lines.some(line => line.kind === 'applied')).toBe(false);
+  });
+});
+
+describe('#112 review follow-ups', () => {
+  const sample = (tick: number, versions: Record<string, number>, alive = 40): MetricsSample => ({
+    tick, alive, coverage: 0, pwc: 0, npwc: null, sfMean: null, sfMax: null, dupSlots: 0, versions,
+    msgs: { hb: 0, score: 0, delivered: 0, lost: 0, blocked: 0 }, collisions: 0, nearMisses: 0, slotChanges: 0,
+  });
+
+  it('prints only the highest milestone crossed in one sample, once', async () => {
+    const fx = setup();
+    await fx.engine.run('inject --drone 5 --draft d1');
+    const event = injects(fx.controller.getEventLog())[0];
+    const key = versionKey(event.score.version);
+    let current = sample(event.tick, { [key]: 38 });           // 95 %: crosses 25, 50 and 90 at once
+    fx.ctx.samples = () => ({ encore: current, static: sample(event.tick, {}) });
+    fx.engine.poll();
+    const milestones = () => fx.lines.filter(line => line.kind === 'observed' && /reached/.test(line.text)).map(line => line.text);
+    expect(milestones()).toEqual([expect.stringContaining('reached 90 % of live Encore drones (38/40)')]);
+    fx.engine.poll();                                            // same sample again: nothing new
+    expect(milestones()).toHaveLength(1);
+    current = sample(event.tick + 5, { [key]: 40 });
+    fx.engine.poll();
+    expect(milestones()).toEqual([expect.stringContaining('90 %'), expect.stringContaining('reached 100 % of live Encore drones (40/40)')]);
+  });
+
+  it('says honestly how an uplink was applied: inferred from the snapshot and the world rule, not read from an inbox', async () => {
+    const fx = setup();
+    await fx.engine.run('inject --drone 5 --draft d1');
+    const event = injects(fx.controller.getEventLog())[0];
+    while (fx.worlds.tick < event.tick) fx.step();
+    fx.engine.poll();
+    expect(fx.lines.find(line => line.kind === 'applied')?.text).toBe(`INJECT_SCORE at t${event.tick}: delivered to drone 5 (alive at tick ${event.tick}); the world sends uplinks only to that drone.`);
+  });
+
+  it('an empty draft store never throws: inject, preview and drafts all answer', async () => {
+    const fx = setup();
+    fx.ctx.drafts = new Drafts([]);
+    const engine = createConsoleEngine(fx.ctx, line => fx.lines.push(line));
+    await engine.run('inject --drone 5');
+    await engine.run('preview on');
+    await engine.run('drafts');
+    expect(fx.lines.filter(line => line.kind !== 'input').map(line => line.kind)).toEqual(['error', 'error', 'info']);
+    expect(fx.lines.at(-1)?.text).toMatch(/No drafts/);
+    expect(setPreview(fx.ctx, true).ok).toBe(false);
+    expect(fx.ctx.store.state.preview).toBeNull();
+    const plan = parse('inject --drone 5', parseContext(fx.ctx));
+    expect(plan.ok && plan.intent.kind === 'inject' ? (await dispatchInject(fx.ctx, plan.intent)).status : 'unparsed').toBe('failed');
+    expect(fx.handle).not.toHaveBeenCalled();
+  });
+
+  it('sends the draft as it was when the pick started, even if it is edited or renamed while waiting', async () => {
+    const fx = setup();
+    const parsed = parse('inject --pick --draft d1', parseContext(fx.ctx));
+    if (!parsed.ok || parsed.intent.kind !== 'inject') throw new Error('expected an inject plan');
+    const pending = dispatchInject(fx.ctx, parsed.intent);
+    fx.ctx.drafts.update({ name: 'Renamed', text: 'OTHER' }, 'd1');   // while the stage waits for a click
+    fx.ctx.store.state.pick!.resolve({ droneId: 7, point: [0, 0, 0] });
+    const outcome = await pending;
+    expect(outcome.sent).toMatchObject({ name: 'Durhack', draftId: 'd1', droneId: 7 });
+    const event = injects(fx.controller.getEventLog())[0];
+    expect(event.score.movements.at(-1)!.recipe).toMatchObject({ kind: 'text', text: 'DURHACK' });
   });
 });
