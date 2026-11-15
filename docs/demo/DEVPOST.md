@@ -52,7 +52,8 @@ You can:
 1. **Watch the score.** The swarm forms text, then 3D shapes, on a shared clock.
 2. **Break it.** Click a drone and remove the region around it, or kill 10% of the drones at random. In the Encore world, nearby survivors infer a vacancy when a slot they can see is empty and they hear no heartbeat holding it. They can be wrong, and then they yield. The winners move into more important slots and give up less important detail, so the image thins instead of keeping a hole. The static world keeps the hole until its next formation.
 3. **Jam the radio, or split the swarm, and send a new composition to one drone.** The new score spreads along real radio messages as far as the radio allows, and no further. Drones that are cut off keep flying the score they have and catch up when the radio returns. The static world can't adopt a new score at all.
-4. **Look inside.** An X-ray view draws the radio messages actually sent. A belief view colours each drone by the score version it believes.
+4. **Look inside.** An X-ray view draws a sample of the radio messages actually sent (3 receivers of every 4th heartbeat), plus each drone's line to its flight target (the Tethers lens). A belief view colours each drone by the score version it believes.
+   **NOTE:** This is interim wording. When durhack-0c's follow-up to #113 turns tethers off by default and adds their legend row, drop ", plus each drone's line to its flight target (the Tethers lens)".
 
 Both worlds are measured by identical observers, which show:
 
