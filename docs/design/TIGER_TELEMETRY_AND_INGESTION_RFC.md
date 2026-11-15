@@ -2,7 +2,7 @@
 
 > **STATUS: PROPOSED — NOT IMPLEMENTED.** None of this exists in code. There is no `src/telemetry/`, no `integrations/gateway/`, no database client, no migration and no Tiger Data service on `main` at 23d6748. Every SQL block below is labelled **PROPOSED — NOT A MIGRATION** and nothing has been run against a database. Nothing here changes a contract.
 
-**Purpose:** the exact, implementation-ready design for moving a committed `RunRecord` into Tiger Data and proving that the stored copy is faithful. It covers artifact validation, canonical identity, the import manifest and ledger, the schema, migrations, the import transaction, idempotency, verification and failure handling. **Status:** proposed; depends on the network decision TIG-D1 (= D3 = GF-D1 = MDB-D1). **Owner:** source design by William Pimentel (`wpimento`), [Encore × Tiger Data technical plan](../handoffs/Encore_Tiger_Data_Technical_Plan.md) (cited below as "William §n"). Integrated by Arnav. Issue #142, audit base `main` 23d6748, facts checked 2026-11-15.
+**Purpose:** the exact, implementation-ready design for moving a committed `RunRecord` into Tiger Data and proving that the stored copy is faithful. It covers artifact validation, canonical identity, the import manifest and ledger, the schema, migrations, the import transaction, idempotency, verification and failure handling. **Status:** proposed; depends on the network decision TIG-D1 (= D3 = GF-D1 = MDB-D1). That is one decision (XI-9); approving it for another integration does not approve it here. **Owner:** source design by William Pimentel (`wpimento`), [Encore × Tiger Data technical plan](../handoffs/Encore_Tiger_Data_Technical_Plan.md) (cited below as "William §n"). Integrated by Arnav. Issue #142, audit base `main` 23d6748, facts checked 2026-11-15.
 
 ## 0. Scope, sources and what this RFC does not repeat
 
@@ -12,11 +12,11 @@
 | Analytics queries, API routes, provenance block, report reconstruction, dashboard | [Analytics and dashboard RFC](TIGER_ANALYTICS_AND_DASHBOARD_RFC.md) |
 | Work packages `TIG-01…TIG-11` | [Work packages](../planning/tiger-data-integration-work-packages.md) |
 | Tests `TIG-T01…TIG-T44` and the acceptance run | [Evaluation](../validation/tiger-data-evaluation.md) |
-| **This RFC** | validation, identity, manifest and ledger, DDL, migrations, time axis, import transaction, import states, verification, reconciliation, retries, connections and roles, ingestion performance, deferred position telemetry, `inHold` export options |
+| **This RFC** | validation, identity, manifest and ledger, DDL, migrations, time axis, import transaction, import states, verification, reconciliation, retries, connections and roles, ingestion performance, deferred position telemetry, `inHold` export options, the live-telemetry constraints (§15.3) |
 
-**Query numbering.** This RFC defines queries **Q1–Q16** (identity, import, verification, reconciliation, archival). Analytics queries live in the analytics RFC. They must not reuse Q1–Q16; see the report-back note in §17.
+**Query numbering.** This RFC defines queries **Q1–Q16** (identity, import, verification, reconciliation, archival). Analytics queries live in the analytics RFC, which numbers them from Q17.
 
-**Boundaries used.** The importer is an X-RUN process and its database is X-PERSIST "experiment evidence (validated run records)". See [optional integration boundaries §5–§6](OPTIONAL_INTEGRATION_BOUNDARIES.md#5-x-persist-optional-persistence) (provisional: depends on #110). Network use needs TIG-D1. See [§9 of that doc](OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3) and [NFR-04](../specification/requirements.md).
+**Boundaries used.** The importer is an X-RUN process and its database is X-PERSIST "experiment evidence (validated run records)" (provisional, #110). See [optional integration boundaries §5–§6](OPTIONAL_INTEGRATION_BOUNDARIES.md#5-x-persist-optional-persistence). The analytics reads reach the app over X-RUN/live (provisional, #110), never from the tick loop or a decision path. Live telemetry (TIG-11) is covered by neither and needs the proposed X-OUT/live amendment (§15.3). Network use needs TIG-D1. See [§9 of that doc](OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3) and [NFR-04](../specification/requirements.md). The core and the default build stay offline, and NFR-04's acceptance test is unchanged.
 
 **Evidence boundary.** Two kinds of statement appear below:
 
@@ -25,24 +25,30 @@
 
 Provider facts carry VERIFIED, PARTLY or UNVERIFIED with their check date (§17).
 
-**Deviations from William's plan.** Each one cites its conflict record in the overview. TCR-01…TCR-09 follow the order of the overview's decision sheet. Records the overview adds without a fixed number are cited by topic in italics (for example TCR *dirty git*), as the sibling documents do. The overview is authoritative if the two differ.
+**Deviations from William's plan.** Each one cites its conflict record in the overview. TCR-01…TCR-09 follow the order of the overview's decision sheet; TCR-10 onwards are numbered in [overview §18](../integrations/tiger-data-analytics.md#18-conflict-records). The overview is authoritative if the two differ.
 
 | Deviation | Section | Conflict record |
 |---|---|---|
 | `src/server/` and `sql/` move to the shared gateway and to documentation | §1 | TCR-01 (placement) |
-| `experiment_key` unique for clean-git runs | §6.1 | TCR-03 (experiment_key not unique) |
+| `experiment_key` unique for clean-git runs, through a partial index | §6.1 | TCR-03 (experiment_key not unique), TCR-14 |
 | MongoDB upsert removed from the critical import path | §11.3 | TCR-04 (per-run Mongo upsert) |
 | No HTTP upload: a CLI importer with a write role | §9 | TCR-08 (HTTP upload vs CLI importer) |
-| Sample schedule starts at tick 5 | §3.4 | TCR *sample schedule* |
-| Range tolerance for `pwc`; no range CHECK on `npwc` or the summary | §3.4, §6.2 | TCR *metric-range tolerance* |
-| `artifactHash` and `fileSha256` always differ | §4 | TCR *file bytes not canonical* |
-| Dirty or unknown git does not identify an experiment | §4.3 | TCR *dirty git* |
-| DT taken from `git`, not `paramsHash` | §8 | TCR *DT source* |
-| Canonical-JSON helper placement | §4.1 | TCR *canonicalJson placement* |
-| Ledger and manifests kept outside `results/` | §5 | TCR *ledger location* |
-| CHECK written with immutable functions | §6.2 | TCR *CHECK immutability* |
-
-New deviations that this RFC introduces, and that are not yet in the overview, are listed in the report-back note (§17).
+| Sample schedule starts at tick 5 | §3.4 | TCR-11 |
+| Range tolerance for `pwc`; no range CHECK on `npwc` or the summary | §3.4, §6.2 | TCR-12 |
+| `artifactHash` and `fileSha256` always differ | §4 | TCR-13 |
+| Dirty or unknown git does not identify an experiment | §4.3 | TCR-14 |
+| DT taken from `git`, not `paramsHash` | §8 | TCR-15 |
+| Canonical-JSON helper placement | §4.1 | TCR-16 |
+| Ledger and manifests kept outside `results/` | §5 | TCR-22 |
+| CHECK written with immutable functions | §6.2 | TCR-23 |
+| Primary key `(run_id, sample_time)`; `seed` as `BIGINT` | §6.1, §6.2 | TCR-24 |
+| `t_rec_applicable` keeps absent apart from null | §6.4 | TCR-25 |
+| `import_conflicts` kept in Tiger | §6.5 | TCR-29 |
+| `run_verifications`, a fifth table, defines `verified` | §6.5, §11.1 | TCR-36 |
+| `archived` import state; owner-only restore (Q16b) and delete (Q16c) | §6.2, §10, §13 | TCR-37 |
+| Manifest identity fields split from first-observation fields | §5 | TCR-38 |
+| One `hashVersion` per database; a bump is a rebuild | §4.5 | TCR-39 |
+| Minimum PostgreSQL 16 and TimescaleDB 2.20; no run-time DDL variants | §6.2, §7 | TCR-40 |
 
 ## 1. Placement and pipeline
 
@@ -54,10 +60,10 @@ Placement follows TD-2 and XI-1/XI-2 (TCR-01). William's `src/server/` and top-l
 | `src/telemetry/identity.ts` | `src/telemetry/identity.ts` | none | pure; §4. The hash function is injected (`sha256(text) → hex`), so the module does not import `node:crypto` and can run in Node or the browser |
 | `src/telemetry/serialize.ts` | `src/telemetry/normalise.ts` | none | `RunRecord` to rows and back (§6.5) |
 | `src/telemetry/verify.ts` | split: digests in `src/telemetry/digest.ts`; database re-read in the gateway | — | §11 |
-| `src/telemetry/importer.ts`, `scripts/import-results.ts` | `integrations/gateway/tiger/importer.ts`, plus a CLI entry in the gateway `package.json` | Tiger only | write role; §9 |
-| `src/server/db/tiger.ts` | `integrations/gateway/tiger/db.ts` | Tiger only | §13 |
-| `sql/001…004` | this RFC (§6, §7), later `integrations/gateway/tiger/migrations/` | — | not created now |
-| `tests/telemetry/*.test.ts` | `tests/telemetry/` (pure parts) | none | runs in `npm run check` |
+| `src/telemetry/importer.ts`, `scripts/import-results.ts` | `integrations/gateway/src/tiger/importer.ts`, plus a CLI entry in the gateway `package.json` | Tiger only | write role; §9 |
+| `src/server/db/tiger.ts` | `integrations/gateway/src/tiger/db.ts` | Tiger only | §13 |
+| `sql/001…004` | this RFC (§6, §7), later `integrations/gateway/src/tiger/migrations/` | — | not created now |
+| `tests/telemetry/*.test.ts` | `tests/telemetry/` (pure parts); `integrations/gateway/test/tiger/` (gateway parts) | none / Tiger only | the pure parts run in `npm run check` |
 
 **Repository seam.** The gateway reaches the database only through a `TigerRepository` interface:
 
@@ -69,7 +75,9 @@ Placement follows TD-2 and XI-1/XI-2 (TCR-01). William's `src/server/` and top-l
 
 Unit tests use an in-memory fake that enforces the same unique keys and all-or-nothing transactions (see the evaluation's fixtures).
 
-**Purity is enforced only by convention today.** `tests/boundaries.test.ts` ignores folders outside the five core folders. The `fetch`/`Date` lint bans cover only the core (TCR *purity lint*). TIG work must therefore add a `telemetry` entry to the boundaries map and an ESLint block that bans `fetch`, `WebSocket` and `XMLHttpRequest` in `src/telemetry`. Both are shared-file edits.
+**Shared gateway (XI-1, XI-12).** `tiger` is one module of the single gateway `integrations/gateway/`. It uses the shared skeleton defined in [boundaries §6.2](OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard) (provisional, #110): one server, `guard.ts`, `errors.ts` (the XI-3 envelope, `sanitise`, `redact`), `config.ts` and `GET /api/health`. It never redefines them. The importer and the owner tools (§13) are CLIs with no HTTP surface, so the guard and the `requestId` rule (XI-11) apply only to the read routes (analytics RFC). The layout is XI-20: the skeleton in `integrations/gateway/src/`, this module in `integrations/gateway/src/tiger/`, its tests in `integrations/gateway/test/tiger/`, and one `package.json` and lockfile for the whole gateway.
+
+**Purity is enforced only by convention today.** `tests/boundaries.test.ts` ignores folders outside the five core folders. The `fetch`/`Date` lint bans cover only the core (TCR-27). TIG work must therefore add a `telemetry` entry to the boundaries map and an ESLint block that bans `fetch`, `WebSocket` and `XMLHttpRequest` in `src/telemetry`. Both are shared-file edits.
 
 ```mermaid
 flowchart LR
@@ -97,6 +105,7 @@ Audit facts about the committed fixtures (read-only, 23d6748):
   - The largest counter is `delivered` = 6,677,243. Static-arm message counters are all 0.
   - Only two version keys occur: `0:-1` and `400:1`.
 - **Events.** There are 80 events in total, 0–4 per record. S3 has `PARTITION_ON/OFF` and `JAM_ON/OFF`. The S1 and S2 `KILL` events have 20 ids each. S5 has an `INJECT_SCORE` whose canonical JSON is 271 bytes, and whose first movement has `startTick` −40.
+- **Kill sets.** All 20 S1/S2 `KILL` events are at tick 400. S1 has 5 distinct kill sets over its 5 seeds. **S2 has only 4: seeds 1 and 3 kill the same ids.** The two static S2 records for seeds 1 and 3 have equal series and equal summaries (all 24 keys); the two Encore records differ in 5 summary keys. So S2 has 5 seeds but 4 distinct kill sets (overview TIG-R08). No committed record has `tRec` = 0.
 - **Summary.** 30 records have the 23 base keys and 20 (S1, S2) also have `tRec`. `tRec` is null in the 10 static S1/S2 records and `deliveryRatio` is null in every static record. Float rounding puts some values just outside their natural range: `npwcEnd` = 1.0000000000000002, `coordLoss` = −4.44e-16, `npwcDeficitSec` ≈ −2.6e-14.
 
 ## 3. Artifact validation (William §8 checklist, made exact)
@@ -105,7 +114,7 @@ The validator is one pure function: `validateRunRecord(bytes, context) → { ok:
 
 ### 3.1 Bytes and parse
 
-1. Size is checked **before** parsing: the file must be ≤ 1 MiB. That is about 9× the largest fixture and sets the per-record cap that XI-8 asks for.
+1. Size is checked **before** parsing: the file must be ≤ 1 MiB. That is about 9× the largest committed record (113,222 bytes, §2), so it is the per-record cap that XI-8 asks for, derived from the measured `results/` sizes with headroom.
 2. The bytes must be strict UTF-8 (`TextDecoder('utf-8', { fatal: true })`). `JSON.parse` must succeed, and the top level must be a plain object. Byte-level UTF-8 does not catch the JSON escapes `\u0000` and unpaired surrogates (`\ud800`), so after parsing, **every string reachable from the record** (keys included, and the `INJECT_SCORE` glyph text) must contain no U+0000 and no unpaired surrogate. PostgreSQL `jsonb` refuses both (22P05), and `TextEncoder` would silently turn a lone surrogate into U+FFFD before hashing.
 3. **Non-finite numbers.** JSON cannot carry `NaN` or `Infinity`. `JSON.stringify` writes them as `null`, and `JSON.parse` turns an out-of-range literal such as `1e400` into `Infinity`. So:
    - (a) every number must satisfy `Number.isFinite` after parse;
@@ -132,17 +141,17 @@ The validator is one pure function: `validateRunRecord(bytes, context) → { ok:
     - `JAM_OFF` and `PARTITION_OFF`: an `id`.
     - `PARTITION_ON`: an `id`, a finite `point`, and a finite, non-zero `normal`.
     - `SET_LOSS`: `loss` is finite and in [0, 1].
-    - `INJECT_SCORE`: `droneId` is an integer in [0, n0). `score.version` has integer `issuedTick` and `origin` ≥ −1 (`OPERATOR` = −1). `score.movements` is non-empty and sorted by `startTick`. `startTick` is an integer and **may be negative** (the S5 fixture has −40). `transitionTicks` is an integer ≥ 0. The recipe is checked by the shared pure composition validator (MD-4 / P2-WP-30). Until that exists, a structural check applies: kind ∈ {text, sphere, helix}, text glyphs from the 5×7 font set, and palette values finite in [0, 1].
+    - `INJECT_SCORE`: `droneId` is an integer in [0, n0). `score.version` has integer `issuedTick` and `origin` ≥ −1 (`OPERATOR` = −1). `score.movements` is non-empty and sorted by `startTick`. `startTick` is an integer and **may be negative** (the S5 fixture has −40). `transitionTicks` is an integer ≥ 0. The recipe is checked by the shared pure composition validator, `src/app/compose/validate.ts` (XI-13; created by P2-WP-30a or MDB-WP-02, whichever lands first; provisional, #110). Until that exists, a structural check applies: kind ∈ {text, sphere, helix}, text glyphs from the 5×7 font set, and palette values finite in [0, 1].
     - Every event's canonical JSON must be ≤ 64 KiB, the same budget as MongoDB saved shows (XI-8).
 13. An unmatched `*_OFF`, or an `*_ON` that never closes, is a **warning**. The simulator tolerates both.
 
 ### 3.4 Series
 
-14. `series` length = `expectedTicks / 5` (360), and `series[i].tick === 5 × (i + 1)`. So the first tick is 5, the last tick is `expectedTicks`, and there are no gaps or duplicates (TCR *sample schedule*). William's "strictly increasing, five-tick schedule" becomes this exact equation. `5` is the contract's "one per 5 ticks" (`metrics.ts:6`, `src/observer/index.ts:52`).
+14. `series` length = `expectedTicks / 5` (360), and `series[i].tick === 5 × (i + 1)`. So the first tick is 5, the last tick is `expectedTicks`, and there are no gaps or duplicates (TCR-11). William's "strictly increasing, five-tick schedule" becomes this exact equation. `5` is the contract's "one per 5 ticks" (`metrics.ts:6`, `src/observer/index.ts:52`).
 15. Each sample has exactly the 13 contract keys, and `msgs` has exactly `hb, score, delivered, lost, blocked`.
 16. The following must be safe integers ≥ 0: `alive`, `dupSlots`, every `msgs` counter, `collisions`, `nearMisses`, `slotChanges` and every `versions` value.
 17. `alive ≤ n0`, and `alive` is non-increasing, because no `EnvEvent` revives a drone. `dupSlots ≤ alive`.
-18. `coverage` is in [0, 1] exactly: it is occupied slots / n0 and a formation has exactly n0 slots (`score.ts:22`). `pwc` is in [0, 1 + 1e-9]. The tolerance is needed because the overshoot to 1.0000000000000004 is present in every fixture (TCR *metric-range tolerance*). Values are stored unclamped and never rounded.
+18. `coverage` is in [0, 1] exactly: it is occupied slots / n0 and a formation has exactly n0 slots (`score.ts:22`). `pwc` is in [0, 1 + 1e-9]. The tolerance is needed because the overshoot to 1.0000000000000004 is present in every fixture (TCR-12). Values are stored unclamped and never rounded.
 19. **Nullability.** `npwc` is null **iff** `alive === 0`, and is otherwise finite and ≥ 0, with no upper bound because it is normalised by survivor capacity. `sfMean` and `sfMax` are null when `alive === 0`, and otherwise finite and ≥ 0. They may be null with `alive > 0` only for a formation with no dense points, and that raises a warning.
 20. `versions` is an object with at most 64 keys. Each key matches `^-?\d+:-?\d+$` (`issuedTick:origin`). The values sum to exactly `alive`, because every live drone believes exactly one version (`src/observer/measure.ts:110-114`).
 21. **Cumulative counters** (`msgs.*`, `collisions`, `nearMisses`, `slotChanges`) must never decrease from one sample to the next (TD-9). A decrease is a rejection (William §15 "counter decreases").
@@ -150,7 +159,7 @@ The validator is one pure function: `validateRunRecord(bytes, context) → { ok:
 ### 3.5 Summary
 
 22. The keys must be exactly the 23 base keys emitted by `calculateSummary` (`src/observer/summary.ts:111-133`), plus `tRec` **iff** `events` contains a `KILL` (`summary.ts:134-135`). See the metric definitions in [evaluation §2](../validation/evaluation-and-tests.md#2-metrics); they are not repeated here. An absent `tRec` means not applicable and a null `tRec` means censored (TD-7), so the importer must preserve that distinction (§6.4).
-23. Every value is a finite number or `null`. The code always sets these as numbers, so they must be non-null: `slotChanges`, `slotChangesMaxDrone`, `lateSlotChanges`, `dupSlotSec`, `collisions`, `nearMisses`. These must be integers: `slotChanges`, `slotChangesMaxDrone`, `lateSlotChanges`, `collisions`, `nearMisses`, `dupSlotsEnd`, `unadopted`. A non-null `tRec` must be ≥ 0. **No other range checks** apply, because the fixtures contain −4.4e-16 and 1+2.2e-16 (TCR *metric-range tolerance*).
+23. Every value is a finite number or `null`. The code always sets these as numbers, so they must be non-null: `slotChanges`, `slotChangesMaxDrone`, `lateSlotChanges`, `dupSlotSec`, `collisions`, `nearMisses`. These must be integers: `slotChanges`, `slotChangesMaxDrone`, `lateSlotChanges`, `collisions`, `nearMisses`, `dupSlotsEnd`, `unadopted`. A non-null `tRec` must be ≥ 0. **No other range checks** apply, because the fixtures contain −4.4e-16 and 1+2.2e-16 (TCR-12).
 24. **Exact integer consistency with the series** (when the last sample tick equals `expectedTicks`): `collisions`, `nearMisses` and `slotChanges` equal the last sample's counters, and `dupSlotsEnd` equals the last sample's `dupSlots`. Float-valued keys are **not** re-derived. The summary is authoritative (TD-7), and most keys need `inHold` or per-tick data that the record does not hold (§15.2).
 
 ### 3.6 Caps summary
@@ -171,7 +180,7 @@ The only canonical form is the repository's `canonicalJson` (`src/cli/run.ts:27-
 
 The same definition serves MongoDB `contentHash` ([show library §7.3](../integrations/mongodb-atlas-show-library.md#73-contenthash), provisional: depends on #130) and Gemini `sceneHash` ([Gemini §6.7](../integrations/gemini-generated-formations.md#67-canonicalisation-and-scenehash-gd-4), provisional: depends on #117), per XI-7. Gemini additionally quantises scene numbers, but never record numbers.
 
-**Dependency (TCR *canonicalJson placement*).** Importing `canonicalJson` from `src/cli/run.ts` loads `node:crypto`, `createWorld`, both brains and the scenarios. XI-2 also forbids the gateway from importing `src/cli`. So the gateway importer **requires** extracting `canonicalJson` into a pure module, which `run.ts` then re-exports so callers are unchanged. That is a single shared proposal owned by Arnav, and it is a `src/cli` edit, so its owner is a dependency. Until then, only `tests/telemetry/` may import from `run.ts`. A second copy (as the MongoDB doc proposes for its service) is acceptable only with a shared fixture corpus of expected hashes; the vectors in §4.4 are the start of that corpus.
+**Dependency (TCR-16).** Importing `canonicalJson` from `src/cli/run.ts` loads `node:crypto`, `createWorld`, both brains and the scenarios. XI-2 also forbids the gateway from importing `src/cli`, except a pure canonical-JSON helper once extracted. So the gateway importer **requires** the one shared extraction (XI-7): the pure module `src/score/canonical.ts` (XI-19, TIG-D7; proposed, owner Arnav). `run.ts` imports it instead of defining its own and re-exports it, so callers such as `report.ts` are unchanged. The gateway and `src/telemetry` import it under XI-2. It is a `src/cli` edit, so the `src/cli` owner is a dependency. There is no second copy: MongoDB `contentHash` and Gemini `sceneHash` use the same module. The move is byte for byte, and the vectors in §4.4 are its byte-identity test (existing artifact hashes unchanged). Until the move, only `tests/telemetry/` may import from `run.ts`.
 
 ### 4.2 Definitions
 
@@ -179,7 +188,7 @@ All hashes are sha256 over the UTF-8 canonical JSON, as 64 lower-case hex charac
 
 | Name | Input | Purpose |
 |---|---|---|
-| `fileSha256` | raw file bytes | detects re-serialisation and file tampering. It **always differs** from `artifactHash` for CLI-written files (TCR *file bytes not canonical*) |
+| `fileSha256` | raw file bytes | detects re-serialisation and file tampering. It **always differs** from `artifactHash` for CLI-written files (TCR-13) |
 | `artifactHash` | `canonicalJson(record)` | measurement identity: one artifact, one hash |
 | `seriesDigest` | `canonicalJson(record.series)` | row verification (§11) |
 | `eventsDigest` | `canonicalJson(record.events)` | row verification |
@@ -188,12 +197,17 @@ All hashes are sha256 over the UTF-8 canonical JSON, as 64 lower-case hex charac
 | `pairKey` | the same object **without `arm`** | two runs are a fair pair iff their `pairKey`s are equal and their arms differ |
 | `run_id` | UUIDv5(`ENCORE_TIGER_NS_V1`, `artifactHash`) | the database key (§6.1) |
 
-**`pairKey` vs `fairPair`.** `fairPair` compares only `git`, `paramsHash` and canonical events. Scenario and n0 come from grouping and seed from the map key (`src/cli/report.ts:114,134-136`). For every CLI record `compositionId` = `scenario:<id>` is a function of the scenario, so there `pairKey` is **equivalent** to `fairPair` plus `report.ts`'s grouping by (scenario, n0, seed), plus `hashVersion`. It is stronger only for `sceneHash` and `contentHash` compositions (TCR *pairKey vs fairPair*). The checks that add real protection are the row predicates the analytics side applies besides `pair_key` (`hash_version`, `expected_samples`, `git_clean`, `telemetry_state`, `verified`). The importer stores `pair_key`. The analytics side filters by it **and** still runs `fairPair`, so the two semantics can never silently diverge.
+**`pairKey` vs `fairPair`.** `fairPair` compares only `git`, `paramsHash` and canonical events. Scenario and n0 come from grouping and seed from the map key (`src/cli/report.ts:114,134-136`). For every CLI record `compositionId` = `scenario:<id>` is a function of the scenario, so there `pairKey` is **equivalent** to `fairPair` plus `report.ts`'s grouping by (scenario, n0, seed), plus `hashVersion`. It is stronger only for `sceneHash` and `contentHash` compositions (TCR-19). The importer stores `pair_key`. The two analytics routes use it differently ([overview §6.6](../integrations/tiger-data-analytics.md#66-pairing-and-statistics); analytics RFC §4.1, §6.2):
+
+- **Pair route.** It requires equal, non-null `pair_key`s **and** `fairPair`, so the two semantics can never silently diverge. Its deltas also need both runs clean, `telemetry_state = 'present'`, `verified` and not contested.
+- **Multi-seed route.** It does **not** filter by `pair_key`. It classifies the candidates (analytics RFC §6.2) and excludes only runs with a listed reason (for example `DEV_SEED`, `CONTESTED`, `UNVERIFIED`, `HASH_VERSION`, `HORIZON`, `COMPOSITION`). `MISMATCH` and `UNPAIRED` seeds, and archived runs, go to `buildReport`, so per-arm statistics equal the CLI's.
+
+`telemetry_state` therefore gates pair deltas, not report inclusion.
 
 **`compositionId` rules.**
 
-- **CLI scenarios** get `"scenario:<id>"`. The preloaded score is `buildEvalScore(params)` (`scenarios.ts:164`), so it is fully determined by `git` and `params`. Injected scores travel in full inside `INJECT_SCORE` events, so they are already part of `events`. `scenario:<id>` is meaningful only together with `git` (TCR *compositionId*).
-- **App exports, and preloaded shows from Gemini or MongoDB,** get `"sceneHash:<hex>"` or `"contentHash:<hex>"`. App export is deferred (TCR *app export*).
+- **CLI scenarios** get `"scenario:<id>"`. The preloaded score is `buildEvalScore(params)` (`scenarios.ts:164`), so it is fully determined by `git` and `params`. Injected scores travel in full inside `INJECT_SCORE` events, so they are already part of `events`. `scenario:<id>` is meaningful only together with `git` (TCR-20).
+- **App exports, and preloaded shows from Gemini or MongoDB,** get `"sceneHash:<hex>"` or `"contentHash:<hex>"`. App export is deferred (TCR-26).
 - **A run with no composition identity** has `compositionId` = `null`. It is **storable but not pairable**: `pair_key` is `NULL`.
 
 **`run_id` choice (TIG-D4, run_id scheme).** Recommended: **deterministic UUIDv5 from `artifactHash`**, rather than a random UUID.
@@ -202,9 +216,9 @@ All hashes are sha256 over the UTF-8 canonical JSON, as 64 lower-case hex charac
 - Test and production databases assign the same id to the same fixture.
 - The offline manifest can name the id before any connection is made.
 
-UUIDv5 uses SHA-1 only as a name-to-id mapping; integrity rests on `artifactHash`. `ENCORE_TIGER_NS_V1` is a fixed namespace UUID chosen once at implementation and frozen in `hashVersion` 1. Note the difference from X-OUT's `runId`, which identifies the *experiment inputs* ([boundaries §4.2](OPTIONAL_INTEGRATION_BOUNDARIES.md#4-x-out-telemetry-export), provisional: #110). Tiger's `run_id` identifies the *artifact*.
+UUIDv5 uses SHA-1 only as a name-to-id mapping; integrity rests on `artifactHash`. `ENCORE_TIGER_NS_V1` is a fixed namespace UUID chosen once at implementation and frozen in `hashVersion` 1. Note the difference from X-OUT's `runId` (provisional, #110), which identifies the *experiment inputs* ([boundaries §4.2](OPTIONAL_INTEGRATION_BOUNDARIES.md#4-x-out-telemetry-export)). Tiger's `run_id` identifies the *artifact*.
 
-### 4.3 Git cleanliness (TCR *dirty git*)
+### 4.3 Git cleanliness (TCR-14)
 
 `gitClean` = `git` matches `^[0-9a-f]{40}$`. A `-dirty` suffix or `unknown` makes it `false`. The `-dirty` suffix carries no digest of the diff, and it only covers `src/`, `package.json` and `package-lock.json` (`src/cli/main.ts:74-82`). Two different dirty trees on the same HEAD therefore share an `experimentKey`. Raising a conflict between them would be a false alarm, and the CLI overwrite guard may already have replaced one file with the other. So the rule is:
 
@@ -234,9 +248,9 @@ The full hex strings belong in the test fixture file, not in this document. Thes
 
 ## 5. Import manifest and local ledger (TD-3)
 
-**Location (TIG-D5, ledger location; TCR *ledger location*).** The location is outside `results/`. `runReport` parses every top-level `*.json` in that folder (`src/cli/main.ts:100-101`), #137 rewrites and moves files there, and a committed ledger would mutate a contended folder.
+**Location (TIG-D5, ledger location; TCR-22).** The location is outside `results/`. `runReport` parses every top-level `*.json` in that folder (`src/cli/main.ts:100-101`), #137 rewrites and moves files there, and a committed ledger would mutate a contended folder.
 
-- Recommended default: `integrations/gateway/tiger/state/`, ignored by a `.gitignore` inside the gateway package (no root change). It can be overridden with `ENCORE_TIGER_STATE_DIR`.
+- Recommended default: `integrations/gateway/src/tiger/state/`, ignored by a `.gitignore` inside the gateway package (no root change). It can be overridden with `ENCORE_TIGER_STATE_DIR`.
 - Paths: manifests in `state/manifests/<artifactHash>.manifest.json`, the ledger in `state/imports.ndjson`.
 
 **Manifest** (`manifestVersion` 1). It is written once per artifact, **before** any connection, atomically (temporary file, then rename, as in the X-RUN write rule). It is never rewritten, and it never modifies the artifact.
@@ -255,7 +269,7 @@ The full hex strings belong in the test fixture file, not in this document. Thes
 }
 ```
 
-- TD-3's fields are kept exactly. The additions (`validatorVersion`, `fileBytes`, `fileForm`, `runId`, `dtSeconds` (TCR *DT source*), counts and digests) are all derived from the artifact.
+- TD-3's fields are kept exactly. The additions (`validatorVersion`, `fileBytes`, `fileForm`, `runId`, `dtSeconds` (TCR-15), counts and digests) are all derived from the artifact.
 - **Two kinds of field.** The manifest is keyed by `artifactHash`, so it describes the *record*, not a file.
   - **Identity fields** are functions of the parsed record: `hashVersion`, `artifactHash`, `experimentKey`, `pairKey`, `runId`, `gitClean`, `compositionId`, `sourceKind`, `dtSeconds`, the counts and the three digests.
   - **First-observation fields** describe the file the manifest was first written from: `artifactPath`, `fileSha256`, `fileBytes`, `fileForm` and `createdAt`. They are recorded once and **never compared**. Each later attempt records the file it actually read (`artifactPath`, `fileSha256`, `fileBytes`, `fileForm`) on its `discovered` ledger line instead.
@@ -277,13 +291,15 @@ A record's current state is the last line for its `artifactHash`. The ledger is 
 
 ## 6. Schema (TD-5)
 
-Everything lives in a dedicated schema, `encore`. The four tables are William's (§6.1–§6.4), and their columns and CHECKs are preserved unless a deviation is cited. This RFC writes names as `encore.<name>` for readability. The migration files use unqualified names, and the runner creates the target schema and sets `search_path` (§7).
+Everything lives in a dedicated schema, `encore`. The four tables are William's (§6.1–§6.4), and their columns and CHECKs are preserved unless a deviation is cited.
+
+**Schema names.** The DDL listings below use **unqualified** names, exactly as the migration files will. The schema is resolved through `search_path`, which the runner and the importer set with `set_config('search_path', $1, true)` (§7, §9): `encore` in production, `tig_test_<12 hex>` in tests. Prose and the query listings (Q1–Q16) write `encore.<name>` for readability only; the code sends them unqualified under the same `search_path`.
 
 ### 6.1 `experiment_runs`
 
 ```sql
 -- PROPOSED — NOT A MIGRATION (would be migration 001; the schema itself is created before 000, §7)
-CREATE TABLE encore.experiment_runs (
+CREATE TABLE experiment_runs (
     run_id            UUID PRIMARY KEY,                       -- UUIDv5(artifact_hash), §4.2
     experiment_key    TEXT NOT NULL CHECK (experiment_key ~ '^[0-9a-f]{64}$'),
     pair_key          TEXT          CHECK (pair_key       ~ '^[0-9a-f]{64}$'),
@@ -320,15 +336,15 @@ CREATE TABLE encore.experiment_runs (
     CHECK ((composition_id IS NULL) = (pair_key IS NULL))     -- no composition identity ⇒ not pairable
 );
 
--- TD-5 / TCR-03: one artifact per experiment identity, for clean-git runs (dirty runs: §4.3, TCR *dirty git*)
+-- TD-5 / TCR-03: one artifact per experiment identity, for clean-git runs (dirty runs: §4.3, TCR-14)
 CREATE UNIQUE INDEX experiment_runs_experiment_key_clean_uq
-    ON encore.experiment_runs (experiment_key) WHERE git_clean;
+    ON experiment_runs (experiment_key) WHERE git_clean;
 
 -- William §6.1, preserved
 CREATE INDEX experiment_runs_pair_idx
-    ON encore.experiment_runs (scenario, seed, n0, arm, git_revision, params_hash);
+    ON experiment_runs (scenario, seed, n0, arm, git_revision, params_hash);
 
-CREATE INDEX experiment_runs_pair_key_idx ON encore.experiment_runs (pair_key, arm);
+CREATE INDEX experiment_runs_pair_key_idx ON experiment_runs (pair_key, arm);
 ```
 
 **Why `experiment_key` is unique (TCR-03, experiment_key not unique).**
@@ -348,13 +364,13 @@ CREATE INDEX experiment_runs_pair_key_idx ON encore.experiment_runs (pair_key, a
 ```sql
 -- PROPOSED — NOT A MIGRATION (would be migration 002). Requires PostgreSQL ≥ 16, TimescaleDB ≥ 2.20 (§7).
 -- The one definition of tick → synthetic time, used by the CHECK below, by Q4 and by Q16b.
-CREATE FUNCTION encore.synthetic_time(tick integer) RETURNS timestamptz
+CREATE FUNCTION synthetic_time(tick integer) RETURNS timestamptz
     LANGUAGE sql IMMUTABLE PARALLEL SAFE
     AS $$ SELECT date_add(timestamptz '2020-01-01 00:00:00+00', tick * interval '50 milliseconds', 'UTC') $$;
 
-CREATE TABLE encore.simulation_metrics (
+CREATE TABLE simulation_metrics (
     sample_time        TIMESTAMPTZ NOT NULL,                  -- SYNTHETIC, not wall clock (§8)
-    run_id             UUID NOT NULL REFERENCES encore.experiment_runs (run_id),
+    run_id             UUID NOT NULL REFERENCES experiment_runs (run_id),
     tick               INTEGER NOT NULL,
     alive              INTEGER NOT NULL,
     coverage           DOUBLE PRECISION NOT NULL,
@@ -378,7 +394,7 @@ CREATE TABLE encore.simulation_metrics (
     CHECK (alive >= 0),
     CHECK (coverage BETWEEN 0 AND 1),
     CHECK (dup_slots >= 0),
-    -- William had pwc BETWEEN 0 AND 1: rejects every committed artifact (TCR *metric-range tolerance*)
+    -- William had pwc BETWEEN 0 AND 1: rejects every committed artifact (TCR-12)
     CHECK (pwc >= 0 AND pwc <= 1 + 1e-9),
     -- additions
     CHECK (tick % 5 = 0),
@@ -389,8 +405,8 @@ CREATE TABLE encore.simulation_metrics (
     CHECK (jsonb_typeof(versions) = 'object'),
     CHECK (LEAST(hb_total, score_total, delivered_total, lost_total, blocked_total,
                  collisions_total, near_misses_total, slot_changes_total) >= 0),
-    -- tick → synthetic time, immutable form, §8 and TCR *CHECK immutability*
-    CHECK (sample_time = encore.synthetic_time(tick))
+    -- tick → synthetic time, immutable form, §8 and TCR-23
+    CHECK (sample_time = synthetic_time(tick))
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'sample_time',
@@ -399,29 +415,29 @@ CREATE TABLE encore.simulation_metrics (
     tsdb.create_default_indexes = false
 );
 
-CREATE INDEX metrics_run_tick_idx ON encore.simulation_metrics (run_id, tick);   -- William, preserved
+CREATE INDEX metrics_run_tick_idx ON simulation_metrics (run_id, tick);   -- William, preserved
 
-COMMENT ON COLUMN encore.simulation_metrics.sample_time IS
+COMMENT ON COLUMN simulation_metrics.sample_time IS
     'SYNTHETIC: 2020-01-01Z + tick × 50 ms; not wall clock. Same range for every run.';
 
 -- Console-facing view: every judge-facing console query is written against it, never the raw table.
-CREATE VIEW encore.metrics_v AS
+CREATE VIEW metrics_v AS
 SELECT m.run_id, m.tick, m.tick * r.dt_seconds AS sim_seconds, m.sample_time AS synthetic_time,
        m.alive, m.coverage, m.pwc, m.npwc, m.sf_mean, m.sf_max, m.dup_slots, m.versions,
        m.hb_total, m.score_total, m.delivered_total, m.lost_total, m.blocked_total,
        m.collisions_total, m.near_misses_total, m.slot_changes_total
-FROM encore.simulation_metrics m JOIN encore.experiment_runs r USING (run_id);
+FROM simulation_metrics m JOIN experiment_runs r USING (run_id);
 ```
 
 **One variant only.** Earlier drafts let the runner pick the legacy `create_hypertable(…, by_range(…))` call or a pre-16 CHECK at run time. That made a migration file's checksum depend on the environment, so it is dropped: the runner refuses PostgreSQL < 16 or TimescaleDB < 2.20 (§7). Tiger Cloud defaults to PostgreSQL 18 and TimescaleDB 2.31 (§17). William's `create_hypertable('simulation_metrics', 'sample_time', if_not_exists => TRUE)` is the pre-2.13 signature, deprecated since 2.13.0, and is not used.
 
-**Primary key.** William's key was `(sample_time, run_id, tick)`. This RFC uses `(run_id, sample_time)` (a deviation, reported in §17), for three reasons:
+**Primary key.** William's key was `(sample_time, run_id, tick)`. This RFC uses `(run_id, sample_time)` (TCR-24), for three reasons:
 
 - A hypertable unique index must contain the partition column (VERIFIED, §17).
 - The CHECK makes `sample_time` a bijective function of `tick`, so `(run_id, sample_time)` is unique **exactly** when `(run_id, tick)` is. The database now enforces what William left to the importer ("prevent duplicate logical ticks").
 - Every run shares the same synthetic time range, so leading the key with `run_id` matches every access path (TD-6: every query filters by `run_id`). `tick` is dropped from the key because it is redundant.
 
-**The tick → time CHECK and immutability (TCR *CHECK immutability*).**
+**The tick → time CHECK and immutability (TCR-23).**
 
 - `timestamptz + interval` is STABLE, not IMMUTABLE (VERIFIED from the `pg_proc` catalogue). PostgreSQL accepts it in a CHECK but "assumes" the expression is immutable.
 - The three-argument `date_add(timestamptz, interval, text)` (PG16+) is immutable, so `encore.synthetic_time` can honestly be declared IMMUTABLE. It is exact microsecond arithmetic, because `interval * integer` never cascades into days or months.
@@ -457,19 +473,19 @@ The synthetic timestamp is kept because TD-5 preserves William's columns and bec
 
 ```sql
 -- PROPOSED — NOT A MIGRATION (would be migration 003)
-CREATE TABLE encore.simulation_events (
-    run_id      UUID NOT NULL REFERENCES encore.experiment_runs (run_id),
+CREATE TABLE simulation_events (
+    run_id      UUID NOT NULL REFERENCES experiment_runs (run_id),
     event_index INTEGER NOT NULL CHECK (event_index >= 0),   -- position in RunRecord.events
     tick        INTEGER NOT NULL CHECK (tick >= 0),
     event_type  TEXT NOT NULL CHECK (event_type IN ('KILL', 'JAM_ON', 'JAM_OFF', 'PARTITION_ON',
                                                     'PARTITION_OFF', 'INJECT_SCORE', 'SET_LOSS')),
     details     JSONB NOT NULL,                              -- the complete EnvEvent, verbatim
     PRIMARY KEY (run_id, event_index),
-    -- immutable forms: ->> and int4out are IMMUTABLE, to_jsonb() is only STABLE (TCR *CHECK immutability*)
+    -- immutable forms: ->> and int4out are IMMUTABLE, to_jsonb() is only STABLE (TCR-23)
     CHECK (details ->> 'type' = event_type),
     CHECK (jsonb_typeof(details -> 'tick') = 'number' AND details ->> 'tick' = tick::text)
 );
-CREATE INDEX simulation_events_type_idx ON encore.simulation_events (event_type, tick);
+CREATE INDEX simulation_events_type_idx ON simulation_events (event_type, tick);
 ```
 
 - `details` holds the **whole** event, including `type` and `tick`. Reconstruction is therefore `details` in `event_index` order, with nothing reassembled. The CHECKs keep the convenience columns equal to it.
@@ -482,8 +498,8 @@ These are scheduled **environment** events, not a log of drone decisions.
 
 ```sql
 -- PROPOSED — NOT A MIGRATION (would be migration 004)
-CREATE TABLE encore.run_summaries (
-    run_id       UUID PRIMARY KEY REFERENCES encore.experiment_runs (run_id),
+CREATE TABLE run_summaries (
+    run_id       UUID PRIMARY KEY REFERENCES experiment_runs (run_id),
     summary_json JSONB NOT NULL CHECK (jsonb_typeof(summary_json) = 'object'),   -- every key, nulls kept
     -- William's typed columns, derived from summary_json so they cannot disagree with it
     npwc_end              DOUBLE PRECISION GENERATED ALWAYS AS ((summary_json ->> 'npwcEnd')::double precision) STORED,
@@ -506,7 +522,7 @@ CREATE TABLE encore.run_summaries (
   - `applicable ∧ NOT NULL` = recovered;
   - `applicable ∧ NULL` = censored;
   - `NOT applicable` = not applicable.
-  This is a deviation, reported in §17.
+  This is a deviation (TCR-25).
 - **Why generated columns.** `run_summaries` is an ordinary table, and `->>`, `?` and the text-to-float8/int8 casts are immutable. Generated columns keep one fact in one place within the database. The alternative is plain columns written by the importer plus `CHECK (npwc_end IS NOT DISTINCT FROM (summary_json->>'npwcEnd')::float8)`. It is equivalent but more code. The immutability of these casts in this context has not been tested on the service (UNVERIFIED), and the plain-column form is the fallback.
 - The typed columns exist for filtering and display. Any statistic still goes through `report.ts` (TD-8; analytics RFC).
 
@@ -514,11 +530,11 @@ CREATE TABLE encore.run_summaries (
 
 ```sql
 -- PROPOSED — NOT A MIGRATION (would be migration 005)
-CREATE TABLE encore.import_conflicts (
+CREATE TABLE import_conflicts (
     conflict_id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     hash_version           SMALLINT NOT NULL,
     experiment_key         TEXT NOT NULL,
-    existing_run_id        UUID NOT NULL REFERENCES encore.experiment_runs (run_id),
+    existing_run_id        UUID NOT NULL REFERENCES experiment_runs (run_id),
     existing_artifact_hash TEXT NOT NULL,
     incoming_artifact_hash TEXT NOT NULL,
     incoming_file_sha256   TEXT NOT NULL,
@@ -531,9 +547,9 @@ CREATE TABLE encore.import_conflicts (
 );
 
 -- Post-commit verification outcomes (§11.1). Append-only: the importer may INSERT, never UPDATE.
-CREATE TABLE encore.run_verifications (
+CREATE TABLE run_verifications (
     verification_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,   -- orders the rows of one run
-    run_id           UUID NOT NULL REFERENCES encore.experiment_runs (run_id),
+    run_id           UUID NOT NULL REFERENCES experiment_runs (run_id),
     verified_at      TIMESTAMPTZ NOT NULL DEFAULT now(),               -- wall clock
     verifier_version TEXT NOT NULL,
     series_digest    TEXT NOT NULL CHECK (series_digest  ~ '^[0-9a-f]{64}$'),   -- recomputed from rows
@@ -541,12 +557,12 @@ CREATE TABLE encore.run_verifications (
     summary_digest   TEXT NOT NULL CHECK (summary_digest ~ '^[0-9a-f]{64}$'),
     outcome          TEXT NOT NULL CHECK (outcome IN ('verified', 'mismatch'))
 );
-CREATE INDEX run_verifications_run_idx ON encore.run_verifications (run_id, verification_id DESC);
+CREATE INDEX run_verifications_run_idx ON run_verifications (run_id, verification_id DESC);
 ```
 
 **Decision: keep `import_conflicts`** rather than recording conflicts in the ledger only. The read-only API must be able to mark an experiment as contested in its provenance, and it cannot see a local ledger. The conflicting artifact's rows are never stored.
 
-**Decision: add `run_verifications`** (a deviation from TD-5's table list, reported in §17). Without it, the post-commit re-read lives only in the local ledger, and a reader cannot tell a committed-but-unverified run (case G) or a mismatched one (case H) from a verified one. Its definition of `verified` is in §11.1.
+**Decision: add `run_verifications`** (a deviation from TD-5's table list, TCR-36). Without it, the post-commit re-read lives only in the local ledger, and a reader cannot tell a committed-but-unverified run (case G) or a mismatched one (case H) from a verified one. Its definition of `verified` is in §11.1.
 
 ### 6.6 Normalisation (`src/telemetry/normalise.ts`)
 
@@ -564,21 +580,22 @@ JSONB numbers keep their decimal value exactly, and `JSON.parse` returns the sam
 
 ## 7. Migrations (documentation only)
 
-| File (later, `integrations/gateway/tiger/migrations/`) | Content | William |
+| File (later, `integrations/gateway/src/tiger/migrations/`) | Content | William |
 |---|---|---|
-| (runner, before 000) | `CREATE SCHEMA IF NOT EXISTS <schema>` and `SET search_path = <schema>`; `<schema>` is `encore`, or `tig_test_<testRunId>` in tests | new |
+| (runner, before 000) | `CREATE SCHEMA IF NOT EXISTS <schema>`, then `set_config('search_path', $1, true)` at the start of each file's transaction. `<schema>` is `encore`, or `tig_test_<12 hex>` in tests. One helper checks the name against `^(encore\|tig_test_[0-9a-f]{12})$` and quotes it with `%I`; it is the only place a schema name enters SQL | new |
 | `000_migrations_table.sql` | `schema_migrations (version INT PK, name TEXT, sha256 TEXT, applied_at TIMESTAMPTZ)` | new |
 | `001_runs.sql` | §6.1 | `sql/001_runs.sql` |
 | `002_metrics.sql` | §6.2: `synthetic_time`, hypertable, comment, `metrics_v` | `sql/002_metrics.sql` |
 | `003_events.sql` | §6.3 | `sql/003_events.sql` |
 | `004_summaries.sql` | §6.4 | `sql/004_summaries.sql` |
 | `005_conflicts_verifications.sql` | §6.5 | new |
-| `006_roles.sql` | grants only (§13). Roles are cluster-global and survive `DROP SCHEMA`, so creating them is **not** a migration: the owner's run-once script creates them, guarded by `IF NOT EXISTS (SELECT 1 FROM pg_roles …)` | new |
+| `006_roles.sql` | grants only (§13). Table grants use unqualified names; the three schema-level statements name the schema, so the runner issues them through the same helper. Roles are cluster-global and survive `DROP SCHEMA`, so creating them is **not** a migration: the owner's run-once script creates them, guarded by `IF NOT EXISTS (SELECT 1 FROM pg_roles …)` | new |
 
 **Rules.**
 
+- Migrations run as the schema owner (`tsdbadmin`, or an `encore_owner` role), using `TIGER_ADMIN_DATABASE_URL` (§13). They never run as `encore_importer`, which has no CREATE on the schema.
 - Each file runs in its own transaction and is recorded with its sha256.
-- File text uses **unqualified** names, so the same bytes (and checksum) serve `encore` and every test schema with no text substitution.
+- File text uses **unqualified** names, so the same bytes (and checksum) serve `encore` and every test schema with no text substitution. Pasting files into the Tiger console by hand (the work packages' smallest slice) needs the runner's two statements first: `CREATE SCHEMA IF NOT EXISTS encore;` and `SET search_path = encore;`.
 - An applied file is never edited: a changed checksum stops the runner.
 - Migrations are forward-only in shared environments.
 - A `down` script exists for local development only: revoke 006's grants, then drop in reverse order, 005 → 000.
@@ -595,7 +612,8 @@ JSONB numbers keep their decimal value exactly, and `JSON.parse` returns the sam
 ## 8. Time semantics (TD-6)
 
 - **The authoritative axis is `tick`.** Simulated seconds = `tick × dt_seconds`, read from `experiment_runs`. The value is never written as a literal in analytics SQL (William §9.1: "should ultimately be read from versioned simulation parameters").
-- **DT is not a `Params` field** (`src/contracts/params.ts:3`), so `paramsHash` cannot vouch for it. Only `git` does (TCR *DT source*). `dt_seconds` is **asserted, not measured**: it is the DT at the **record's** `git`, which the importer establishes by reading `git show <git>:src/contracts/params.ts` (for a `-dirty` record, at its 40-hex prefix) and parsing `export const DT = …`.
+- **DT is not a `Params` field** (`src/contracts/params.ts:3`), so `paramsHash` cannot vouch for it. Only `git` does (TCR-15). `dt_seconds` is **asserted, not measured**: it is the DT at the **record's** `git`. The importer establishes it by reading `src/contracts/params.ts` at that commit (for a `-dirty` record, at its 40-hex prefix) and parsing `export const DT = …`.
+  - **How it reads that file is open (pending a ruling).** Earlier drafts ran `git show <git>:src/contracts/params.ts`. That spawns a child process, and no gateway process spawns children (TR-2; the importer is a CLI of the gateway package). The options are that the operator passes the file, or a pure reader of the local git objects ([work packages §13](../planning/tiger-data-integration-work-packages.md#13-open-questions) item 5). The overview's ruling decides; until then `git show` is not part of the design.
   - If that commit is not available locally, a clean-git attempt is `rejected` with `DT_UNVERIFIABLE`; after fetching the commit, a later attempt starts again at step 1 of §10. An `unknown`-git record takes the importer revision's DT with a `DT_ASSUMED` ledger warning; it is already excluded from default comparisons (§4.3).
   - The committed fixtures' revision `571c8e44` is present locally and has `DT = 0.05` (audit fact).
   - The 50 ms in `encore.synthetic_time` and the `dt_seconds = 0.05` CHECK are deliberate, guarded duplicates of that constant. A DT contract change needs a new migration and a rebuild.
@@ -606,7 +624,7 @@ JSONB numbers keep their decimal value exactly, and `JSON.parse` returns the sam
 
 ## 9. The import transaction (TD-10)
 
-The importer is a CLI in the gateway package, using the write role (TCR-08, HTTP upload vs CLI importer). It has no HTTP upload endpoint, so William's write-authentication requirement applies only to the optional live ingestion (TIG-11). Imports are batched per run and never sent per tick.
+The importer is a CLI in the gateway package, using the write role (TCR-08, HTTP upload vs CLI importer). It has no HTTP upload endpoint, so William's write-authentication requirement applies only to the optional live ingestion (TIG-11, §15.3; its write authentication is decision TIG-D13). Imports are batched per run and never sent per tick.
 
 One run is one transaction. Insert order follows foreign-key order: run, then samples, then events, then summary. Every value is parameterised (`$n`); identifiers are fixed in code.
 
@@ -652,11 +670,12 @@ INSERT INTO encore.run_summaries (run_id, summary_json) VALUES ($1, $2::jsonb);
 **Statement choice.**
 
 - `unnest` keeps a 360-row insert to a single statement with 18 parameters. A multi-row `VALUES` list would need 6,840 parameters, still under PostgreSQL's 65,535 limit.
-- `COPY` (via `pg-copy-streams`, on a checked-out client and never `pool.query`) is reserved for workloads above about 10,000 rows per run, which today means only the deferred position telemetry (§15.1). Neither the Tiger docs nor `pg-copy-streams` cover COPY through the transaction-mode pooler (UNVERIFIED), so COPY and named statements use the direct connection only.
+- `COPY` (via `pg-copy-streams`, on a checked-out client and never `pool.query`) is reserved for workloads above about 10,000 rows per run, which today means only the deferred position telemetry (§15.1). So `pg-copy-streams` is **not a dependency** until COPY is needed. Neither the Tiger docs nor `pg-copy-streams` cover COPY through the transaction-mode pooler (UNVERIFIED), so COPY and named statements use the direct connection only.
 
 **Session settings, per transaction.**
 
 ```sql
+SELECT set_config('search_path', $1, true);   -- $1 = 'encore' or the checked test schema (§6, §7)
 SET LOCAL statement_timeout = '30s';
 SET LOCAL lock_timeout = '5s';
 SET LOCAL idle_in_transaction_session_timeout = '60s';
@@ -732,16 +751,19 @@ stateDiagram-v2
 | `validated` | passes §3; manifest exists and matches | ledger + manifest |
 | `imported` | COMMIT acknowledged by the server | Tiger (`experiment_runs` row) + ledger |
 | `verified` | post-commit re-read over a fresh connection equals the artifact (§11) | Tiger (`run_verifications`, §11.1) + ledger |
-| `rejected` | validation failed, or `MANIFEST_MISMATCH` or `DT_UNVERIFIABLE`; nothing sent | ledger |
+| `rejected` | validation failed, or `MANIFEST_MISMATCH`, `DT_UNVERIFIABLE` or `DEV_SEED`; nothing sent | ledger only, so readers cannot tell "rejected" from "never imported" (open question, §17) |
 | `conflict` | clean-git `experimentKey` already holds a different `artifactHash` | ledger + `import_conflicts` |
 | `incomplete` | the outcome is unknown, or stored rows differ from the artifact | ledger; a mismatch also in `run_verifications` |
 | `archived` | the run row, events and summary are kept; its samples were removed by the owner (Q16) | Tiger (`telemetry_state`) + ledger |
 
-`archived` extends the decision sheet's state list. It mirrors a Tiger-side state that already existed (`telemetry_state`) and is reported in §17.
+`archived` extends the decision sheet's state list. It mirrors a Tiger-side state that already existed, `telemetry_state` (TCR-37).
+
+**Codes.** The ledger codes (`MANIFEST_MISMATCH`, `DT_UNVERIFIABLE`, `DT_ASSUMED`, `DEV_SEED`, `ARCHIVED`, `IDENTITY_MISMATCH`, `VERIFY_MISMATCH`, `COMMIT_UNKNOWN`, `VALIDATOR_DB_DISAGREE`) are importer-local. The importer has no HTTP surface, so they never form an error body. Where an analytics route reports one of these facts, it is a `details[].reason` (or an `excluded[].reason`) under an XI-3 shared code, never a new top-level code. The validator's `SCHEMA_VERSION_UNSUPPORTED` is already a shared XI-3 code.
 
 **The decision procedure** runs on every attempt, and repeating it is always safe:
 
 1. Validate the artifact and derive its identity (§3, §4). On failure the state is `rejected`.
+   - **Development seeds.** In schema `encore`, the importer refuses seeds 101–105 (`rejected`, `DEV_SEED`). They are tuning seeds that never appear in reported results ([evaluation and tests §5](../validation/evaluation-and-tests.md#5-procedure)). Test schemas (`tig_test_*`) accept them, so the `FX-DEV` fixture can be imported. This is an importer policy, not a validator rule, because it depends on the target schema. The analytics side still excludes `DEV_SEED` on its own (analytics RFC).
 2. Run Q1.
    - (a) The `artifact_hash` row already exists with `telemetry_state = 'present'`: **this is the identical artifact**, whatever its file bytes or path (§5). Skip the inserts, run post-commit verification (§11), and on success the state is `verified`, with zero new data rows (one new Q13 row). This is the idempotent no-op that TD-4 asks for.
    - (a′) The `artifact_hash` row exists with `telemetry_state = 'archived'`. The importer **does not** restore it (it has no UPDATE right) and does not verify it. It appends `archived` with the code `ARCHIVED`, never `VERIFY_MISMATCH`. Restoring is the owner's Q16b.
@@ -789,13 +811,22 @@ INSERT INTO encore.run_verifications (run_id, verifier_version, series_digest, e
 VALUES ($1, $2, $3, $4, $5, $6);
 ```
 
-**What `verified: true` means** in the API's provenance block. All three must hold:
+**What the API reports.** `verified` uses **both** mechanisms: this writer-side table and the analytics side's per-read digest recomputation (analytics RFC §2.1). The **table condition** is the same two-part check as analytics RFC §2.1 (TR-1):
 
 1. the **latest** `run_verifications` row for the `run_id` (highest `verification_id`) has `outcome = 'verified'`;
-2. its three digests equal the `experiment_runs` digest columns;
-3. `telemetry_state = 'present'`.
+2. its three digests equal the `experiment_runs` digest columns.
 
-So a committed run that was never re-read (case G) is `verified: false`, and a mismatched run (case H) is `verified: false` and excluded. The API needs no ledger. Pair, metrics and multi-seed routes exclude unverified runs by default with the reason `UNVERIFIED`; for pairs, the deltas are null. The column list and predicates belong to the analytics RFC (§17). A reader may still re-verify by recomputing the digests from the rows (about 360 rows per run, cacheable by `artifactHash`), but it cannot write the result.
+`telemetry_state` is checked separately. The provenance field `verification` then takes one of five values:
+
+| `verification` | Condition | `verified` |
+|---|---|---|
+| `verified` | the table condition holds, `telemetry_state = 'present'`, **and**, on routes that return series or events (metrics, pairs, multi-seed), the per-read recomputation matches | `true` |
+| `verified-at-import` | the run list (Q17), which returns no series and does not recompute: the table condition holds and `telemetry_state = 'present'`. Shown as "verified at import" | `true` (list route only) |
+| `verified-without-series` | an archived run (`telemetry_state = 'archived'`): the table condition holds and, on routes that return events, the events and summary digests match on read; samples absent | `false` |
+| `mismatch` | any digest disagreement: a latest Q13 row of `'mismatch'` (case H), table digests unequal to the run row, or a failed recomputation | `false` |
+| `not-checked` | no `run_verifications` row yet (case G) | `false` |
+
+The API needs no ledger. A `mismatch` run is never paired or counted, and is excluded with the reason `UNVERIFIED`; for pairs, the deltas are null. The column list, the predicates and the per-route rules belong to the analytics RFC (§2.1). A reader recomputes on every read and caches nothing, but it cannot write a Q13 row. What row digests cannot prove (a holder of the writer credential can rewrite rows and digests together) is stated once, in the [overview](../integrations/tiger-data-analytics.md) (TCR-30).
 
 ### 11.2 Failure cases
 
@@ -808,8 +839,8 @@ So a committed run that was never re-read (case G) is `verified: false`, and a m
 | D | importer crashes, or the connection drops before COMMIT is sent | the server aborts the transaction | stays `validated` | retry |
 | E | connection lost **during** COMMIT (acknowledgement lost) | unknown | `incomplete`, `COMMIT_UNKNOWN` | reconcile: Q14 by `run_id` |
 | F | COMMIT succeeds but the ledger append fails (crash, disk full) | committed | missing or stale | next run: Q1 case (a), then verify, then `verified` |
-| G | post-commit verification cannot connect, or the row is not yet visible | committed, no Q13 row | `imported` | retry verification only; the API reports `verified: false` meanwhile |
-| H | post-commit digests differ | committed but wrong; Q13 `'mismatch'` | `incomplete`, `VERIFY_MISMATCH` | **stop**. The run is excluded (`verified: false`). A human uses the owner role to delete it (Q16c) and re-import |
+| G | post-commit verification cannot connect, or the row is not yet visible | committed, no Q13 row | `imported` | retry verification only; the API reports `not-checked` (`verified: false`) meanwhile |
+| H | post-commit digests differ | committed but wrong; Q13 `'mismatch'` | `incomplete`, `VERIFY_MISMATCH` | **stop**. The run is `mismatch` and excluded (`verified: false`). A human uses the owner role to delete it (Q16c) and re-import |
 
 ```sql
 -- Q14: reconciliation probe
@@ -835,7 +866,7 @@ TD-1's "a local original exists" is an operational obligation met by the committ
 
 ### 11.3 Optional MongoDB catalogue step (TD-11; TCR-02, TCR-04)
 
-William §4.1 and §8 place a MongoDB catalogue upsert inside the import sequence, before "mark import complete". In the MVP **there is no MongoDB step**: import state lives in the ledger and in Tiger.
+William §4.1 and §8 place a MongoDB catalogue upsert inside the import sequence, before "mark import complete". In the MVP **there is no MongoDB step**: import state lives in the ledger and in Tiger. MongoDB holds no telemetry and no experiment evidence, and `saved_shows` holds no experiment catalogue (XI-6). Tiger holds experiment evidence only; the link to a composition is `compositionId` in the manifest (§4.2).
 
 If a catalogue is approved later, it is a separate collection (`encore.experiment_catalog`), never `saved_shows` ([show library §16](../integrations/mongodb-atlas-show-library.md), provisional: #130). It follows four rules:
 
@@ -866,14 +897,24 @@ A retry is always safe, because §10 is idempotent and `run_id` is deterministic
 
 **Configuration.**
 
-- Settings are `TIGER_DATABASE_URL` (write, importer only) and `TIGER_READ_DATABASE_URL` (read, API), held server-side in the gateway's environment. They are never `VITE_*`, never logged, and never in error bodies (William §13). The error envelope follows XI-3, for example `DATABASE_UNAVAILABLE`.
+- **Three credentials, one per process** (work packages TIG-03):
+  - **reader:** `TIGER_READ_DATABASE_URL`, read only by the API process (`loadTigerReaderConfig`);
+  - **importer:** `TIGER_DATABASE_URL`, read by the importer CLI from `integrations/gateway/src/tiger/.env.importer` (`loadTigerImporterConfig`);
+  - **admin:** `TIGER_ADMIN_DATABASE_URL` (`tsdbadmin` or `encore_owner`), read only by `tiger:migrate`, the live-test harness and the owner tools `tiger archive | restore | delete` (Q16–Q16c below; `loadTigerAdminConfig`).
+- Each process **refuses to start** if a credential it must not hold is set: the API process if the importer or admin URL is present, the importer CLI if the admin URL is present. The live write route (§15.3) has its own credential and process.
+- All are held server-side only. They are never `VITE_*`, never logged, and never in error bodies (William §13). An HTTP route fails with the XI-3 envelope, for example 503 `DATABASE_UNAVAILABLE`.
 - The host and port come from the Tiger Console or CLI. The port is per service, not 5432.
 
 **TLS.**
 
 - **The URL never sets TLS.** In node-postgres, parameters parsed from the connection string override fields of the config object (UNVERIFIED here; check in TIG-03), so an explicit `ssl` object is silently defeated by `?sslmode=no-verify` in the environment variable. The gateway therefore parses each URL with `new URL()` and **refuses** any `sslmode`, `sslrootcert`, `sslcert`, `sslkey` or `ssl` query parameter. Tiger's console strings carry `?sslmode=require`, so the operator strips it. The `ssl` option is built only from `TigerConfig.sslMode`:
   - `'verify-full'` (default; paid services) → `{ rejectUnauthorized: true, servername: host }`. Node's bundled roots cover Google Trust Services and ZeroSSL. A new service starts with a self-signed certificate for about 30 minutes, so verification failing then is expected; the fix is to wait, never to weaken the mode.
-  - `'require'` → `{ rejectUnauthorized: false }`, allowed **only** when `TIGER_TLS_UNVERIFIED=1` is also set. **Free services supply no SSL certificate**, so this is the only mode that works there: encrypted but not server-authenticated. It is acceptable only because the data is synthetic simulation evidence whose original stays local, and it is recorded as a risk in the overview.
+  - `'require'` → `{ rejectUnauthorized: false }`, allowed **only** when `TIGER_TLS_UNVERIFIED=1` is also set. **Free services supply no SSL certificate**, so this is the only mode that works there: encrypted but not server-authenticated. **What it risks is the credentials, not only the data.** The importer, reader and admin passwords all cross that channel. An active man-in-the-middle, for example on venue Wi-Fi, can relay the SCRAM exchange and gain write access, or keep it for an offline dictionary attack. It could then answer the post-commit re-read too. So `'require'` is allowed only with all of these (overview §10, TIG-D8, TIG-R41):
+    1. SCRAM channel binding (SCRAM-SHA-256-PLUS; node-postgres `enableChannelBinding: true`), failing if the server does not offer it. Driver support, and whether it can be made mandatory, are UNVERIFIED; TIG-03 checks;
+    2. long random passwords for all three roles;
+    3. migrations and imports only from a trusted network, never venue Wi-Fi;
+    4. rotation of all three passwords after the event;
+    5. if channel binding is unavailable, any import or migration outside a trusted network needs a paid or trial service with `'verify-full'`.
   - `sslmode=disable` and every other mode are refused. At start-up the gateway logs one line stating the effective mode, with a warning that names the weaker mode when it is `'require'`.
 - **Pin the exact `pg` version.** In pg 8.x (pg-connection-string 2.x), URL `sslmode=require` is reportedly an alias for verify-full with a deprecation warning, and libpq semantics arrive in pg 9 (UNVERIFIED). Refusing URL TLS parameters makes the behaviour independent of that, but TIG-03 records which semantics the pinned version has.
 
@@ -896,18 +937,21 @@ END $$;
 -- ALTER ROLE encore_api_app SET default_transaction_read_only = on;   -- second layer only
 -- REVOKE TEMPORARY ON DATABASE tsdb FROM PUBLIC;   -- only if tsdbadmin may (UNVERIFIED)
 
--- PROPOSED — NOT A MIGRATION (006_roles.sql: grants only, unqualified names in the file)
-GRANT USAGE ON SCHEMA encore TO encore_importer, encore_reader;
-GRANT SELECT, INSERT ON encore.experiment_runs, encore.simulation_metrics, encore.simulation_events,
-                        encore.run_summaries, encore.import_conflicts, encore.run_verifications
+-- PROPOSED — NOT A MIGRATION (006_roles.sql: grants only)
+GRANT SELECT, INSERT ON experiment_runs, simulation_metrics, simulation_events,
+                        run_summaries, import_conflicts, run_verifications
                      TO encore_importer;
-GRANT SELECT ON encore.schema_migrations TO encore_importer;   -- the §7 compatibility check
-GRANT SELECT ON ALL TABLES IN SCHEMA encore TO encore_reader;   -- includes the metrics_v view
-ALTER DEFAULT PRIVILEGES IN SCHEMA encore GRANT SELECT ON TABLES TO encore_reader;
+GRANT SELECT ON schema_migrations TO encore_importer;   -- the §7 compatibility check
+-- These three name the schema, so the runner issues them through the checked %I helper (§7):
+--   GRANT USAGE ON SCHEMA <schema> TO encore_importer, encore_reader;
+--   GRANT SELECT ON ALL TABLES IN SCHEMA <schema> TO encore_reader;   -- includes the metrics_v view
+--   ALTER DEFAULT PRIVILEGES IN SCHEMA <schema> GRANT SELECT ON TABLES TO encore_reader;
 ```
 
+- **`search_path` cannot be hijacked by the importer or reader.** Neither has CREATE on the schema (T32 asserts that the importer's `current_user` is not the owner), so neither can plant a same-named object that `search_path` would resolve first.
+
 - **Grants enforce read-only; `default_transaction_read_only` does not.** It is only a session default, and a client can run `SET default_transaction_read_only = off` or `BEGIN READ WRITE`. It stays as a second layer. The role-level `statement_timeout` and `CONNECTION LIMIT` matter because a leaked reader credential otherwise has unlimited query time, and with `max_connections` = 25 and a `tsdbadmin` that is not a superuser, a runaway client could lock the owner out.
-- The importer has **no UPDATE, DELETE or TRUNCATE**. Archival (Q16), restore (Q16b) and deletion (Q16c) run under the owner role, by hand, through `tiger archive | restore | delete <runId>` with a separate `TIGER_OWNER_DATABASE_URL` that is never stored in the gateway's environment.
+- The importer has **no UPDATE, DELETE or TRUNCATE**. Archival (Q16), restore (Q16b) and deletion (Q16c) run under the owner role, by hand, through `tiger archive | restore | delete <runId>` with the admin credential `TIGER_ADMIN_DATABASE_URL`. It is supplied only for that command and never stored in the API's or the importer's environment.
 - Tiger notes that a read-only role "does not provide resource isolation". A read replica is a Scale and Enterprise feature and is out of MVP. If one is added, it serves the API only; verification always reads the primary (§11.1).
 - **Path rule.** No component opens a file through a path read from the database. Import and reconciliation open only files found by scanning `--dir` or `--evidence-root`: each is resolved with `path.resolve(root, p)` and must stay inside `root`, `lstat` refuses symlinks, and UNC (`\\…`) and drive-letter paths are refused before any open (on Windows an opened UNC path makes an outbound SMB connection).
 
@@ -975,7 +1019,7 @@ Measure these as part of the live tests before quoting any of them.
 
 ### 15.1 Individual drone positions (William §11, out of scope)
 
-The full matrix would produce 240 runs × 200 drones × 360 samples = **17,280,000** rows. Positions are not in `MetricsSample`. Extracting them needs a `WorldSnapshot` export (X-OUT `snapshot` lines, whose lite projection is capped at 120 per file, provisional: #110), and they largely duplicate what deterministic replay already gives: seed, params, git and events reproduce every position, and `stateHash` checks the result.
+The full matrix would produce 240 runs × 200 drones × 360 samples = **17,280,000** rows. Positions are not in `MetricsSample`. Extracting them needs a `WorldSnapshot` export (X-OUT `snapshot` lines (provisional, #110), whose lite projection is capped at 120 per file), and they largely duplicate what deterministic replay already gives: seed, params, git and events reproduce every position, and `stateHash` checks the result.
 
 They are added only with a named analytics requirement and a **measured** storage budget. If added, the shape would be: a separate hypertable `drone_positions (sample_time, run_id, tick, drone_id, x, y, z, alive)` with PRIMARY KEY `(run_id, sample_time, drone_id)` and the same tick → time CHECK, loaded with `COPY`. Because every run shares one 90 s synthetic range, all 17 M rows would land in one chunk, so a space dimension on `run_id` or measured chunk sizing (§6.2) is a precondition for proposing that DDL. Columnstore would be worth evaluating there (`segmentby run_id`, `orderby tick, drone_id`), with the policy caveat of §6.2. No DDL is proposed now.
 
@@ -984,7 +1028,7 @@ They are added only with a named analytics requirement and a **measured** storag
 `inHold` is internal to the observer. It is pushed into the summary samples (`src/observer/index.ts:62`) but is not part of `MetricsSample`. So SQL cannot reproduce `tRec`, the hold-window means (`npwcEnd`: ticks 1700–1799, which excludes the tick-1800 sample; `npwcEndA`: ticks 800–899), `npwcDeficitSec` or `dupSlotSec` (`src/observer/summary.ts:56-78,99-124`). Even with `inHold`, `capacityLoss`, `coordLoss`, `msgsPerDroneSec`, `splitSec`, `tVersion` and the adoption keys stay underivable, because they need per-tick or per-drone data. **The MVP needs no contract change:** every summary value comes from `RunRecord.summary` (TD-7). There are two ways to get `inHold` if it is later wanted.
 
 1. **TIG-CC-01: PROPOSED CONTRACT CHANGE — REQUIRES ARNAV APPROVAL.** Add `inHold: boolean` per sample, in a `RunRecord` v2 or a versioned `MetricsSample`. It is deferred, and it is defined in the overview. Its ingestion impact would be migration 00x adding `in_hold BOOLEAN NULL` (NULL for v1 rows), plus a validator v2 branch.
-2. **Offline derivation (TCR *inHold derivation*), with no contract change, for CLI records only.**
+2. **Offline derivation (TCR-28), with no contract change, for CLI records only.**
    - `inHold` = `currentMovement(believedScore, tick).inHold` (`src/observer/index.ts:24-26`, `src/score/timing.ts:23-24`).
    - The believed score is the newest version with a count above 0 in `sample.versions`. It resolves to `buildEvalScore(params)` for `0:-1`, or to the score of the matching `INJECT_SCORE` event.
    - This is Node-side work that imports `src/score` and the scenario builder, so it cannot run in the gateway under XI-2 without extracting the score builder.
@@ -1001,7 +1045,17 @@ They are added only with a named analytics requirement and a **measured** storag
   - post-kill counted inclusively (`tick >= killTick`);
   - an absent `KILL` gives an absent key.
 
-Until both pass, the dashboard's "sustained recovery interval" stays derived only from the authoritative `tRec` (TD-7; analytics RFC).
+Until both pass, the dashboard's first-qualifying-12-sample-streak band (`tRec > 0` only) stays derived only from the authoritative `tRec` (TD-7; [overview §6.5](../integrations/tiger-data-analytics.md#65-recovery-and-censoring), TCR-10; analytics RFC).
+
+### 15.3 Live telemetry (TIG-11, stretch)
+
+Live telemetry is not part of this RFC's import path, and no DDL for it is proposed. The constraints below are fixed in [work package TIG-11](../planning/tiger-data-integration-work-packages.md#tig-11-optional-live-ingestion-stretch) and the overview; they are repeated only so this RFC does not contradict them.
+
+- **Boundary.** It is covered by neither X-OUT (offline files) nor X-RUN/live (operator-initiated requests only). It needs a proposed **X-OUT/live** amendment to the #110 boundaries doc, named by D3. That doc records it as an open question (OIB-Q5, proposed by #142), not as an accepted boundary (provisional, #110).
+- **Sender.** `src/app/live/telemetry/`, behind its own build flag (XI-14). `offer()` runs once per rendered frame, after all `stepBoth()` calls, never in the tick loop.
+- **Write route.** A separate entry point of the same gateway package, `integrations/gateway/src/tiger-live/server.ts`, built on the shared skeleton (guard, errors, config) and allowed only if OIB-Q5 is accepted (XI-20). It has its own credential `TIGER_LIVE_WRITE_URL` and an INSERT-only role on a staging table. The read API process refuses to start if that variable is set.
+- **Idempotency.** The staging key is (`streamId`, `arm`, `seq`). Live rows stay provisional and are never claimed complete. Evidence still enters only through §10 as the final `RunRecord`, imported and verified (TD-14).
+- **Write authentication** is decision TIG-D13 (overview).
 
 ## 16. Planned checks (none executed)
 
@@ -1010,16 +1064,17 @@ There is **no executed evidence** for any of this RFC. Nothing has been imported
 | Area | RFC sections | Evaluation range |
 |---|---|---|
 | Validation rules, nullability, counters, caps, the NaN→null caveat, writer form | §3 | TIG-T01–T12 (import correctness) |
+| `DEV_SEED`: seeds 101–105 refused by the importer in `encore`, accepted in a test schema | §10 | no test ID yet: the evaluation is to add this importer case to TIG-T01–T12 (T18 and T22 cover only the analytics exclusion) |
 | Hash vectors and dirty-git handling | §4 | TIG-T01–T12 |
 | Idempotent re-import (including re-serialised and moved copies), conflicts, the state machine (including `archived` and restore), crash cases A–H, `run_verifications` and the `verified` rule, ledger loss and rebuild, two worktrees with two ledgers, the optional catalogue order | §5, §10–§11, §13 | TIG-T13–T16 (cross-database and ledger) |
-| `inHold` equivalence (if pursued) | §15.2 | TIG-T17–T26 (experimental correctness) |
-| Roles: importer cannot UPDATE or DELETE; reader cannot write even after `BEGIN READ WRITE`; connection limits; URL TLS parameters refused; database-supplied paths never opened. No secrets in logs or errors | §13 | TIG-T31–T36 (security) |
+| `inHold` equivalence (if pursued) | §15.2 | no test ID until TIG-CC-01 or TCR-28 is pursued (a new ID then) |
+| Roles: importer cannot UPDATE or DELETE; reader cannot write even after `BEGIN READ WRITE`; connection limits; URL TLS parameters refused; database-supplied paths never opened; each process refuses a credential it must not hold; migrations never run as the importer. No secrets in logs or errors | §7, §13 | TIG-T31–T36 (security) |
 | Advisory-lock key for a key starting `8`–`f` (the §4.4 `8a55…` vector) | §9 | TIG-T01–T12, TIG-T41–T42 |
 | Live service: hypertable creation form, immutable CHECK accepted, generated columns, FK, round-trip digests on Tiger, timings in §14 | §6, §9, §14 | TIG-T41–T44 (live integration and acceptance) |
 
-Fixtures are the 50 committed records, read in place. **The Tiger workflow never writes to `results/`** (TCR *overwrite guard*; TCR-06, minimum matrix).
+Fixtures are the 50 committed records, read in place. **The Tiger workflow never writes to `results/`** (TCR-21; TCR-06, minimum matrix).
 
-## 17. Provider facts used (checked 2026-11-15) and report-back notes
+## 17. Provider facts used (checked 2026-11-15) and open questions
 
 | Fact | Status |
 |---|---|
@@ -1038,30 +1093,12 @@ Fixtures are the 50 committed records, read in place. **The Tiger workflow never
 | `extra_float_digits` defaults to 1, which gives shortest-precise, exactly round-tripping float output (postgresql.org) | VERIFIED |
 | New services start with a self-signed certificate; a Google or ZeroSSL certificate usually arrives within about 30 minutes | VERIFIED (provider docs) |
 | `to_jsonb()` is STABLE; `->>` and `int4out` are IMMUTABLE | PARTLY (PostgreSQL catalogue as documented; re-check `pg_proc.provolatile` on the service) |
-| COPY or named statements through the transaction-mode pooler; node-postgres URL parameters overriding the config object, and pg 8.x treating `sslmode=require` as verify-full; columnstore and continuous aggregates on free services; immutability of the §6.4 casts on the service; whether `tsdbadmin` may `REVOKE TEMPORARY … FROM PUBLIC` | UNVERIFIED |
-
-**Report-back notes for the overview and sibling documents.** These are not decided here.
-
-- New deviations that need `TCR` records:
-  - (i) primary key `(run_id, sample_time)` instead of William's `(sample_time, run_id, tick)`;
-  - (ii) `t_rec_applicable`, because William's `t_rec_seconds` loses the difference between absent and null;
-  - (iii) `seed` as `BIGINT`;
-  - (iv) the partial unique index, which narrows TD-5's "UNIQUE" for dirty runs (TCR *dirty git*);
-  - (v) `import_conflicts` kept in Tiger;
-  - (vi) the API's `verified` flag defined from the `run_verifications` table (§6.5, §11.1), a fifth table beyond TD-5's list, in migration 005;
-  - (vii) the `archived` import state and the owner-only restore (Q16b) and delete (Q16c);
-  - (viii) manifest identity fields split from first-observation fields (§5);
-  - (ix) one `hashVersion` per database, so a bump is a rebuild (§4.5);
-  - (x) minimum PostgreSQL 16 and TimescaleDB 2.20, with no run-time DDL variants (§7).
-- **Analytics RFC.** `verified` per §11.1 must be selected in Q17, Q22 and Q24, and unverified runs excluded from pairs and multi-seed reports with reason `UNVERIFIED` (pair deltas null). Q24 also needs `hash_version = current` and `expected_samples = expectedTicks / 5`, with reasons `HASH_VERSION` and `HORIZON`. Q17's `seed` parameters must be `::bigint`. `dt_seconds` is the DT at the record's `git` (§8), and the `DT` refusal can fire only against the fake. "Re-import to restore" becomes the owner's restore (Q16b).
-- **Overview.** Record (vi)–(x) as TCRs. Say that grants enforce read-only and `default_transaction_read_only` is a second layer. TIG-R15's DT half adds nothing beyond `git` against the database.
-- **Evaluation.** T12: `FX-RESER` and a moved copy both end `verified` with zero new data rows. T13/T43: a case-G run reports `verified: false`, a case-H run is excluded. T15 (or a new T45): archive, re-import gives `ARCHIVED`, restore gives `verified`; two worktrees with two ledgers. T32: `BEGIN READ WRITE; INSERT …` is denied, a fourth reader connection is refused. T33: rows carrying `../../x`, `\\h\s\x.json`, `results/../../x` are refused or never opened. T35: a URL with `sslmode=no-verify` or `prefer` is refused; a wrong-hostname certificate fails `verify-full`; the effective mode is logged. New `FX-BAD` fixtures for `\u0000`, a lone surrogate and a bad event `id`. Lock-key and seed 4294967295 vectors. T20/T25: limit the DT case to the fake.
-- **Work packages.** TIG-03 maps `sslMode` to driver options as in §13 and pins `pg`.
-- TD-8 requires calling `report.ts`, but XI-2 forbids the gateway from importing `src/cli`. Both depend on extracting the pure modules (TCR *canonicalJson placement*, TCR *report.ts private helpers*).
-- This RFC uses queries Q1–Q16 (Q13 is the verification insert; Q16b and Q16c are owner-only). The analytics RFC should use Q17 onwards.
+| COPY or named statements through the transaction-mode pooler; node-postgres URL parameters overriding the config object, and pg 8.x treating `sslmode=require` as verify-full; columnstore and continuous aggregates on free services; immutability of the §6.4 casts on the service; whether `tsdbadmin` may `REVOKE TEMPORARY … FROM PUBLIC`; node-postgres SCRAM channel binding (`enableChannelBinding`) against a Tiger service, whether it can be made mandatory, and what certificate a free service presents | UNVERIFIED |
 
 **Open questions** (not decided here):
 
 - Should restore (Q16b) and delete (Q16c) run as the owner by hand, as proposed, or through a `SECURITY DEFINER` function such as `encore.restore_run(…)` with EXECUTE granted to a dedicated role? The owner route keeps the importer INSERT-only; the function route avoids handing out the owner URL. Decision for Arnav.
 - Is a separate `artifact_copies` table worth having, so the read API can show every file a record has been seen as? The MVP keeps those observations in the local ledger only.
 - Must a run verified on another machine be re-verified locally before a demo, or is its latest Q13 row enough? This RFC treats the Q13 row as enough (§11.2).
+- Should rejections be visible to readers? Today a `rejected` attempt lives only in the local ledger, so the analytics side can report a missing seed only as `absent`. An append-only `import_attempts` table (hashes, reason code, no payload; importer INSERT-only) would let readers tell "never imported" from "rejected". It would be a sixth table beyond TD-5's list. Not proposed for the MVP; decision for Arnav.
+- How does the importer read `src/contracts/params.ts` at a record's `git` (§8) without a child process? No gateway process spawns children (TR-2), so `git show` is out. The options are that the operator passes the file, or a pure reader of the local git objects (work packages §13 item 5). Decision for Arnav, recorded in the overview.
