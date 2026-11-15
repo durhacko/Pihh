@@ -72,12 +72,15 @@ describe('SpatialGrid.within equals a brute-force scan', () => {
 });
 
 describe('the world with dCollide = dNear = 0 (contact grid cell size 0; #115 review)', () => {
-  // Expected values computed on origin/main 571c8e4, before the per-radius grids: the run must terminate and
-  // reproduce main's state exactly. With d < 0 never true, there are no collisions and no near-misses.
+  // The run must terminate and reproduce a pinned state. With d < 0 never true, there are no collisions and no
+  // near-misses. The hashes were first computed on origin/main 571c8e4 (static 0f12949fd481e213, encore
+  // 865c98b2951dcbbe), before the per-radius grids. #64 / #82 then passes `sensed` in geometric order instead of id
+  // order, which changes the summation order in steer and so the last bits of every trajectory: these are the
+  // values with geometric sensing.
   it.each([
-    ['static', staticBrain, '0f12949fd481e213'],
-    ['encore', encoreBrain, '865c98b2951dcbbe'],
-  ] as const)('%s brain: 20 ticks terminate, no contacts, and the stateHash matches main', (_name, brain, mainHash) => {
+    ['static', staticBrain, '7caa1da974548a9d'],
+    ['encore', encoreBrain, 'edc2959a73629b7e'],
+  ] as const)('%s brain: 20 ticks terminate, no contacts, and the stateHash matches the pinned value', (_name, brain, mainHash) => {
     const params = makeParams(30, { dCollide: 0, dNear: 0 });
     const world = createWorld({ seed: 5, params, score: makeScore([{ kind: 'sphere' }], 30, params), brain: brain as AgentBrain, events: [] });
     let contacts = 0;

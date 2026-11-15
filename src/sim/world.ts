@@ -3,6 +3,7 @@ import type { AgentInput, AgentOutput, EnvEvent, Message, RadioEvent, Vec3, Worl
 import { SpatialGrid } from './grid';
 import { clampLength, distanceSquared, launchPosition, subtract } from './math';
 import { createRandom, hashSeed, hashText } from './random';
+import { senseFrom } from './sensing';
 
 interface Body {
   id: number; alive: boolean; diedTick: number | null;
@@ -140,11 +141,10 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     const inputs = new Map<number, AgentInput>();
     for (const id of live) {
       const body = bodies[id];
-      const sensed: AgentInput['sensed'][number][] = [];
-      for (const peer of senseGrid.within(body.pos, params.rSense)) {
-        if (peer !== id) sensed.push({ rel: subtract(bodies[peer].pos, body.pos), vel: subtract(bodies[peer].vel, body.vel) });
-      }
-      const input: AgentInput = { tick, pos: clone(body.pos), vel: clone(body.vel), inbox: inboxes[id], sensed };
+      const peers: Body[] = [];
+      for (const peer of senseGrid.within(body.pos, params.rSense)) if (peer !== id) peers.push(bodies[peer]);
+      // Geometric order, never id order: the order of anonymous entries must not identify a drone (#64).
+      const input: AgentInput = { tick, pos: clone(body.pos), vel: clone(body.vel), inbox: inboxes[id], sensed: senseFrom(body, peers) };
       inputs.set(id, test.freezeInputs ? freeze(input) : input);
     }
     // 4. Brains only get their private state and detached, local input.
