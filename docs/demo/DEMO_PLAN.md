@@ -56,7 +56,7 @@ Startup time, browser fps, offline pass and reset demonstration: **not measured/
 
 > **Scripted, not yet rehearsed by a person.** The 90-second script ([experience §9](../design/experience-and-demo.md#9-scripted-demo), #27) runs unattended and gives the same result each time in headless tests. It had two headless-browser runs before the #114 retiming and the Encore brain, and none since (see Verification below). No presenter rehearsal is recorded (see below).
 
-**Run it.** Open the production preview, then press **Show** in the dock or **D**. The script resets both worlds to its own seed, sets 1×, turns X-ray and belief colours off, shows the Encore view, and plays, so neither the seed nor `?split=1` in the URL matters. Its captions appear above the dock. A line under each caption shows progress and any problem.
+**Run it.** Open the production preview, then press **Show** in the dock or **D**. The script resets both worlds to its own seed, sets 1×, turns X-ray, belief colours and tethers off, shows the Encore view, and plays, so neither the seed nor `?split=1` in the URL matters. Its captions appear above the dock. A line under each caption shows progress and any problem.
 - **Stop:** press **D** (or **Show**) again. The script stops, and the show resets to seed 101 in the Encore view. The reset discards any event the script had already scheduled, up to 3 s ahead. The show keeps playing.
 - **Run again:** there is no Restart button. Press **D** (or **Show**) to start from the beginning: once after the end, or twice while it runs (stop, then start).
 - **Outside reset:** a reset or seed change from the dock, the keys or the console stops the script.
