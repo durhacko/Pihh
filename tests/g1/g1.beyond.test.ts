@@ -73,8 +73,8 @@ describe('beyond G1: the clumped kill on every kill centre (n0 = 40, seed 1, 20 
   // are quiet in the last 10 s; the latest last commit comes 20.20 s after the kill, 0.2 s inside the last 10 s
   // of the 30 s window. Before pacing it was 35 of 40: centres 7, 15, 21, 23 and 36, at 20.20 to 20.95 s. Cause (traced): a chain of four waves in
   // which one drone hops twice; its second hop waits tStable (6 s) + tVacant (2 s) + claimWindow (1 s) after
-  // its first commit (contract section 8.5, limit 3: slow by design). Run for 60 s, each of the five is
-  // quiet from that commit on. The gate (./g1.test.ts) did not draw these (seed, centre) pairs.
+  // its first commit (contract section 8.5, limit 3: slow by design). Run for 60 s at 0b2f8f3, both late centres
+  // (15 and 30, last commit 20.20 s) are quiet from that commit on. The gate (./g1.test.ts) did not draw these (seed, centre) pairs.
   // it.fails: this test passes only while the assertion fails. If the brain or the timers change so that
   // all 40 are quiet in time, it turns red: then delete `.fails` and update the numbers in the PR and docs.
   it.fails('KNOWN MISS: on every one of the 40 centres there is no commit in the last 10 s (measured: 38 of 40)', () => {
