@@ -1,0 +1,6 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Heart", "view": "front", "foreground": [0.9, 0.1, 0.2],
+  "parts": [ { "id": "heart", "operation": "union", "geometry": { "type": "path", "points": [
+    [0, -1], [-0.6, -0.4], [-1.2, 0.3], [-0.6, 0.8],
+    [-0.25, 1.05], [0, 0.8], [0, 0.55],
+    [0, 0.8], [0.25, 1.05], [0.6, 0.8],
+    [1.2, 0.3], [0.6, -0.4], [0, -1] ] }, "priority": 5 } ] }

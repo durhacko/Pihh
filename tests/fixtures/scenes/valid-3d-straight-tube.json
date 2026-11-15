@@ -1,0 +1,3 @@
+{ "version": 1, "mode": "scene3d", "title": "Straight Tube", "referenceView": "side",
+  "materials": [ { "id": "steel", "rgb": [0.6, 0.62, 0.65] } ],
+  "parts": [ { "id": "tube", "shape": { "type": "taperedTube", "points": [[0, -1, 0], [0, -0.33, 0], [0, 0.33, 0], [0, 1, 0]], "startRadius": 0.2, "endRadius": 0.1 }, "materialId": "steel", "importance": 5 } ] }

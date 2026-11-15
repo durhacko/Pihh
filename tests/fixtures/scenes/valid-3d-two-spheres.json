@@ -1,0 +1,6 @@
+{ "version": 1, "mode": "scene3d", "title": "Two Overlapping Spheres", "referenceView": "three-quarter",
+  "materials": [ { "id": "red", "rgb": [0.9, 0.1, 0.1] }, { "id": "blue", "rgb": [0.1, 0.2, 0.9] } ],
+  "parts": [
+    { "id": "left", "shape": { "type": "ellipsoid", "center": [-0.4, 0, 0], "radii": [0.6, 0.6, 0.6] }, "materialId": "red", "importance": 4 },
+    { "id": "right", "shape": { "type": "ellipsoid", "center": [0.4, 0, 0], "radii": [0.6, 0.6, 0.6] }, "materialId": "blue", "importance": 4, "symmetry": "none" }
+  ] }

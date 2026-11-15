@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "mode": "scene3d",
+  "title": "Grey Elephant",
+  "referenceView": "three-quarter",
+  "materials": [
+    {"id": "skin", "rgb": [0.50, 0.53, 0.57]},
+    {"id": "ears", "rgb": [0.65, 0.58, 0.61]},
+    {"id": "ivory", "rgb": [0.96, 0.91, 0.77]},
+    {"id": "eyes", "rgb": [0.06, 0.06, 0.07]}
+  ],
+  "parts": [
+    { "id": "body", "shape": { "type": "ellipsoid", "center": [0, 0, 0], "radii": [0.85, 0.60, 0.50] }, "materialId": "skin", "importance": 4 },
+    { "id": "head", "shape": { "type": "ellipsoid", "center": [0.72, 0.32, 0], "radii": [0.45, 0.48, 0.42] }, "materialId": "skin", "importance": 5 },
+    { "id": "trunk", "shape": { "type": "taperedTube", "points": [[1.02, 0.12, 0.08], [1.18, -0.15, 0.08], [1.24, -0.55, 0.12], [1.10, -0.73, 0.15]], "startRadius": 0.14, "endRadius": 0.07 }, "materialId": "skin", "importance": 5 }
+  ]
+}

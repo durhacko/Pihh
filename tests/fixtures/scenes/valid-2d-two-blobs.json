@@ -1,0 +1,5 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Two Blobs", "view": "front", "foreground": [1, 1, 1],
+  "parts": [
+    { "id": "left", "operation": "union", "geometry": { "type": "ellipse", "center": [-1.2, 0], "radii": [0.3, 0.3] }, "priority": 3 },
+    { "id": "right", "operation": "union", "geometry": { "type": "ellipse", "center": [1.2, 0], "radii": [0.3, 0.3] }, "priority": 3 }
+  ] }

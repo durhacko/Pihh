@@ -1,0 +1,2 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Five Point Stroke", "view": "front", "foreground": [1, 1, 1],
+  "parts": [ { "id": "line", "operation": "union", "geometry": { "type": "stroke", "points": [[-1, 0], [-0.5, 0.2], [0, 0], [0.5, -0.2], [1, 0]], "width": 0.1 }, "priority": 5 } ] }
