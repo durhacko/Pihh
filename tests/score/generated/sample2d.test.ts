@@ -558,6 +558,68 @@ describe('lattices and dense, continued', () => {
   });
 });
 
+describe('sparse and thin scenes (orchestrator review of #257)', () => {
+  const twoDots = (): Prepared => prepare(scene([disc('a', [-1.4, -1.4], 0.01), disc('b', [1.4, 1.4], 0.01)]));
+  const fewCells = (): Prepared => prepare(scene([disc('d', [0, 0], 0.5),
+    part('cut', { type: 'polygon', points: [[-0.6, -0.6], [0.6, -0.6], [0.6, 0.492], [-0.6, 0.492]] }, 'subtract')]));
+  const strokes = (): Prepared => prepare(scene(Array.from({ length: 12 }, (_, k) => {
+    const y = -0.9 + 0.15 * k;
+    return part(`s${k}`, { type: 'stroke', points: [[-1.2, y], [-0.4, y], [0.4, y], [1.2, y]], width: 0.02 });
+  })));
+
+  it.each([['two far-apart dots', twoDots], ['a union cut down to a few cells', fewCells], ['a dozen long thin strokes', strokes]])(
+    '%s: samples with dense at most 2,500, everything inside', (_label, make) => {
+      const p = make();
+      const r = run(p);
+      expect(r.dense.length).toBeGreaterThan(0);
+      expect(r.dense.length).toBeLessThanOrEqual(2500);
+      for (const d of r.dense) expect(p.region.contains(xy(d))).toBe(true);
+      for (const c of r.candidates) if (c.source !== 'boundary') expect(p.region.contains(xy(c))).toBe(true);
+    });
+
+  it('the per-cell lattice is exactly the old whole-box walk (points and order)', () => {
+    for (const p of [elephant, annulus]) {
+      const seed = 11;
+      const r = run(p, 200, seed);
+      const draw = rng(seed);
+      const u = draw();
+      const v = draw();
+      // Reference: every lattice point of the filled box, row by row, as before the change.
+      const n = p.mask.size;
+      let i0 = n; let j0 = n; let i1 = -1; let j1 = -1;
+      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) if (p.mask.bits[j * n + i]) { i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j); }
+      const bx = p.mask.origin[0] + i0 * p.mask.cell;
+      const by = p.mask.origin[1] + j0 * p.mask.cell;
+      const mx = p.mask.origin[0] + (i1 + 1) * p.mask.cell;
+      const my = p.mask.origin[1] + (j1 + 1) * p.mask.cell;
+      const s = r.stats.interiorSpacing;
+      const h = s * (Math.sqrt(3) / 2);
+      const ref: Pt2[] = [];
+      for (let row = 0; ; row++) {
+        const y = by + (v + row) * h;
+        if (y > my) break;
+        const shift = (row % 2) * 0.5;
+        for (let c = 0; ; c++) {
+          const x = bx + (u + shift + c) * s - s;
+          if (x > mx) break;
+          const ci = Math.floor((x - p.mask.origin[0]) / p.mask.cell);
+          const cj = Math.floor((y - p.mask.origin[1]) / p.mask.cell);
+          const filled = ci >= 0 && cj >= 0 && ci < n && cj < n && p.mask.bits[cj * n + ci] === 1;
+          if (x >= bx && filled && p.region.contains([x, y])) ref.push([x, y]);
+        }
+      }
+      expect(of(r, 'interior').map(xy)).toEqual(ref);
+    }
+  });
+});
+
+describe.runIf(WIDE)('P2_WIDE: timing of the sparse two-dot scene', () => {
+  it('two r = 0.01 dots in opposite corners sample within 2 s (vitest timeout; no clock in the test)', () => {
+    const p = prepare(scene([disc('a', [-1.4, -1.4], 0.01), disc('b', [1.4, 1.4], 0.01)]));
+    for (const n0 of [40, 200]) expect(run(p, n0).dense.length).toBeLessThanOrEqual(2500);
+  }, 2000);
+});
+
 describe('the injected stream, continued', () => {
   it.each([[[1, 0.5]], [[0.5, 1]], [[-0.1, 0.5]], [[0.5, -0.1]]])('rejects draws %j', (vals) => {
     let k = 0;

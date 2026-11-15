@@ -20,7 +20,7 @@
 // `next` (the compiler passes GF-WP-02's `seededStream(sceneHash, 'interior')`; this file never imports prng.ts);
 // arithmetic and Math.sqrt as they are, every other Math.* result snapped to 1e-9; no Math.hypot.
 // Everything is in the normalised space of shapes2d.ts, z = 0.
-import { cellCentre, filledArea, PROTECTED_PRIORITY, type Mask2D, type Part2D, type Pt2, type Region2D } from './shapes2d';
+import { cellCentre, filledArea, rasterise, PROTECTED_PRIORITY, type Mask2D, type Part2D, type Pt2, type Region2D } from './shapes2d';
 import type { SceneSpec2D, Vec3 } from './types';
 
 /** Linear-or-sRGB triple in 0..1, structurally the contract's RGB (src/contracts is not imported here). */
@@ -109,8 +109,12 @@ export const K_MIN = 3;
 /** Spec §7.2 step 5: the interior lattice has about max(INTERIOR_MIN, INTERIOR_PER_N0·n0) points. */
 export const INTERIOR_MIN = 1500;
 export const INTERIOR_PER_N0 = 4;
-/** Spec §7.8: about 2,000 dense points (test band 1,500–2,500). */
+/** Spec §7.8: about 2,000 dense points (test band 1,500–2,500); DENSE_MAX is the hard cap
+ * (tests/score/expand.test.ts caps dense at 2,500 too). */
 export const DENSE_TARGET = 2000;
+export const DENSE_MAX = 2500;
+const DENSE_RETRIES = 4;
+const DENSE_FLOOR_TARGET = 200;
 /** Spec §7.4 step 1: hexagonal packing at spacing s needs about 0.866·s² per point; δ₀ factor 0.9. */
 export const HEX_PACKING = 0.866;
 export const DELTA0_FACTOR = 0.9;
@@ -391,7 +395,7 @@ function principalAxis(pts: readonly Pt2[]): Pt2[] {
 }
 
 /** The feature line of a protected part (approved default: centreline, major axis, or skeleton). */
-function featureLine(part: Part2D, mask: Mask2D, step: number): { kind: FeatureLine2D['kind']; points: Pt2[]; length: number } {
+function featureLine(part: Part2D, region: Region2D, mask: Mask2D, step: number): { kind: FeatureLine2D['kind']; points: Pt2[]; length: number } {
   const g = part.geometry;
   if (g.type === 'stroke' && part.centreline) {
     const line = part.centreline;
@@ -416,11 +420,11 @@ function featureLine(part: Part2D, mask: Mask2D, step: number): { kind: FeatureL
   const w = i1 - i0 + 1;
   const h = j1 - j0 + 1;
   const img = new Uint8Array(Math.max(0, w * h));
+  // shapes2d's own scanline fill of this one part: bit for bit containsXY at each cell centre, without
+  // a point-in-polygon test per cell against every ring vertex.
+  const own = rasterise({ ...region, parts: [part] }, mask.size);
   for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const p = cellCentre(mask, i0 + x, j0 + y);
-      if (part.containsXY(p[0], p[1])) img[y * w + x] = 1;
-    }
+    for (let x = 0; x < w; x++) img[y * w + x] = own.bits[(j0 + y) * mask.size + (i0 + x)];
   }
   zhangSuen(img, w, h);
   const skeleton: Pt2[] = [];
@@ -462,21 +466,51 @@ function filledBounds(mask: Mask2D): { min: Pt2; max: Pt2 } {
     max: [mask.origin[0] + (i1 + 1) * mask.cell, mask.origin[1] + (j1 + 1) * mask.cell] };
 }
 
-/** Hexagonal lattice points with spacing s and offset fractions (u, v) of a step, kept where the mask
- * cell is filled AND the region contains the point. */
-function latticeAt(mask: Mask2D, region: Region2D, box: { min: Pt2; max: Pt2 }, s: number, u: number, v: number): Pt2[] {
+/**
+ * Hexagonal lattice points with spacing s and offset fractions (u, v) of a step, kept where the mask
+ * cell is filled AND the region contains the point: point (r, c) is at y = by + (v + r)·h and
+ * x = bx + (u + shift_r + c − 1)·s, with (bx, by) the filled box's corner.
+ * Enumerated per filled cell, so the cost follows the filled area, not the box (two far-apart dots
+ * would otherwise walk millions of empty lattice points). Each point is assigned to the cell its own
+ * coordinates fall in (the same floor arithmetic as `isFilled`), so none is counted twice or missed,
+ * and the result is sorted back into row-then-column order.
+ */
+function latticeAt(mask: Mask2D, region: Region2D, box: { min: Pt2; max: Pt2 }, filled: Int32Array, s: number, u: number, v: number): Pt2[] {
   const h = s * ROW;
-  const out: Pt2[] = [];
-  for (let r = 0; ; r++) {
-    const y = box.min[1] + (v + r) * h;
-    if (y > box.max[1]) break;
-    const shift = (r % 2) * 0.5;
-    for (let c = 0; ; c++) {
-      const x = box.min[0] + (u + shift + c) * s - s;
-      if (x > box.max[0]) break;
-      if (x >= box.min[0] && isFilled(mask, x, y) && region.contains([x, y])) out.push([x, y]);
+  const [bx, by] = box.min;
+  const n = mask.size;
+  const found: { r: number; c: number; p: Pt2 }[] = [];
+  for (const idx of filled) {
+    const i = idx % n;
+    const j = (idx - i) / n;
+    const y0 = mask.origin[1] + j * mask.cell;
+    const x0 = mask.origin[0] + i * mask.cell;
+    const r0 = Math.max(0, Math.floor((y0 - by) / h - v) - 1);
+    const r1 = Math.ceil((y0 + mask.cell - by) / h - v) + 1;
+    for (let r = r0; r <= r1; r++) {
+      const y = by + (v + r) * h;
+      if (Math.floor((y - mask.origin[1]) / mask.cell) !== j) continue;
+      const shift = (r % 2) * 0.5;
+      const c0 = Math.max(0, Math.floor((x0 - bx) / s - u - shift + 1) - 1);
+      const c1 = Math.ceil((x0 + mask.cell - bx) / s - u - shift + 1) + 1;
+      for (let c = c0; c <= c1; c++) {
+        const x = bx + (u + shift + c) * s - s;
+        if (x < bx || Math.floor((x - mask.origin[0]) / mask.cell) !== i) continue;
+        if (isFilled(mask, x, y) && region.contains([x, y])) found.push({ r, c, p: [x, y] });
+      }
     }
   }
+  found.sort((a, b) => a.r - b.r || a.c - b.c);
+  return found.map((f) => f.p);
+}
+
+/** Indices of the filled cells, row-major. */
+function filledCells(mask: Mask2D): Int32Array {
+  let count = 0;
+  for (let k = 0; k < mask.bits.length; k++) count += mask.bits[k];
+  const out = new Int32Array(count);
+  let q = 0;
+  for (let k = 0; k < mask.bits.length; k++) if (mask.bits[k]) out[q++] = k;
   return out;
 }
 
@@ -484,10 +518,11 @@ function latticeAt(mask: Mask2D, region: Region2D, box: { min: Pt2; max: Pt2 }, 
  * √(count / target) until the count is within LATTICE_TOLERANCE (or the tries run out: the closest wins). */
 function hexLattice(mask: Mask2D, region: Region2D, area: number, target: number, u: number, v: number): { points: Pt2[]; spacing: number } {
   const box = filledBounds(mask);
+  const filled = filledCells(mask);
   let s = Math.sqrt(area / (HEX_PACKING * target));
   let best: { points: Pt2[]; spacing: number } | null = null;
   for (let t = 0; t < LATTICE_TRIES; t++) {
-    const points = latticeAt(mask, region, box, s, u, v);
+    const points = latticeAt(mask, region, box, filled, s, u, v);
     if (!best || Math.abs(points.length - target) < Math.abs(best.points.length - target)) best = { points, spacing: s };
     if (Math.abs(points.length - target) <= LATTICE_TOLERANCE * target) break;
     s = points.length > 0 ? s * Math.sqrt(points.length / target) : s / 2;
@@ -499,18 +534,25 @@ function hexLattice(mask: Mask2D, region: Region2D, area: number, target: number
 function coverFilledCells(mask: Mask2D, region: Region2D, points: Pt2[], radius: number): void {
   if (!(radius > 0)) return;
   const r2 = radius * radius;
-  const span = mask.size * mask.cell;
-  const nb = Math.max(1, Math.ceil(span / radius));
-  const bucketOf = (v: number, o: number): number => Math.min(nb - 1, Math.max(0, Math.floor((v - o) / radius)));
-  const grid: Pt2[][] = Array.from({ length: nb * nb }, () => []);
-  const add = (p: Pt2): void => { grid[bucketOf(p[1], mask.origin[1]) * nb + bucketOf(p[0], mask.origin[0])].push(p); };
+  // Only occupied buckets exist (a Map), and a bucket is never smaller than a cell, so memory follows
+  // the number of points, not mask area / radius² (a scene of two tiny dots has a tiny radius).
+  const size = Math.max(radius, mask.cell);
+  const span = Math.ceil((mask.size * mask.cell) / size) + 3;
+  const bucketOf = (v: number, o: number): number => Math.floor((v - o) / size) + 1;
+  const grid = new Map<number, Pt2[]>();
+  const add = (p: Pt2): void => {
+    const key = bucketOf(p[1], mask.origin[1]) * span + bucketOf(p[0], mask.origin[0]);
+    const list = grid.get(key);
+    if (list) list.push(p);
+    else grid.set(key, [p]);
+  };
   for (const p of points) add(p);
   const covered = (p: Pt2): boolean => {
     const bi = bucketOf(p[0], mask.origin[0]);
     const bj = bucketOf(p[1], mask.origin[1]);
-    for (let j = Math.max(0, bj - 1); j <= Math.min(nb - 1, bj + 1); j++) {
-      for (let i = Math.max(0, bi - 1); i <= Math.min(nb - 1, bi + 1); i++) {
-        for (const q of grid[j * nb + i]) if ((q[0] - p[0]) * (q[0] - p[0]) + (q[1] - p[1]) * (q[1] - p[1]) <= r2) return true;
+    for (let j = bj - 1; j <= bj + 1; j++) {
+      for (let i = bi - 1; i <= bi + 1; i++) {
+        for (const q of grid.get(j * span + i) ?? []) if ((q[0] - p[0]) * (q[0] - p[0]) + (q[1] - p[1]) * (q[1] - p[1]) <= r2) return true;
       }
     }
     return false;
@@ -669,7 +711,7 @@ export function sample2d(scene: SceneSpec2D, region: Region2D, mask: Mask2D, opt
   const features: FeatureLine2D[] = [];
   region.parts.forEach((part, k) => {
     if (part.operation !== 'union' || part.priority < PROTECTED_PRIORITY) return;
-    const line = featureLine(part, mask, step);
+    const line = featureLine(part, region, mask, step);
     const first = candidates.length;
     for (const p of line.points) if (region.contains(p)) push(p, 'feature', k);
     features.push({ part: k, featureId: part.id, kind: line.kind, length: line.length, first, count: candidates.length - first });
@@ -685,8 +727,20 @@ export function sample2d(scene: SceneSpec2D, region: Region2D, mask: Mask2D, opt
   // Dense: from the region alone (spec §7.8), a fixed-offset lattice, never from candidates or slots,
   // then a row-major coverage pass so a part thinner than the lattice spacing (or a kept speck) is not
   // missed: any filled cell with no dense point within one spacing adds its centre.
-  const dense = hexLattice(mask, region, area, DENSE_TARGET, 0.5, 0.5);
+  // Coverage can push the count over the §7.8 cap (many long thin parts), so the lattice target is
+  // lowered by the excess and the pair rebuilt; a deterministic stride thin is the last resort.
+  let denseTarget = DENSE_TARGET;
+  let dense = hexLattice(mask, region, area, denseTarget, 0.5, 0.5);
   coverFilledCells(mask, region, dense.points, dense.spacing);
+  for (let t = 0; t < DENSE_RETRIES && dense.points.length > DENSE_MAX; t++) {
+    denseTarget = Math.max(DENSE_FLOOR_TARGET, denseTarget - (dense.points.length - DENSE_TARGET));
+    dense = hexLattice(mask, region, area, denseTarget, 0.5, 0.5);
+    coverFilledCells(mask, region, dense.points, dense.spacing);
+  }
+  if (dense.points.length > DENSE_MAX) {
+    const all = dense.points;
+    dense = { points: Array.from({ length: DENSE_MAX }, (_, k) => all[Math.floor((k * all.length) / DENSE_MAX)]), spacing: dense.spacing };
+  }
 
   const counts: Record<CandidateSource, number> = { boundary: 0, interior: 0, feature: 0 };
   for (const c of candidates) counts[c.source]++;
