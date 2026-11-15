@@ -330,6 +330,8 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       generated = { source, el: g.renderGeneratedSource(source, params.n0, () => render()), blocked: g.INJECT_BLOCKED };
       source.subscribe(() => renderTransmit());
       render();
+    }).catch(() => {
+      // A chunk that failed to load (flag on only): the generated tab stays absent and the panel works as before.
     });
   }
   /** Leaving the generated source drops its fixture preview (a draft preview is the draft's own). */

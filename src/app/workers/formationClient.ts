@@ -16,7 +16,7 @@ export interface CompileReply { requestId: string; result: CompileResult }
 export interface WorkerLike {
   postMessage(message: CompileRequest): void;
   addEventListener(type: 'message', listener: (event: MessageEvent<CompileReply>) => void): void;
-  addEventListener(type: 'error', listener: (event: Event) => void): void;
+  addEventListener(type: 'error' | 'messageerror', listener: (event: Event) => void): void;
   terminate(): void;
 }
 
@@ -28,14 +28,18 @@ export interface FormationClient {
   dispose(): void;
 }
 
-/** A typed rejection for a worker that failed before replying (it never throws to the caller). */
-function workerFailure(detail: string): CompileResult {
+/** A typed rejection for a compile that failed outside the compiler (it never throws to the caller). */
+export function workerFailure(detail: string): CompileResult {
   return { ok: false, code: 'internal', detail, sceneHash: null, compilerVersion: 0, warnings: [] };
 }
 
 /**
  * The worker is spawned lazily on the first compile, so a page that never opens the generated tab never starts it.
  * Replies are matched by requestId; anything that is not the latest request resolves 'stale' and is never applied.
+ * A failure of ONE request comes back from the worker as that request's own `internal` reply (formation.worker.ts
+ * catches it), so it can never be charged to another request. A worker-level `error` or `messageerror` means the
+ * worker itself is unusable (e.g. its chunk failed to load): every pending request gets an `internal` reply, the
+ * worker is terminated, and the next compile spawns a fresh one, so nothing waits for ever (#272 review).
  */
 export function createFormationClient(spawn: () => WorkerLike): FormationClient {
   let worker: WorkerLike | null = null;
@@ -54,14 +58,20 @@ export function createFormationClient(spawn: () => WorkerLike): FormationClient 
     if (worker) return worker;
     const w = spawn();
     w.addEventListener('message', (event: MessageEvent<CompileReply>) => {
+      if (worker !== w) return;                                       // a replaced worker's late message
       const reply = event.data;
       if (!reply || typeof reply.requestId !== 'string' || !pending.has(reply.requestId)) return;   // unknown or stale
       settle(reply.requestId, reply.requestId === latest ? reply : 'stale');
     });
-    w.addEventListener('error', (event: Event) => {
-      const message = (event as ErrorEvent).message || 'the preview worker failed';
-      if (latest) settle(latest, { requestId: latest, result: workerFailure(message) });
-    });
+    const dead = (event: Event) => {
+      if (worker !== w) return;
+      const message = (event as ErrorEvent).message || `the preview worker failed (${event.type})`;
+      worker = null;                                                  // the next compile spawns a fresh worker
+      w.terminate();
+      for (const id of [...pending.keys()]) settle(id, { requestId: id, result: workerFailure(message) });
+    };
+    w.addEventListener('error', dead);
+    w.addEventListener('messageerror', dead);
     worker = w;
     return w;
   };

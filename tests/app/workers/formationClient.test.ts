@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { makeParams } from '../../../src/contracts';
 import type { SceneSpec } from '../../../src/score/generated';
 import { createFormationClient, REQUEST_ID, type CompileReply, type CompileRequest, type WorkerLike } from '../../../src/app/workers/formationClient';
-import { handleCompileRequest } from '../../../src/app/workers/formation.worker';
+import { handleCompileRequest, isWorkerScope, respond } from '../../../src/app/workers/formation.worker';
 
 const scene = (file: string) => JSON.parse(readFileSync(`tests/fixtures/scenes/${file}`, 'utf8')) as SceneSpec;
 const params = makeParams(40);
@@ -14,11 +14,11 @@ const params = makeParams(40);
 /** A fake worker that records requests and replies only when the test says so, in any order. */
 function fakeWorker() {
   const posted: CompileRequest[] = [];
-  const listeners: { message: ((e: MessageEvent<CompileReply>) => void)[]; error: ((e: Event) => void)[] } = { message: [], error: [] };
+  const listeners: { message: ((e: MessageEvent<CompileReply>) => void)[]; error: ((e: Event) => void)[]; messageerror: ((e: Event) => void)[] } = { message: [], error: [], messageerror: [] };
   let terminated = false;
   const worker: WorkerLike = {
     postMessage: (m) => { posted.push(structuredClone(m)); },
-    addEventListener: (type: 'message' | 'error', listener: never) => { (listeners[type] as unknown[]).push(listener); },
+    addEventListener: (type: 'message' | 'error' | 'messageerror', listener: never) => { (listeners[type] as unknown[]).push(listener); },
     terminate: () => { terminated = true; },
   };
   return {
@@ -26,7 +26,8 @@ function fakeWorker() {
     get terminated() { return terminated; },
     reply(request: CompileRequest) { for (const l of listeners.message) l({ data: handleCompileRequest(request) } as MessageEvent<CompileReply>); },
     raw(data: unknown) { for (const l of listeners.message) l({ data } as MessageEvent<CompileReply>); },
-    fail(message: string) { for (const l of listeners.error) l({ message } as unknown as Event); },
+    fail(message: string) { for (const l of listeners.error) l({ message, type: 'error' } as unknown as Event); },
+    messageError() { for (const l of listeners.messageerror) l({ type: 'messageerror' } as unknown as Event); },
   };
 }
 
@@ -48,8 +49,23 @@ describe('the worker job (handleCompileRequest)', () => {
     expect(reply.result.code.length).toBeGreaterThan(0);
   });
 
-  it('importing the worker module outside a worker registers nothing (inert in Node and on the main thread)', () => {
-    expect((globalThis as { onmessage?: unknown }).onmessage ?? null).toBe(null);
+  it('registers only in a dedicated worker scope: never in Node or on a page with a document', () => {
+    expect(isWorkerScope(globalThis)).toBe(false);                 // this Node test process
+    const fn = () => {};
+    expect(isWorkerScope({ postMessage: fn, addEventListener: fn, document: {} })).toBe(false);   // a window
+    expect(isWorkerScope({ postMessage: fn, addEventListener: fn })).toBe(true);                    // a worker
+    expect(isWorkerScope(null)).toBe(false);
+  });
+
+  it('a request whose reply cannot be posted (DataCloneError) answers with ITS OWN internal rejection (#272 review 2)', () => {
+    const sent: CompileReply[] = [];
+    let first = true;
+    respond({ requestId: 'fc:7', scene: scene('valid-3d-sphere.json'), n0: 40, params }, (reply) => {
+      if (first) { first = false; throw new Error('DataCloneError'); }
+      sent.push(reply);
+    });
+    expect(sent).toEqual([{ requestId: 'fc:7', result: expect.objectContaining({ ok: false, code: 'internal' }) }]);
+    expect((sent[0].result as { detail: string }).detail).toContain('DataCloneError');
   });
 });
 
@@ -89,7 +105,7 @@ describe('createFormationClient', () => {
     expect(direct.result.ok && reply.result.slotsDigest === direct.result.slotsDigest).toBe(true);   // it is the newer scene
   });
 
-  it('ignores unknown or malformed replies; a worker error is a typed `internal` rejection for the latest request', async () => {
+  it('ignores unknown or malformed replies; a dead worker is a typed `internal` rejection for every pending request', async () => {
     const fake = fakeWorker();
     const client = createFormationClient(() => fake.worker);
     const pending = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
@@ -100,6 +116,45 @@ describe('createFormationClient', () => {
     expect(reply).not.toBe('stale');
     if (reply === 'stale') return;
     expect(reply.result).toMatchObject({ ok: false, code: 'internal', detail: 'boom' });
+  });
+
+  it('A fails inside the worker, B still gets its good reply: a failure is never charged to another request (#272 review 2)', async () => {
+    const fake = fakeWorker();
+    const client = createFormationClient(() => fake.worker);
+    const a = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    const b = client.compile({ scene: scene('valid-3d-two-spheres.json'), n0: 40, params });
+    // The worker answers A with A's own internal rejection (respond() caught it, see the test above), then B normally.
+    fake.raw({ requestId: 'fc:1', result: { ok: false, code: 'internal', detail: 'DataCloneError', sceneHash: null, compilerVersion: 0, warnings: [] } });
+    fake.reply(fake.posted[1]);
+    expect(await a).toBe('stale');
+    const rb = await b;
+    expect(rb !== 'stale' && rb.requestId === 'fc:2' && rb.result.ok).toBe(true);
+  });
+
+  it('after a worker error the worker is terminated and the next compile spawns a fresh one, so nothing hangs (#272 review 3)', async () => {
+    const workers: ReturnType<typeof fakeWorker>[] = [];
+    const client = createFormationClient(() => { const w = fakeWorker(); workers.push(w); return w.worker; });
+    const failed = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    workers[0].fail('chunk failed to load');
+    expect(await failed).toMatchObject({ result: { ok: false, code: 'internal' } });
+    expect(workers[0].terminated).toBe(true);
+    const next = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    expect(workers).toHaveLength(2);                                   // a fresh worker
+    expect(workers[0].posted).toHaveLength(1);                         // nothing more went to the dead one
+    workers[1].reply(workers[1].posted[0]);
+    const reply = await next;
+    expect(reply !== 'stale' && reply.result.ok).toBe(true);
+    workers[0].reply(workers[0].posted[0]);                            // a late message from the dead worker: ignored
+  });
+
+  it('a messageerror is treated like a dead worker: pending fails as internal, the next compile respawns', async () => {
+    const workers: ReturnType<typeof fakeWorker>[] = [];
+    const client = createFormationClient(() => { const w = fakeWorker(); workers.push(w); return w.worker; });
+    const p = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    workers[0].messageError();
+    expect(await p).toMatchObject({ result: { ok: false, code: 'internal' } });
+    void client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    expect(workers).toHaveLength(2);
   });
 
   it('dispose terminates the worker and settles pending requests as stale; later compiles are stale', async () => {

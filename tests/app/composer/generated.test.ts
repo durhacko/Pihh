@@ -127,6 +127,52 @@ describe('compile, preview and stale requests', () => {
     expect(store.state.preview?.label).toBe('Primitive Stack');
   });
 
+  // #272 review 1: a preview the operator turned off never comes back when an in-flight compile finishes.
+  it('Hide during a compile cancels it: the reply is ignored and the stage stays clear', async () => {
+    const { source, store, reply } = rig(false);
+    const a = source.select('3d-sphere'); await new Promise(r => setTimeout(r, 0)); reply(0); await a;
+    source.preview(true);
+    const b = source.select('3d-two-spheres'); await new Promise(r => setTimeout(r, 0));
+    expect(source.status.state).toBe('compiling');
+    source.preview(false);                                      // Hide (also what leaving the tab or a kind button does)
+    expect(source.status.state).toBe('idle');
+    reply(1); await b;
+    expect(store.state.preview).toBe(null);
+    expect(source.status.state).toBe('idle');
+  });
+
+  it('Escape (or the console) clearing the stage during a compile: the finished compile does not re-show it', async () => {
+    const { source, store, reply } = rig(false);
+    const a = source.select('3d-sphere'); await new Promise(r => setTimeout(r, 0)); reply(0); await a;
+    source.preview(true);
+    const b = source.select('3d-two-spheres'); await new Promise(r => setTimeout(r, 0));
+    store.set({ preview: null });                                // Escape, behind the tab's back
+    reply(1); await b;
+    expect(source.status.state).toBe('ready');                   // the compile still lands in the tab
+    expect(store.state.preview).toBe(null);                      // but the stage stays clear
+  });
+
+  it('a draft preview set during a compile is never replaced by the fixture (the stage matches what Inject sends)', async () => {
+    const { source, store, reply } = rig(false);
+    const a = source.select('3d-sphere'); await new Promise(r => setTimeout(r, 0)); reply(0); await a;
+    source.preview(true);
+    const b = source.select('3d-two-spheres'); await new Promise(r => setTimeout(r, 0));
+    store.set({ preview: { recipe: { kind: 'helix' }, label: 'draft' } });   // the operator previews a draft instead
+    reply(1); await b;
+    expect(store.state.preview).toEqual({ recipe: { kind: 'helix' }, label: 'draft' });
+  });
+
+  it('the tab redraws when the stage preview changes elsewhere (its button label never goes stale)', async () => {
+    const { source, store } = rig();
+    await source.select('3d-sphere');
+    source.preview(true);
+    let redraws = 0;
+    source.subscribe(() => { redraws++; });
+    store.set({ preview: null });
+    expect(redraws).toBe(1);
+    expect(source.previewOn()).toBe(false);
+  });
+
   it('dispose drops the fixture preview and the worker', async () => {
     const { source, store } = rig();
     await source.select('3d-sphere');

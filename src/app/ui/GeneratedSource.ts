@@ -50,7 +50,8 @@ export type GeneratedStatus =
 export interface GeneratedSourceContext {
   params: Params;
   client: FormationClient;
-  store: Pick<Store, 'state' | 'set'>;
+  /** With `subscribe`, the tab also redraws when anything else (Escape, the console) changes the stage preview. */
+  store: Pick<Store, 'state' | 'set'> & Partial<Pick<Store, 'subscribe'>>;
   fixtures?: FixtureEntry[];
 }
 
@@ -59,8 +60,11 @@ export interface GeneratedSource {
   readonly status: GeneratedStatus;
   /** Loads and compiles one fixture. A selection superseded by a newer one is never applied. */
   select(fixtureId: string): Promise<void>;
-  /** Shows or hides the stage preview of the compiled fixture. Returns whether it is now shown. */
+  /** Shows or hides the stage preview of the compiled fixture. Returns whether it is now shown. Hiding also cancels
+   *  an in-flight selection, so a hidden preview never comes back when its compile finishes. */
   preview(on: boolean): boolean;
+  /** Abandons an in-flight selection (its reply is ignored); the status returns to idle if it was loading or compiling. */
+  cancel(): void;
   previewOn(): boolean;
   subscribe(listener: () => void): () => void;
   dispose(): void;
@@ -98,6 +102,14 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     ctx.store.set({ preview: { recipe: { ...PLACEHOLDER_RECIPE }, label: status.title, formation: toFormation(status.result), source: 'fixture' } });
     return true;
   };
+  /** Never leave an older fixture's slots on the stage once this selection has failed. */
+  const clearFixturePreview = () => { if (previewOn()) ctx.store.set({ preview: null }); };
+  const cancel = () => {
+    selection++;
+    if (status.state === 'loading' || status.state === 'compiling') set({ state: 'idle' });
+  };
+  // Escape, the console or a draft preview can change the stage preview behind the tab's back: redraw the tab then.
+  const offStore = ctx.store.subscribe?.((_state, changed) => { if (changed.includes('preview')) emit(); }) ?? (() => {});
 
   return {
     fixtures,
@@ -105,43 +117,48 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     async select(fixtureId) {
       const mine = ++selection;
       const entry = fixtures.find(f => f.id === fixtureId);
-      if (!entry) { set({ state: 'rejected', fixtureId, title: fixtureId, mode: null, code: 'reference', detail: `no fixture named ${fixtureId}`, warnings: [] }); return; }
+      if (!entry) { clearFixturePreview(); set({ state: 'rejected', fixtureId, title: fixtureId, mode: null, code: 'reference', detail: `no fixture named ${fixtureId}`, warnings: [] }); return; }
       set({ state: 'loading', fixtureId });
       let raw: unknown;
       try { raw = await entry.load(); } catch (error) {
-        if (mine === selection) set({ state: 'rejected', fixtureId, title: entry.file, mode: null, code: 'parse', detail: `could not load ${entry.file}: ${String(error)}`, warnings: [] });
+        if (mine !== selection) return;
+        clearFixturePreview();
+        set({ state: 'rejected', fixtureId, title: entry.file, mode: null, code: 'parse', detail: `could not load ${entry.file}: ${String(error)}`, warnings: [] });
         return;
       }
-      if (mine !== selection) return;                 // a newer selection started while this one loaded
+      if (mine !== selection) return;                 // a newer selection (or a cancel) happened while this one loaded
       const parsed = asScene(raw);
-      if (!parsed) { set({ state: 'rejected', fixtureId, title: entry.file, mode: null, code: 'schema', detail: `${entry.file} is not a scene`, warnings: [] }); return; }
-      const wasPreviewing = previewOn();
+      if (!parsed) { clearFixturePreview(); set({ state: 'rejected', fixtureId, title: entry.file, mode: null, code: 'schema', detail: `${entry.file} is not a scene`, warnings: [] }); return; }
       set({ state: 'compiling', fixtureId, title: parsed.title, mode: parsed.mode, requestId: null });
       const pending = ctx.client.compile({ scene: parsed.scene, n0: ctx.params.n0, params: ctx.params });
       if (status.state === 'compiling' && mine === selection) status = { ...status, requestId: ctx.client.latest };
       const reply = await pending;
-      if (reply === 'stale' || mine !== selection) return;   // a newer request owns the panel now
+      if (reply === 'stale' || mine !== selection) return;   // a newer request, a hide or a leave owns the panel now
       const result = reply.result;
       if (result.ok) {
         set({ state: 'ready', fixtureId, title: parsed.title, mode: parsed.mode, requestId: reply.requestId, result });
-        if (wasPreviewing) showPreview();             // keep the stage in step with the newest compile
+        // Re-checked NOW, not remembered from the request: a preview hidden meanwhile (Hide, Escape, the console, a
+        // draft preview, leaving the tab) stays hidden, so the stage never shows a fixture the operator turned off.
+        if (previewOn()) showPreview();
       } else {
-        if (previewOn()) ctx.store.set({ preview: null });   // never leave an older fixture's slots on stage
+        clearFixturePreview();
         set({ state: 'rejected', fixtureId, title: parsed.title, mode: parsed.mode, code: result.code, detail: result.detail, warnings: result.warnings });
       }
     },
     preview(on) {
-      if (!on) { if (previewOn()) ctx.store.set({ preview: null }); emit(); return false; }
+      if (!on) { cancel(); clearFixturePreview(); emit(); return false; }
       const shown = showPreview();
       emit();
       return shown;
     },
+    cancel,
     previewOn,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     dispose() {
       selection++;
+      offStore();
       listeners.clear();
-      if (previewOn()) ctx.store.set({ preview: null });
+      clearFixturePreview();
       ctx.client.dispose();
     },
   };
