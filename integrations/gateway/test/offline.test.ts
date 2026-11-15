@@ -45,6 +45,8 @@ const BUILTINS: Record<string, Record<string, string[]>> = {
   },
   // contentHash and requestHash: sha256 over canonicalJson, server-side (mongodb spec §7.3, XI-7).
   'src/shows/validate.ts': { 'node:crypto': ['createHash'] },
+  // D3 for Gemini (#218, durhack-01): the live module reads the committed scene schemas (data) once, as JSON.
+  'src/gemini/module.ts': { 'node:fs': ['readFileSync'] },
   // TIG-04 offline (#261; orchestrator-approved shared-file edit): the manifest and ledger stores, and the import CLI.
   'src/tiger/manifestFile.ts': {
     'node:fs': ['mkdirSync', 'readFileSync', 'renameSync', 'writeFileSync', 'existsSync', 'openSync', 'fsyncSync', 'closeSync'],
@@ -152,6 +154,25 @@ test('no outbound network API, eval or module loader in the code', () => {
   }
   // node:http is allowed only in server.ts, and only for createServer (checked above): no client API is reachable.
   for (const file of source) if (rel(file) !== 'src/server.ts') assert.ok(!raw(file).includes('node:http'), rel(file));
+});
+
+// D3 for Gemini (#218): the ONE outbound transport. The global `fetch` identifier (called or not) may appear in the
+// gemini module's code on exactly this line of module.ts and nowhere else; every other src/gemini file stays fetch-free.
+const GEMINI_TRANSPORT_LINE = { file: 'src/gemini/module.ts', line: 'const PLATFORM_TRANSPORT: Transport = fetch;' } as const;
+
+test('gemini: the global fetch identifier appears only on the one allow-listed transport line', () => {
+  const gemini = source.filter(file => rel(file).startsWith('src/gemini/'));
+  assert.ok(gemini.some(file => rel(file) === GEMINI_TRANSPORT_LINE.file), 'module.ts is scanned');
+  let allowed = 0;
+  for (const file of gemini) {
+    for (const [i, line] of code(file).split('\n').entries()) {
+      if (!/(?<![\w$.])fetch\b/.test(line)) continue;
+      const ok = rel(file) === GEMINI_TRANSPORT_LINE.file && line.trim() === GEMINI_TRANSPORT_LINE.line;
+      assert.ok(ok, `${rel(file)}:${i + 1} names fetch outside the allow-listed transport line: ${line.trim()}`);
+      allowed++;
+    }
+  }
+  assert.equal(allowed, 1, 'the allow-listed line exists exactly once');
 });
 
 /** True if `name` is bound by `binding` (an identifier or a destructuring pattern). */

@@ -25,12 +25,19 @@
 //   SPEC RULE, field name UNVERIFIED (§10.1/§10.3 design rules, not checked provider facts): parse only when
 //     `candidates[0].finishReason` is `STOP`; a `promptFeedback.blockReason` blocks; log `thoughtsTokenCount`;
 //     `maxOutputTokens` per mode, with the values 2,048 / 8,192 proposed defaults (†) for William to confirm.
-//   UNVERIFIED (not in the spec's checked sources; confirm against the REST reference before D3 goes live):
-//     the endpoint URL and API version (`v1beta`); the `x-goog-api-key` header; the REST body layout
-//     (`systemInstruction`, `contents[].parts[].text`, `generationConfig`); the casing of thinking-level values on the
-//     wire (lower case here, as in the handoff sketch; the JS SDK's enum is upper case); the response layout
-//     `candidates[0].content.parts[].text` with `thought: true` on thought parts; the `usageMetadata` name and its
-//     counter names. Whether thinking tokens count against `maxOutputTokens` is UNVERIFIED (§10.3).
+//   VERIFIED against Google's current public docs on 2026-11-15 (D3 lane; ai.google.dev redirects to aistudio.google.com):
+//     the method and path `POST /v1beta/models/{model}:generateContent` on generativelanguage.googleapis.com
+//     (https://aistudio.google.com/api-reference/generate-content); the `x-goog-api-key` header
+//     (https://aistudio.google.com/docs/api-key); `candidates[].finishReason` (string enum, STOP, MAX_TOKENS, SAFETY,
+//     RECITATION, BLOCKLIST, PROHIBITED_CONTENT, SPII, …) and `promptFeedback.blockReason`; the `usageMetadata` counters
+//     (promptTokenCount, cachedContentTokenCount, candidatesTokenCount, thoughtsTokenCount, totalTokenCount); the
+//     ThinkingLevel enum names MINIMAL/LOW/MEDIUM/HIGH, with minimal…high for gemini-3.1-flash-lite (Stable,
+//     https://aistudio.google.com/docs/models, /docs/thinking); its free tier (https://aistudio.google.com/docs/pricing).
+//   STILL UNVERIFIED (no current public page shows a generateContent request example; the docs now show the
+//     Interactions API): the top-level request layout (`systemInstruction`, `contents[].parts[].text`,
+//     `generationConfig` with `responseMimeType`, `responseJsonSchema`, `maxOutputTokens`, `thinkingConfig`), seen only
+//     as field names in the reference, not as a request example; `thought: true` on thought parts. The first live call is
+//     the check. Whether thinking tokens count against `maxOutputTokens` is UNVERIFIED (§10.3).
 //   PLACEHOLDER: the system instructions below are not William's prompts (he owns prompts, spec §2; handoff §8 names
 //     PROMPT_2D/PROMPT_3D as not yet written). Pass `prompts` to replace them.
 import type { GeminiConfig } from './config.ts';
@@ -45,8 +52,9 @@ export const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1bet
  *  real guard. */
 export const MAX_OUTPUT_TOKENS: Readonly<Record<FormationMode, number>> = Object.freeze({ silhouette2d: 2_048, scene3d: 8_192 });
 
-/** William's settings to benchmark (spec §10.6, handoff §2): minimal thinking for 2D, low for 3D. Wire casing UNVERIFIED. */
-export const THINKING_LEVEL: Readonly<Record<FormationMode, 'minimal' | 'low'>> = Object.freeze({ silhouette2d: 'minimal', scene3d: 'low' });
+/** William's settings to benchmark (spec §10.6, handoff §2): minimal thinking for 2D, low for 3D. Upper case, as the
+ *  generateContent reference lists the ThinkingLevel enum (MINIMAL, LOW, …; docs checked 2026-11-15). */
+export const THINKING_LEVEL: Readonly<Record<FormationMode, 'MINIMAL' | 'LOW'>> = Object.freeze({ silhouette2d: 'MINIMAL', scene3d: 'LOW' });
 
 /** The most response bytes read from one HTTP answer. A larger answer is an upstream fault, never parsed. */
 export const MAX_RESPONSE_BYTES = 1024 * 1024;

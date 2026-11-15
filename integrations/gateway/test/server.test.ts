@@ -5,8 +5,24 @@ import { request } from 'node:http';
 import { startGateway, startupLines, type RunningGateway } from '../src/server.ts';
 import type { ModuleEntry } from '../src/modules.ts';
 import { FatalConfigError } from '../src/errors.ts';
+import { readGeminiConfig } from '../src/gemini/config.ts';
+import type { Transport, TransportInit } from '../src/gemini/geminiProvider.ts';
+import { geminiModule, liveGeminiDeps } from '../src/gemini/module.ts';
 
 const APP = 'http://localhost:5173';
+const FAKE_KEY = 'test-key-not-real-0123456789';
+
+/** D3 (#218): a gemini registry entry that is LIVE through liveGeminiDeps but whose transport is a recording fake, so
+ *  no test ever reaches the network (the suite's tripwire, test/no-network.mjs, would refuse it anyway). */
+function fakeGeminiRegistry(status = 400) {
+  const calls: { url: string; init: TransportInit }[] = [];
+  const transport: Transport = async (url, init) => { calls.push({ url, init }); return { status, body: null }; };
+  const registry: ModuleEntry[] = [{
+    name: 'gemini', envPrefix: 'GEMINI_',
+    create: env => geminiModule(liveGeminiDeps(readGeminiConfig(env), transport), { random: () => 0.5, sleep: async () => {} }),
+  }];
+  return { calls, registry };
+}
 
 interface Reply { status: number; headers: Record<string, string | string[] | undefined>; body: unknown }
 
@@ -71,14 +87,20 @@ test('refuses to start on any other bind address', async () => {
   }
 });
 
-test('gemini answers 503 PROVIDER_UNAVAILABLE / MODULE_DISABLED through the whole stack, even with a key', async () => {
-  await withGateway({ GEMINI_ENABLED: '1', GEMINI_API_KEY: 'test-key-not-real-0123456789' }, async g => {
+test('D3: with the flag and a key, gemini is live through the whole stack (fake transport: exactly one call; key only in its header)', async () => {
+  const fake = fakeGeminiRegistry(400);
+  await withGateway({ GEMINI_ENABLED: '1', GEMINI_API_KEY: FAKE_KEY }, async g => {
     const r = await send(g, { method: 'POST', path: '/api/generate-formation', headers: json(), body: JSON.stringify({ prompt: 'an elephant', mode: 'scene3d', requestId: 'r-1' }) });
-    assert.equal(r.status, 503);
     const error = reasonOf(r) as { code: string; details?: { reason: string }[]; requestId?: string };
-    assert.deepEqual([error.code, error.details?.map(d => d.reason), error.requestId], ['PROVIDER_UNAVAILABLE', ['MODULE_DISABLED'], 'r-1']);
-    assert.ok(!JSON.stringify(r.body).includes('test-key-not-real'));
-  });
+    // Live: the provider was called (an upstream 400 is PROVIDER_ERROR, never retried), not MODULE_DISABLED.
+    assert.deepEqual([r.status, error.code, error.details?.map(d => d.reason), error.requestId], [502, 'PROVIDER_ERROR', ['PROVIDER_ERROR'], 'r-1']);
+    assert.equal(fake.calls.length, 1);
+    const { url, init } = fake.calls[0]!;
+    assert.equal(init.headers['x-goog-api-key'], FAKE_KEY, 'the key travels in its header only');
+    assert.ok(!url.includes(FAKE_KEY), 'not in the URL');
+    assert.ok(!init.body.includes(FAKE_KEY), 'not in the request body');
+    assert.ok(!JSON.stringify(r.body).includes(FAKE_KEY), 'not in the response');
+  }, fake.registry);
 });
 
 test('the guard runs before any module: foreign Host, missing Origin, text/plain', async () => {
@@ -144,13 +166,15 @@ test('unknown routes are 404 NOT_FOUND; a module that throws is 500 for that req
 });
 
 test('startup lines name each module and warn about an empty allow-list, without any module secret', async () => {
-  await withGateway({ GATEWAY_ALLOWED_ORIGINS: '', GEMINI_ENABLED: '1', GEMINI_API_KEY: 'test-key-not-real-0123456789' }, async g => {
+  const fake = fakeGeminiRegistry();
+  await withGateway({ GATEWAY_ALLOWED_ORIGINS: '', GEMINI_ENABLED: '1', GEMINI_API_KEY: FAKE_KEY }, async g => {
     const lines = startupLines(g).join('\n');
     assert.match(lines, /listening on http:\/\/127\.0\.0\.1:\d+/);
-    assert.match(lines, /module gemini: disabled/);
+    assert.match(lines, /module gemini: enabled/, 'D3: the flag and a key make it live');
     assert.match(lines, /GATEWAY_ALLOWED_ORIGINS is empty/);
-    assert.ok(!lines.includes('test-key-not-real'));
-  });
+    assert.ok(!lines.includes(FAKE_KEY));
+    assert.equal(fake.calls.length, 0, 'starting makes no upstream call');
+  }, fake.registry);
 });
 
 test('(1) over HTTP: "//" targets are 400 BAD_TARGET and never reach /api/health', async () => {

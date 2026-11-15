@@ -88,12 +88,12 @@ test('the request: one POST to the model\'s generateContent, key in a header onl
     assert.deepEqual(body.generationConfig.responseJsonSchema, SCHEMAS[mode], 'the committed scene schema, unchanged');
     assert.ok(!('responseSchema' in body.generationConfig), 'never combined with responseSchema (§10.6)');
     assert.equal(body.generationConfig.maxOutputTokens, mode === 'silhouette2d' ? 2_048 : 8_192);
-    assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: mode === 'silhouette2d' ? 'minimal' : 'low' });
+    assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: mode === 'silhouette2d' ? 'MINIMAL' : 'LOW' });
     assert.ok(!('temperature' in body.generationConfig), 'temperature is omitted unless set');
     assert.ok(!init.body.includes(KEY), 'the key is never in the body');
   }
   assert.deepEqual(MAX_OUTPUT_TOKENS, { silhouette2d: 2_048, scene3d: 8_192 });
-  assert.deepEqual(THINKING_LEVEL, { silhouette2d: 'minimal', scene3d: 'low' });
+  assert.deepEqual(THINKING_LEVEL, { silhouette2d: 'MINIMAL', scene3d: 'LOW' }, 'the generateContent reference enum casing');
 });
 
 test('GEMINI_MODEL picks the model in the URL; prompts, temperature and the endpoint can be replaced', async () => {

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readGeminiConfig } from '../../src/gemini/config.ts';
 import { createModule, defaultGeminiDeps, geminiModule, GENERATE_FORMATION_ROUTE } from '../../src/gemini/index.ts';
+import { liveGeminiDeps, loadSceneSchemas } from '../../src/gemini/module.ts';
 import { fakeProvider, fakeValidator } from './fakes.ts';
 
 const KEY = 'test-key-not-real-0123456789';
@@ -13,10 +14,31 @@ test('gemini module: disabled offline, and its route is registered anyway', () =
   assert.deepEqual(module.routes.map(r => [r.method, r.path]), [[GENERATE_FORMATION_ROUTE.method, GENERATE_FORMATION_ROUTE.path]]);
 });
 
-test('gemini module: a configured key alone does not enable it in this build (no provider)', () => {
-  const module = createModule({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY });
-  assert.deepEqual(module.health(), { enabled: false, trialCompile: false });
-  assert.ok(!JSON.stringify(module.health()).includes(KEY));
+test('gemini module (D3): the enable flag AND a key make it live; either alone keeps it off; health never shows the key', () => {
+  const live = createModule({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY });
+  assert.equal(live.health().enabled, true);
+  assert.ok(!JSON.stringify(live.health()).includes(KEY));
+  assert.ok(!JSON.stringify(live).includes(KEY));
+  assert.equal(createModule({ GEMINI_API_KEY: KEY }).health().enabled, false, 'a key without the flag stays off');
+  assert.equal(createModule({ GEMINI_ENABLED: '1' }).health().enabled, false, 'the flag without a key stays off');
+});
+
+test('gemini module (D3): the live deps send the committed scene schemas through the injected transport, nothing else', async () => {
+  const calls: { url: string; body: string; redirect: string }[] = [];
+  const transport = async (url: string, init: { body: string; redirect: string }) => {
+    calls.push({ url, body: init.body, redirect: init.redirect });
+    return { status: 503, body: null };
+  };
+  const deps = liveGeminiDeps(readGeminiConfig({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY }), transport);
+  assert.ok(deps.provider);
+  const outcome = await deps.provider!.generate({ prompt: 'a white sphere', mode: 'scene3d', attemptTimeoutMs: 5_000 }, new AbortController().signal);
+  assert.deepEqual(outcome, { kind: 'upstream-error', status: 503 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent');
+  assert.equal(calls[0]!.redirect, 'error');
+  const sent = JSON.parse(calls[0]!.body) as { generationConfig: { responseJsonSchema: unknown } };
+  assert.deepEqual(sent.generationConfig.responseJsonSchema, loadSceneSchemas().scene3d);
+  assert.equal(liveGeminiDeps(readGeminiConfig({})).provider, null, 'disabled: no provider is built');
 });
 
 test('gemini module: enabled only with config, provider and validator together', () => {
