@@ -19,10 +19,12 @@ import { farthestPointOrder } from '../fps';
 import { sceneHash, slotsDigest } from './hashing';
 import { checkPlacement, placeP1 } from './placement';
 import { seededStream } from './prng';
+import { foregroundRGB, sample2d, type Sample2DResult } from './sample2d';
 import { sample3d } from './sample3d';
-import { K_MIN, selectSlots, type SelectionCandidate, type SelectionPart, type SelectionPhase } from './selection';
-import { buildSolids, type Warning3D } from './shapes3d';
-import type { SceneSpec, SceneSpec3D, Vec3 } from './types';
+import { K_MIN, selectSlots, type SelectionCandidate, type SelectionOutcome, type SelectionPart, type SelectionPhase } from './selection';
+import { buildRegion2D, checkConnectivity, MIN_RADIUS, NORMALISED_HALF_EXTENT, rasterise, type Region2D } from './shapes2d';
+import { buildSolids, type Solid3D, type Warning3D } from './shapes3d';
+import type { SceneSpec, SceneSpec2D, SceneSpec3D, Vec3 } from './types';
 import { validateScene } from './validation';
 
 /** Integer (CR-22). Bump on any change to the compiler's output for some scene; the goldens enforce it. */
@@ -42,11 +44,11 @@ export const MIN_SLOT_SPACING = 0.1;
 
 /**
  * §7.11 codes, plus the validation codes a non-V3-valid input can produce (parse, schema, too-large),
- * unsupported-mode for the 2D path until GF-WP-04 lands, and dense-coverage for a result that would breach §7.8's
- * slot-to-dense rule (spec differences, approved on #212).
+ * and dense-coverage for a result that would breach §7.8's slot-to-dense rule (spec differences, approved on #212).
+ * unsupported-mode (2D before GF-WP-04) is gone: both modes compile.
  */
 export type RejectCode =
-  | 'parse' | 'schema' | 'too-large' | 'unsupported-version' | 'unsupported-mode' | 'reference' | 'range' | 'geometry'
+  | 'parse' | 'schema' | 'too-large' | 'unsupported-version' | 'reference' | 'range' | 'geometry'
   | 'complexity' | 'empty-geometry' | 'too-few-candidates' | 'infeasible-count' | 'below-floor' | 'too-large-world'
   | 'dense-coverage' | 'internal';
 
@@ -62,6 +64,8 @@ export interface CompileStats {
   closestPair: number;                 // metres; slotSpacingMin·1.001 up to rounding
   simplifications: string[];           // which permitted simplifications ran (§7.11)
   hiddenFraction?: Record<string, number>;  // 3D: share of each part's candidates removed as interior
+  /** 2D (added): the boundary quota q, its split per contour, and the boundary slots the quota step placed (§7.4 step 3). */
+  boundary?: { quota: number; perContour: number[]; placed: number[] };
 }
 
 /** Structurally the contract's Formation (src/contracts/score.ts); src/score/generated does not import contracts. */
@@ -111,17 +115,65 @@ export function compileGeneratedScene(scene: SceneSpec, params: CompileParams, n
     for (const w of validated.warnings) warnings.push({ code: w.code, detail: w.path ? `${w.message} (at ${w.path})` : w.message });
     const canonical = validated.scene;                 // already normalised (§6.7 steps 1–3); never the raw scene
     hash = sceneHash(canonical);
-    if (canonical.mode !== 'scene3d') return reject('unsupported-mode', 'the 2D compile path arrives with GF-WP-04 (#207)');
-    return compile3D(canonical, hash, n0, spacing, params, warnings, reject);
+    return canonical.mode === 'scene3d'
+      ? compile3D(canonical, hash, n0, spacing, params, warnings, reject)
+      : compile2D(canonical, hash, n0, spacing, params, warnings, reject);
   } catch (error) {
     return reject('internal', `compiler invariant breached: ${String(error)}`);
   }
 }
 
+type Reject = (code: RejectCode, detail: string) => CompileResult;
+
+/** The normalise scale sample3d applies (spec §7.2 step 2): the solids' union box's longer side spans 2·1.1. */
+function normaliseScale3D(solids: readonly Solid3D[]): number {
+  const min: Vec3 = [Infinity, Infinity, Infinity];
+  const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const s of solids) for (let a = 0; a < 3; a++) { min[a] = Math.min(min[a], s.box.min[a]); max[a] = Math.max(max[a], s.box.max[a]); }
+  const side = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  return side > 0 && Number.isFinite(side) ? (2 * NORMALISED_HALF_EXTENT) / side : 1;
+}
+
+/**
+ * V10 in 3D (spec §6.5; ruling 3 on #212: absolute normalised units in both modes, the frame where the longer side
+ * spans [-1.1, 1.1]): every radius below MIN_RADIUS = 0.01 normalised is raised to it (`thickened`, permitted
+ * simplification 2 of §7.11), and one below 2·MIN_RADIUS warns `thin-feature`, as shapes2d.ts does for 2D. Radii are
+ * ellipsoid radii, capsule and cylinder radius, cone base and top radius (a top radius of 0 is a pointed cone, left
+ * alone) and tube start and end radius. Returns the input scene itself when nothing was thickened.
+ */
+export function thicken3D(scene: SceneSpec3D, scale: number): { scene: SceneSpec3D; warnings: CompileWarning[]; thickened: boolean } {
+  const min = MIN_RADIUS / scale;                      // scene units
+  const warnings: CompileWarning[] = [];
+  let thickened = false;
+  const out = structuredClone(scene) as SceneSpec3D;
+  const fmt = (v: number) => Math.round(v * 1e4) / 1e4;
+  const check = (id: string, what: string, v: number): number => {
+    if (!(v > 0)) return v;                            // a pointed cone's top radius 0
+    if (v < min) {
+      thickened = true;
+      warnings.push({ code: 'thickened', partId: id, detail: `${what} ${fmt(v * scale)} is below the V10 minimum ${MIN_RADIUS} (normalised) and was raised to it` });
+      return min;
+    }
+    if (v < 2 * min) warnings.push({ code: 'thin-feature', partId: id, detail: `${what} ${fmt(v * scale)} is below twice the V10 minimum ${MIN_RADIUS} (normalised)` });
+    return v;
+  };
+  for (const part of out.parts) {
+    const g = part.shape as Record<string, unknown>;
+    if (Array.isArray(g.radii)) g.radii = (g.radii as number[]).map((r, i) => check(part.id, `radii[${i}]`, r));
+    for (const key of ['radius', 'baseRadius', 'topRadius', 'startRadius', 'endRadius']) {
+      if (typeof g[key] === 'number') g[key] = check(part.id, key, g[key] as number);
+    }
+  }
+  return { scene: thickened ? out : scene, warnings, thickened };
+}
+
 function compile3D(
-  scene: SceneSpec3D, hash: string, n0: number, spacing: number, params: CompileParams, warnings: CompileWarning[],
-  reject: (code: RejectCode, detail: string) => CompileResult,
+  canonical: SceneSpec3D, hash: string, n0: number, spacing: number, params: CompileParams, warnings: CompileWarning[], reject: Reject,
 ): CompileResult {
+  // V10 first, on the scale sample3d will use; the solids are rebuilt only if a radius was raised.
+  const v10 = thicken3D(canonical, normaliseScale3D(buildSolids(canonical)));
+  warnings.push(...v10.warnings);
+  const scene = v10.scene;
   const stage: Warning3D[] = [];
   const solids = buildSolids(scene, stage);
   const sampled = sample3d(scene, solids, { n0, referenceView: scene.referenceView, stream: (label) => seededStream(hash, label) });
@@ -136,11 +188,87 @@ function compile3D(
   const input: SelectionCandidate[] = cands.map((c) => ({ pos: c.pos, part: c.solid, source: 'surface', importance: c.importance, visibility: c.visibility }));
   const selection = selectSlots({ mode: 'scene3d', candidates: input, parts, area: sampled.stats.exposedArea, n0 });
   if (!selection.ok) return reject(selection.code, selection.detail);
+  return finish({
+    mode: 'scene3d', hash, n0, spacing, params, warnings, reject, selection, dense: sampled.dense,
+    pos: (c) => cands[c].pos, colour: (c) => cands[c].colour, part: (c) => cands[c].solid, parts,
+    // Every declared material, with its id in partId, exactly as #259 shipped (a used-only filter is a later decision).
+    colourWarnings: scene.materials.flatMap((m) => colourWarningsFor(m.rgb, `material ${m.id}`).map((w) => ({ ...w, partId: m.id }))),
+    stats: { candidates: { boundary: 0, interior: 0, feature: 0, surface: cands.length }, normalise: sampled.stats.normalise, hiddenFraction: sampled.stats.hiddenFraction },
+  });
+}
 
+/**
+ * The 2D path (spec §7.2): region and mask (GF-WP-03), V8 connectivity with speck removal, then GF-WP-04's
+ * candidates and dense. buildRegion2D throws RangeError only on input V3–V6 make impossible (ruling on #212): it is
+ * the typed rejection geometry. share_f is the part's share of the interior lattice, which is area-uniform over the
+ * cleaned mask, so it is the part's share of the filled area (interpretation: from the mask and region).
+ */
+function compile2D(
+  scene: SceneSpec2D, hash: string, n0: number, spacing: number, params: CompileParams, warnings: CompileWarning[], reject: Reject,
+): CompileResult {
+  let region: Region2D;
+  try {
+    region = buildRegion2D(scene);
+  } catch (error) {
+    if (error instanceof RangeError) return reject('geometry', `the 2D region could not be built: ${error.message}`);
+    throw error;
+  }
+  warnings.push(...region.warnings);
+  const connectivity = checkConnectivity(rasterise(region), region);
+  if (!connectivity.ok) return reject(connectivity.code, connectivity.detail);
+  warnings.push(...connectivity.warnings);
+  let sampled: Sample2DResult;
+  try {
+    sampled = sample2d(scene, region, connectivity.mask, { n0, next: seededStream(hash, 'interior') });
+  } catch (error) {
+    if (error instanceof RangeError) return reject('empty-geometry', `no 2D candidates: ${error.message}`);
+    throw error;
+  }
+  const cands = sampled.candidates;
+  const interior = region.parts.map(() => 0);
+  let interiorTotal = 0;
+  for (const c of cands) if (c.source === 'interior' && c.part >= 0) { interior[c.part]++; interiorTotal++; }
+  const featureLength = new Map(sampled.features.map((f) => [f.part, f.length]));
+  const parts: SelectionPart[] = region.parts.map((p, k) => ({
+    id: p.id, importance: p.priority, protected: p.operation === 'union' && p.priority >= 4,
+    share: interiorTotal ? interior[k] / interiorTotal : 0, featureLength: featureLength.get(k),
+  }));
+  const input: SelectionCandidate[] = cands.map((c) => ({ pos: c.pos, part: c.part, source: c.source, importance: c.importance, arc: c.arc }));
+  const selection = selectSlots({
+    mode: 'silhouette2d', candidates: input, parts, area: sampled.stats.filledArea, n0,
+    contours: sampled.contours.map((c) => ({ length: c.length, first: c.first, count: c.count })),
+  });
+  if (!selection.ok) return reject(selection.code, selection.detail);
+  const counts = sampled.stats.counts;
+  return finish({
+    mode: 'silhouette2d', hash, n0, spacing, params, warnings, reject, selection, dense: sampled.dense,
+    pos: (c) => cands[c].pos, colour: (c) => cands[c].colour, part: (c) => cands[c].part, parts,
+    colourWarnings: colourWarningsFor(foregroundRGB(scene.foreground), 'the foreground'),
+    stats: { candidates: { boundary: counts.boundary, interior: counts.interior, feature: counts.feature, surface: 0 }, normalise: sampled.stats.normalise },
+  });
+}
+
+interface Finish {
+  mode: SceneSpec['mode'];
+  hash: string; n0: number; spacing: number; params: CompileParams; warnings: CompileWarning[]; reject: Reject;
+  selection: Extract<SelectionOutcome, { ok: true }>;
+  dense: Vec3[];
+  pos: (candidate: number) => Vec3;
+  colour: (candidate: number) => readonly number[];
+  /** Index into `parts` (−1 if no part owns the candidate). */
+  part: (candidate: number) => number;
+  parts: readonly SelectionPart[];
+  colourWarnings: CompileWarning[];
+  stats: Pick<CompileStats, 'candidates' | 'normalise' | 'hiddenFraction'>;
+}
+
+/** Shared by both modes: §7.5 order, §7.6 placement and checks, the §7.9 post-checks, colours, warnings, stats. */
+function finish(f: Finish): CompileResult {
+  const { selection, n0, spacing, warnings, reject } = f;
   // §7.5: farthest-point order over the selected set; slot 0 nearest its centroid.
-  const unit = selection.selected.map((i) => cands[i].pos);
+  const unit = selection.selected.map((i) => f.pos(i));
   const order = farthestPointOrder(unit, n0).map((k) => selection.selected[k]);
-  const placed = placeP1(order.map((i) => cands[i].pos), sampled.dense, spacing);
+  const placed = placeP1(order.map((i) => f.pos(i)), f.dense, spacing);
   const check = checkPlacement(placed);
   warnings.push(...check.warnings);
   if (!check.ok) return reject(check.code, check.detail);
@@ -153,23 +281,23 @@ function compile3D(
     return reject('dense-coverage', `slot ${coverage.slot} is ${Math.round(coverage.distance * 100) / 100} m from the nearest dense point; every slot must lie within slotSpacingMin = ${spacing} m of dense (§7.8, §7.9)`);
   }
 
-  const slots = order.map((c, index) => ({ index, pos: placed.slots[index], colour: clampColour(cands[c].colour) }));
+  const slots = order.map((c, index) => ({ index, pos: placed.slots[index], colour: clampColour(f.colour(c)) }));
   const formation = freeze({ slots, dense: placed.dense, bounds: placed.bounds }) as GeneratedFormation;
 
   const perPart: Record<string, number> = {};
-  for (const s of solids) perPart[s.id] = 0;
-  for (const c of order) perPart[solids[cands[c].solid].id]++;
-  for (const s of solids) {
-    if (s.importance >= 4 && perPart[s.id] < K_MIN) {
-      warnings.push({ code: 'feature-starved', partId: s.id, detail: `protected part ${s.id} has ${perPart[s.id]} slot${perPart[s.id] === 1 ? '' : 's'} (fewer than ${K_MIN})` });
+  for (const p of f.parts) perPart[p.id] = 0;
+  for (const c of order) { const k = f.part(c); if (k >= 0) perPart[f.parts[k].id]++; }
+  for (const p of f.parts) {
+    if (p.protected && perPart[p.id] < K_MIN) {
+      warnings.push({ code: 'feature-starved', partId: p.id, detail: `protected part ${p.id} has ${perPart[p.id]} slot${perPart[p.id] === 1 ? '' : 's'} (fewer than ${K_MIN})` });
     }
   }
-  if (selection.rear.selected < selection.rear.floor) {
+  if (selection.rear.selected < selection.rear.floor) {   // 3D only: the 2D floor is 0
     warnings.push({ code: 'rear-floor-unmet', detail: `${selection.rear.selected} of ${n0} slots face away from the reference view; the heuristic floor asks ${selection.rear.floor} (§7.3 step 5)` });
   }
-  const simplifications = simplificationsOf('scene3d', selection.phase, warnings);
-  warnings.push(...colourWarnings(scene));
-  const { rClaim, claimGap } = params;
+  const simplifications = simplificationsOf(f.mode, selection.phase, warnings);
+  warnings.push(...f.colourWarnings);
+  const { rClaim, claimGap } = f.params;
   if (typeof rClaim === 'number' && Number.isFinite(rClaim) && rClaim > 0 && typeof claimGap === 'number' && Number.isFinite(claimGap) && claimGap > 0) {
     warnings.push(...repairWarnings(formation, rClaim, claimGap));
   } else {
@@ -177,11 +305,12 @@ function compile3D(
   }
 
   const stats: CompileStats = {
-    candidates: { boundary: 0, interior: 0, feature: 0, surface: cands.length },
-    perPart, normalise: sampled.stats.normalise, deltaFinal: selection.delta, scale: placed.scale, size: placed.size,
-    closestPair: placed.closestPair, simplifications, hiddenFraction: sampled.stats.hiddenFraction,
+    candidates: f.stats.candidates, perPart, normalise: f.stats.normalise, deltaFinal: selection.delta, scale: placed.scale,
+    size: placed.size, closestPair: placed.closestPair, simplifications,
+    ...(f.stats.hiddenFraction ? { hiddenFraction: f.stats.hiddenFraction } : {}),
+    ...(f.mode === 'silhouette2d' ? { boundary: selection.boundary } : {}),
   };
-  return { ok: true, formation, warnings, sceneHash: hash, compilerVersion: COMPILER_VERSION, slotsDigest: slotsDigest(formation, n0, spacing), stats };
+  return { ok: true, formation, warnings, sceneHash: f.hash, compilerVersion: COMPILER_VERSION, slotsDigest: slotsDigest(formation, n0, spacing), stats };
 }
 
 /**
@@ -207,14 +336,14 @@ export function denseCoverage(slots: readonly Vec3[], dense: readonly Vec3[]): {
 }
 
 /**
- * §7.11: the permitted simplifications that ran, in order, each also as a warning. Steps 1–2 (drop specks, thicken)
- * and step 4 (boundary quota) exist only in 2D: shapes2d.ts emits speck-dropped and thickened, and only 2D has a
- * boundary quota, so the 3D path can record step 3 alone. The 2D branches serve the 2D path (GF-WP-04 plug-in).
+ * §7.11: the permitted simplifications that ran, in order, each also as a warning. Step 1 (drop specks) and step 4
+ * (boundary quota) exist only in 2D (shapes2d.ts emits speck-dropped; only 2D has a boundary quota). Step 2
+ * (thicken) runs in both modes: shapes2d.ts for strokes and radii, thicken3D for 3D radii.
  */
 function simplificationsOf(mode: SceneSpec['mode'], phase: SelectionPhase, warnings: CompileWarning[]): string[] {
   const out: string[] = [];
   if (mode === 'silhouette2d' && warnings.some((w) => w.code === 'speck-dropped')) out.push('drop-specks');
-  if (mode === 'silhouette2d' && warnings.some((w) => w.code === 'thickened')) out.push('thicken');
+  if (warnings.some((w) => w.code === 'thickened')) out.push('thicken');
   if (phase !== 'full') {
     out.push('relax-reservations');
     warnings.push({ code: 'reservations-relaxed', detail: 'no spacing reached n0 with full reservations; protected reservations were relaxed to one slot each (§7.11 step 3)' });
@@ -254,9 +383,6 @@ export function colourWarningsFor(rgb: readonly number[], name: string): Compile
   return out;
 }
 
-function colourWarnings(scene: SceneSpec3D): CompileWarning[] {
-  return scene.materials.flatMap((m) => colourWarningsFor(m.rgb, `material ${m.id}`).map((w) => ({ ...w, partId: m.id })));
-}
 
 /** One slot-graph component (edges ≤ rClaim), indices ascending. */
 export interface RepairComponent { size: number; lowest: number; highest: number }

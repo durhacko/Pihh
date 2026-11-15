@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import { DT, OPERATOR, makeParams } from '../../src/contracts';
 import type { Params, Recipe, Vec3 } from '../../src/contracts';
+/** GF-CC-01: a generated recipe has no palette; the recipes here are text, sphere and helix. */
+const paletteOf = (r: Recipe) => (r.kind === 'generated' ? undefined : r.palette);
 import { composeNext, currentMovement, expandRecipe, launchPos, makeScore, newerVersion } from '../../src/score';
 import { dist } from './helpers';
 
@@ -78,7 +80,7 @@ describe('makeScore', () => {
     expect(b.startTick).toBe(a.transitionTicks + 100);
     expect(b.recipe).toEqual(helix);
     expect(b.recipe).not.toBe(helix);
-    expect(b.recipe.palette).not.toBe(helix.palette);
+    expect(paletteOf(b.recipe)).not.toBe(helix.palette);
     expect(makeScore([text, helix], n0, params, 100)).toEqual(score);
     expect(JSON.parse(JSON.stringify(score))).toEqual(score);
   });
@@ -137,7 +139,7 @@ describe('composeNext', () => {
     const next = composeNext(score, 500, helix, 7, n0, params);
     expect(next.movements[0]).not.toBe(score.movements[0]);
     expect(next.movements[1].recipe).not.toBe(helix);
-    expect(next.movements[1].recipe.palette).not.toBe(helix.palette);
+    expect(paletteOf(next.movements[1].recipe)).not.toBe(helix.palette);
   });
 
   it('the most recent composition always wins, and a tie goes to the higher origin', () => {

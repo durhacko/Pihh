@@ -13,7 +13,7 @@ import { OPERATOR } from '../contracts';
 import type {
   AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Heartbeat, Message, ScoreMsg, ScoreVersion, Sensed, Slot, Vec3,
 } from '../contracts';
-import { currentMovement, expandRecipe, newerVersion } from '../score';
+import { acceptsRecipe, copyRecipe, currentMovement, expandRecipe, newerVersion } from '../score';
 import { NEVER_HEARD, nextRandom } from './state';
 import type { EncoreState } from './state';
 import { pacedSlotPos, steer, steerTarget } from './steer';
@@ -121,6 +121,20 @@ function scheduleScoreSend(s: EncoreState, now: number): void {
   s.scoreSendAt = Math.max(now + 1 + jitter, s.lastScoreSent + s.params.scoreResendMin);
 }
 
+/** GF-CC-02: at most this many refused (version, sceneHash) pairs are remembered, oldest evicted. */
+const REFUSED_MAX = 8;
+
+function wasRefused(s: EncoreState, v: ScoreVersion, hash: unknown): boolean {
+  return (s.refused ?? []).some(r => r.version.issuedTick === v.issuedTick && r.version.origin === v.origin && r.sceneHash === hash);
+}
+
+/** Not adopted: one log note, and the pair is remembered so a re-send is not rechecked. `refused` appears only now. */
+function refuse(s: EncoreState, v: ScoreVersion, hash: unknown, now: number): void {
+  const entry = { version: { issuedTick: v.issuedTick, origin: v.origin }, sceneHash: typeof hash === 'string' ? hash : '' };
+  s.refused = [...(s.refused ?? []), entry].slice(-REFUSED_MAX);
+  note(s, now, `refuse score {${v.issuedTick}, ${v.origin}}: a generated movement failed the adoption check`);
+}
+
 /**
  * Section 9, "Adopt": a SCORE (from a drone, or the operator uplink: both count the same) is adopted only if its
  * version is strictly newer than mine; an equal or older one is ignored. Adopting recomputes the current movement
@@ -133,8 +147,21 @@ function handleScoreMessage(s: EncoreState, m: ScoreMsg, now: number): void {
   if (!v || !Number.isFinite(v.issuedTick) || !Number.isFinite(v.origin)) return;
   if (!Array.isArray(m.score.movements) || m.score.movements.length === 0) return;
   if (!newerVersion(m.score.version, s.score.version)) return;
+  // GF-CC-02: a score with a generated movement is adopted only if every such movement passes acceptsRecipe. Scores
+  // of text, sphere and helix never enter this loop's body, so their adoption is exactly as before.
+  for (const movement of m.score.movements) {
+    const recipe = movement?.recipe;
+    if (recipe?.kind !== 'generated') continue;
+    if (wasRefused(s, v, recipe.sceneHash)) return;   // a remembered pair is not rechecked on re-send
+    if (!acceptsRecipe(recipe, s.n0, s.params)) {
+      refuse(s, v, recipe.sceneHash, now);
+      return;
+    }
+  }
   const was = s.score.version;
   s.score = copyJson(m.score);
+  // On adoption each generated recipe becomes the package's frozen copy (spec §8.7), with the same JSON.
+  for (const movement of s.score.movements) if (movement.recipe.kind === 'generated') movement.recipe = copyRecipe(movement.recipe);
   s.mvIndex = currentMovement(s.score, now).index;
   targetChanged(s, now);
   scheduleScoreSend(s, now);

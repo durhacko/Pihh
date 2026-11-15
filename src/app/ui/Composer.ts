@@ -24,7 +24,9 @@ import type { Surfaces } from './surfaces';
 
 // ------------------------------------------------------------------------------------------- drafts
 
-export interface Draft { id: string; name: string; kind: Recipe['kind']; text: string; palette: [RGB, RGB] | null; sent: string[] }
+// GF-CC-01: a draft is one of the three legacy kinds; a generated formation has no palette and comes from the
+// Generated tab, not from a draft.
+export interface Draft { id: string; name: string; kind: Exclude<Recipe['kind'], 'generated'>; text: string; palette: [RGB, RGB] | null; sent: string[] }
 export type DraftInput = Omit<Draft, 'id' | 'sent'>;
 
 const DEFAULT_DRAFTS: readonly DraftInput[] = [
@@ -78,6 +80,8 @@ export class Drafts {
 
 /** A console `form …` result (a recipe) as a draft. */
 export function draftFromRecipe(name: string, recipe: Recipe): DraftInput {
+  // GF-CC-01: callers pass console forms and saved v1 compositions, which are never `generated`.
+  if (recipe.kind === 'generated') throw new Error('A generated formation is not a draft.');
   return { name, kind: recipe.kind, text: recipe.kind === 'text' ? recipe.text : '', palette: recipe.palette ? structuredClone(recipe.palette) : null };
 }
 
@@ -414,7 +418,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       h('span', { class: previewOn() ? 'on' : '' }, h('span', { class: 'n' }, '2')), 'Preview', h('span', { class: 'line' }),
       h('span', { class: lastSent ? 'on' : '' }, h('span', { class: 'n' }, '3')), 'Transmit');
 
-    const kinds: [Recipe['kind'], string, string][] = [['text', 'Text', icon.text], ['sphere', 'Sphere', icon.sphere], ['helix', 'Double helix', icon.helix]];
+    const kinds: [Draft['kind'], string, string][] = [['text', 'Text', icon.text], ['sphere', 'Sphere', icon.sphere], ['helix', 'Double helix', icon.helix]];
     fill(typeBox, h('span', { class: 'label', id: 'cmp-type-label' }, 'Formation'),
       h('div', { class: 'types', role: 'radiogroup', 'aria-labelledby': 'cmp-type-label' },
         ...kinds.map(([kind, label, glyph]) => h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': `type-${kind}`, 'aria-checked': String(draft.kind === kind && !generatedMode), onclick: () => { leaveGenerated(); drafts.update({ kind, text: kind === 'text' ? draft.text || 'ENCORE' : draft.text }); refreshPreview(); } }, h('span', { html: glyph }), label)),

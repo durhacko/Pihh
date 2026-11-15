@@ -38,6 +38,11 @@ export interface EncoreState {
   // itself has to remember what belief() reports about "now". Neither is read by any decision.
   now: number;                  // tick of my last step (0 before the first)
   canHeal: boolean;             // canHeal as last evaluated, on my last scan tick (false before the first)
+
+  // GF-CC-02 (section 9, "Adopt"): scores I refused, as (version, sceneHash), oldest first, at most 8. ABSENT until
+  // the first refusal, so JSON.stringify omits it and the stateHash of every run without a generated recipe is
+  // unchanged.
+  refused?: { version: ScoreVersion; sceneHash: string }[];
 }
 
 /** "Never heard anybody": stands in for minus infinity, which JSON cannot carry. */
