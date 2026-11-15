@@ -1,12 +1,15 @@
 // tests/app/xray/cascadeLayer.test.ts
-// #202 (P2-WP-03): the cascade layer draws only with ?p2=cascade AND X-ray AND quality level 0. Without the flag it
-// never draws (the default demo is unchanged), but it keeps ingesting. Fixed-capacity buffers, no reallocation.
+// #202 (P2-WP-03), E3: the cascade layer draws only with ?p2=cascade AND X-ray, at every render quality level. Without
+// the flag it never draws (the default demo is unchanged) and allocates nothing. Opted in, each arrow is a solid 3D
+// arrow (instanced cylinder shaft + cone head) sized in metres, in fixed-capacity instance buffers.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Group, LineSegments, PerspectiveCamera, Scene } from 'three';
+import { Color, Group, InstancedMesh, Matrix4, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
 import { makeParams } from '../../../src/contracts';
 import type { Vec3, WorldSnapshot } from '../../../src/contracts';
 import { makeFakeSnapshot } from '../../fixtures/fakeSnapshot';
-import createLayer, { CASCADE_COMMIT_COLOUR, CASCADE_POP_COLOUR, cascadeOptIn, createCascadeLayer } from '../../../src/app/render/layers/CascadeLayer';
+import createLayer, {
+  ARROW_HEAD_LENGTH, ARROW_HEAD_RADIUS, ARROW_SHAFT_RADIUS, CASCADE_COMMIT_COLOUR, CASCADE_POP_COLOUR, cascadeOptIn, createCascadeLayer,
+} from '../../../src/app/render/layers/CascadeLayer';
 import { createLayers } from '../../../src/app/render/layers';
 import { resetViewMode, setViewMode } from '../../../src/app/render/colourModes/viewMode';
 import { DEMO_BEATS, demoViewAt, dispatchTick } from '../../../src/app/ui/DemoScript';
@@ -35,10 +38,21 @@ function setup(layer: Layer = createCascadeLayer({ optIn: true })) {
   const scene = new Scene();
   layer.init({ scene, camera: new PerspectiveCamera(), params });
   const group = scene.children[0] as Group;
-  const [shafts, heads] = group.children as LineSegments[];
+  const [shafts, heads] = group.children as InstancedMesh[];
   const feed = (s: WorldSnapshot, prev: WorldSnapshot = s) => { layer.ingest!(s); layer.update({ prev, curr: s, alpha: 0, dtReal: 0 }); };
   return { scene, layer, group, shafts, heads, feed };
 }
+/** Instance `i`'s base, unit direction, length (scale.y) and radius (scale.x). */
+function instance(mesh: InstancedMesh, i: number) {
+  const m = new Matrix4(), position = new Vector3(), turn = new Quaternion(), scale = new Vector3();
+  mesh.getMatrixAt(i, m); m.decompose(position, turn, scale);
+  const dir = new Vector3(0, 1, 0).applyQuaternion(turn);
+  return { base: position.toArray(), dir: dir.toArray(), length: scale.y, radius: scale.x, tip: position.clone().addScaledVector(dir, scale.y).toArray() };
+}
+const close = (a: number[], b: number[]) => a.forEach((v, k) => expect(v).toBeCloseTo(b[k], 5));
+const rgb = (hex: number) => [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255].map(v => v / 255);
+/** Instance colours live in three's linear working space (the renderer shows them as the exact hex). */
+const linear = (hex: number, k = 1) => new Color(hex).multiplyScalar(k).toArray();
 
 describe('cascade layer: opt-in flag', () => {
   it('parses ?p2=<name>[,<name>…] for exactly "cascade"', () => {
@@ -67,7 +81,7 @@ describe('cascade layer: disabled (no ?p2=cascade) is inert', () => {
   it('ingest and update do no work: they never even read the snapshot or frame, and nothing is allocated', () => {
     const { scene, layer, group } = setup(createCascadeLayer({ optIn: false }));
     expect(scene.children).toEqual([group]);
-    expect(group.children).toHaveLength(0);         // no LineSegments, geometry or buffers
+    expect(group.children).toHaveLength(0);         // no meshes, geometry or buffers
     expect(group.visible).toBe(false);
     const untouchable = new Proxy({}, { get(_, key) { throw new Error(`read ${String(key)}`); } });
     setViewMode({ xray: true });
@@ -80,7 +94,7 @@ describe('cascade layer: disabled (no ?p2=cascade) is inert', () => {
     const { layer, group, feed } = setup(createCascadeLayer({ optIn: false }));
     const before = group.userData.cascade;
     setViewMode({ xray: true });
-    for (const level of [0, 1]) {
+    for (const level of [0, 1, 4]) {
       layer.setQuality!(level);
       for (let t = 1 + level * 100; t <= 60 + level * 100; t++) {
         const moves: Record<number, D> = {};
@@ -97,7 +111,7 @@ describe('cascade layer: disabled (no ?p2=cascade) is inert', () => {
 });
 
 describe('cascade layer: enabled', () => {
-  it('draws one arrow (shaft + two-stroke head) per arrived change, in the commit colour, only in X-ray', () => {
+  it('draws one solid arrow per arrived change, from the previous target to the new one, in the commit colour, only in X-ray', () => {
     const { group, shafts, heads, feed } = setup();
     feed(snap(1));
     feed(arrived(2));
@@ -107,30 +121,59 @@ describe('cascade layer: enabled', () => {
     feed(arrived(3), arrived(2));
     expect(group.visible).toBe(true);
     expect(group.userData.cascade).toMatchObject({ drawn: 1, changes: 1 });
-    expect(shafts.geometry.drawRange.count).toBe(2);
-    expect(heads.geometry.drawRange.count).toBe(4);
-    const p = shafts.geometry.getAttribute('position');
-    expect([p.getX(0), p.getY(0), p.getZ(0)]).toEqual([5, 30, 0]);   // the previous target
-    expect([p.getX(1), p.getY(1), p.getZ(1)]).toEqual([20, 30, 0]);  // the new one
-    const h = heads.geometry.getAttribute('position');
-    for (const v of [0, 2]) expect([h.getX(v), h.getY(v), h.getZ(v)]).toEqual([20, 30, 0]);   // both strokes at the tip
-    const c = shafts.geometry.getAttribute('color');
-    const brightness = 1 - 1 / 120;                 // shown at tick 2, drawn at tick 3
-    expect(c.getX(0)).toBeCloseTo(((CASCADE_COMMIT_COLOUR >> 16) & 255) / 255 * brightness, 5);
-    expect(c.getY(0)).toBeCloseTo(((CASCADE_COMMIT_COLOUR >> 8) & 255) / 255 * brightness, 5);
+    expect(shafts).toBeInstanceOf(InstancedMesh);
+    expect([shafts.count, heads.count]).toEqual([1, 1]);
+    // From the previous target (5, 30, 0) to the new one (20, 30, 0): 15 m along +x.
+    const s = instance(shafts, 0), h = instance(heads, 0);
+    close(s.base, [5, 30, 0]);
+    close(s.dir, [1, 0, 0]);
+    close(h.tip, [20, 30, 0]);                      // the head's tip is the new target
+    close(s.tip, h.base);                           // the shaft ends where the head begins
+    expect(h.length).toBeCloseTo(ARROW_HEAD_LENGTH, 5);
+    expect(h.radius).toBeCloseTo(ARROW_HEAD_RADIUS, 5);
+    expect(s.radius).toBeCloseTo(ARROW_SHAFT_RADIUS, 5);
+    const c = new Color(), brightness = 1 - 1 / 120;  // shown at tick 2, drawn at tick 3
+    shafts.getColorAt(0, c);
+    close(c.toArray(), linear(CASCADE_COMMIT_COLOUR, brightness));
+    heads.getColorAt(0, c);
+    close(c.toArray(), linear(CASCADE_COMMIT_COLOUR, brightness));
   });
 
-  it('a pop uses the pop colour; the two colours are distinct from the existing X-ray meanings', () => {
+  it('is many pixels wide at the audience camera, unlike a 1 px heartbeat line', () => {
+    // Audience camera: 95 m away, fov 50 (CameraRig). Half the 900 px canvas is one pane in split view.
+    const pxPerMetre = 450 / (2 * 95 * Math.tan((50 / 2) * Math.PI / 180));
+    expect(2 * ARROW_SHAFT_RADIUS * pxPerMetre).toBeGreaterThanOrEqual(3);
+    expect(2 * ARROW_HEAD_RADIUS * pxPerMetre).toBeGreaterThanOrEqual(8);
+  });
+
+  it('a short arrow keeps its head within 40% of its length and its shaft thinner than its head', () => {
+    const { shafts, heads, feed } = setup();
+    setViewMode({ xray: true });
+    feed(snap(1));
+    feed(snap(2, { 5: { slot: 2, target: [7, 30, 0] } }));   // 2 m
+    const s = instance(shafts, 0), h = instance(heads, 0);
+    expect(h.length).toBeCloseTo(0.8, 5);
+    expect(h.radius).toBeLessThanOrEqual(0.4 + 1e-6);   // float32 matrices
+    expect(s.radius).toBeLessThan(h.radius);
+    close(h.tip, [7, 30, 0]);
+  });
+
+  it('a pop uses the pop colour; the two colours are distinct from the existing X-ray meanings and the cyan claims', () => {
     const { shafts, feed } = setup();
     setViewMode({ xray: true });
     feed(snap(1));
     feed(snap(2, { 1: { slot: 9, target: [-3, 30, 0] } }));
-    const c = shafts.geometry.getAttribute('color');
-    expect(c.getZ(0)).toBeCloseTo((CASCADE_POP_COLOUR & 255) / 255, 5);
+    const c = new Color(); shafts.getColorAt(0, c);
+    close(c.toArray(), linear(CASCADE_POP_COLOUR));
     const taken = [0xffb547, 0xff5a1f, 0xff4fd8, 0xffffff, 0xd55e00, 0xf0e442];   // amber, vermilion, magenta, white, jam, partition
     expect(taken).not.toContain(CASCADE_COMMIT_COLOUR);
     expect(taken).not.toContain(CASCADE_POP_COLOUR);
     expect(CASCADE_COMMIT_COLOUR).not.toBe(CASCADE_POP_COLOUR);
+    // Away from the claim-heartbeat cyan (radioTrace: 0.12, 0.95, 1): the commit green carries little blue.
+    const [r, g, b] = rgb(CASCADE_COMMIT_COLOUR);
+    expect(g).toBeGreaterThan(0.9);
+    expect(b).toBeLessThan(0.3);
+    expect(Math.hypot(r - 0.12, g - 0.95, b - 1)).toBeGreaterThan(0.75);
   });
 
   it('draws nothing for unchanged drones (the static arm) and nothing while a changed drone is still in flight', () => {
@@ -144,49 +187,55 @@ describe('cascade layer: enabled', () => {
     expect(group.visible).toBe(false);
   });
 
-  it('quality above 0 and setVisible(false) hide it; it keeps counting and comes back at level 0', () => {
+  it('stays on at every quality level (an automatic step-down never hides it); setVisible(false) hides it', () => {
     const { layer, group, feed } = setup();
     setViewMode({ xray: true });
     feed(snap(1));
-    layer.setQuality!(1);
-    feed(arrived(2));
-    expect(group.visible).toBe(false);
-    expect(group.userData.cascade).toMatchObject({ drawn: 0, changes: 1 });
-    layer.setQuality!(0);
-    feed(arrived(3));
-    expect(group.visible).toBe(true);
+    for (const [i, level] of [1, 2, 3, 4].entries()) {
+      layer.setQuality!(level);
+      feed(arrived(2 + i));
+      expect(group.visible, `level ${level}`).toBe(true);
+      expect(group.userData.cascade).toMatchObject({ drawn: 1, quality: level });
+    }
     layer.setVisible(false);
     expect(group.visible).toBe(false);
-    feed(arrived(4));
+    feed(arrived(10));
     expect(group.visible).toBe(false);
+    layer.setVisible(true);
+    feed(arrived(11));
+    expect(group.visible).toBe(true);
   });
 
-  it('reuses its fixed-capacity buffers across updates and caps the arrows at capacity', () => {
+  it('reuses its fixed-capacity instance buffers across updates and caps the arrows at capacity', () => {
     const { group, shafts, heads, feed } = setup(createCascadeLayer({ optIn: true, capacity: 3 }));
     setViewMode({ xray: true });
-    const position = shafts.geometry.getAttribute('position');
-    const colour = heads.geometry.getAttribute('color');
+    const matrices = shafts.instanceMatrix, colours = heads.instanceColor;
+    expect(matrices.count).toBe(3);
+    expect(colours?.count).toBe(3);
     feed(snap(1));
     const moves: Record<number, D> = {};
     for (let i = 10; i < 16; i++) moves[i] = { slot: i + 20, target: [i, 40, 0] };   // six drones change and arrive
     feed(snap(2, moves));
-    expect(shafts.geometry.getAttribute('position')).toBe(position);
-    expect(heads.geometry.getAttribute('color')).toBe(colour);
-    expect(position.count).toBe(6);                 // 3 arrows × 2 vertices, allocated once
+    expect(shafts.instanceMatrix).toBe(matrices);
+    expect(heads.instanceColor).toBe(colours);
+    expect([shafts.count, heads.count]).toEqual([3, 3]);
     expect(group.userData.cascade).toMatchObject({ changes: 6, drawn: 3 });
     for (let t = 3; t < 10; t++) feed(snap(t, moves));
-    expect(shafts.geometry.getAttribute('position')).toBe(position);
+    expect(shafts.instanceMatrix).toBe(matrices);
   });
 
   it('reset clears the trail; dispose removes it from the scene', () => {
-    const { scene, layer, group, feed } = setup();
+    const { scene, layer, group, shafts, heads, feed } = setup();
     setViewMode({ xray: true });
     feed(snap(1)); feed(arrived(2));
     layer.reset!();
     expect(group.visible).toBe(false);
+    expect(shafts.count).toBe(0);
     expect(group.userData.cascade).toMatchObject({ drawn: 0, changes: 0 });
+    const released = [vi.spyOn(shafts, 'dispose'), vi.spyOn(heads, 'dispose')];
     layer.dispose();
     expect(scene.children).toHaveLength(0);
+    for (const spy of released) expect(spy).toHaveBeenCalledOnce();   // the instance buffers are released too
   });
 });
 
