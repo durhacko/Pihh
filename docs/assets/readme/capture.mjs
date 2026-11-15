@@ -8,14 +8,16 @@
 //
 // Needs Chrome (found by scripts/perf/cdp.mjs) and ImageMagick `convert` for the GIF.
 // Nothing here changes the simulation: it loads the app, uses the public window.encore API and keys that a user
-// has (H hides the comparison panel), pauses the clock on exact ticks and takes screenshots.
+// has (H hides the comparison panel), pauses the clock on exact ticks and takes screenshots. Every page loads with
+// ?q=high, the full render quality the app runs at on a laptop GPU: headless Chrome often renders in software, and
+// the automatic quality ladder (#126) would otherwise drop halos. The fps shown in the readout is the headless one.
 //
 // The repair animation is two runs of the same seed with the same scheduled kill: the default (Encore) view and
 // ?arm=static. Both worlds always run in lockstep in the app and get the same event, so each run also carries the
 // other world; the view only chooses which one is drawn. The kill is the scripted demo's regional kill: every live
 // drone within 6 m of (-35, 30.4, 0), the first E of ENCORE, scheduled at about tick 400 (the label uses the tick
-// of the event the app actually scheduled). Frames are paused near their target tick and labelled with the tick
-// they were actually taken at, so spacing is about, not exactly, 0.6 s.
+// of the event the app actually scheduled). Frames are paused exactly on their target ticks, 12 ticks (0.6 s) apart,
+// and labelled with the tick they were taken at; the script stops if the two runs differ on any frame's tick.
 //
 // The stills are cropped to the stage and the panel their caption refers to (crop only, no retouching):
 //   stage-split.png         ?split=1, paused at tick 380 in the ENCORE hold, before any event.
@@ -59,15 +61,27 @@ async function shot(page, clip) {
   return Buffer.from(data, 'base64');
 }
 
-/** Pause exactly on tick t: run slowly near it and pause from inside the page's own animation frame, so no
- *  round trip to the page can let the clock overshoot. At 0.25x the app advances at most one tick per frame. */
+/** Pause exactly on tick t. The clock runs slowly up to a few ticks short of t and pauses from inside the page's
+ *  animation frame; the last ticks are single steps with the app's own step key (.). A headless frame can carry
+ *  several ticks, so pausing on t directly overshoots by a varying amount. */
+const STEP_MARGIN = 15;
 async function pauseAt(page, t) {
-  await page.eval(`window.encore.setSpeed(2)`);
-  await page.eval(waitTick(t - 10));
+  const tick = () => page.eval('window.encore.tick()');
+  if ((await tick()) < t - STEP_MARGIN - 30) {
+    await page.eval(`window.encore.setSpeed(2)`);
+    await page.eval(waitTick(t - STEP_MARGIN - 30));
+  }
   await page.eval(`window.encore.setSpeed(0.25)`);
-  const at = await page.eval(`new Promise(r => (function w() {
-    if (window.encore.tick() >= ${t}) { window.encore.setPlaying(false); r(window.encore.tick()); } else requestAnimationFrame(w);
+  let at = await page.eval(`new Promise(r => (function w() {
+    if (window.encore.tick() >= ${t - STEP_MARGIN}) { window.encore.setPlaying(false); r(window.encore.tick()); } else requestAnimationFrame(w);
   })())`);
+  if (at > t) throw new Error(`overshot tick ${t}: paused at ${at}`);
+  while (at < t) {
+    await page.key('.');
+    const next = await tick();
+    if (next !== at + 1) throw new Error(`the step key moved the clock from ${at} to ${next}`);
+    at = next;
+  }
   await sleep(350);   // let the renderer draw the paused frame
   return at;
 }
@@ -81,14 +95,14 @@ async function selectDrone(page, id) {
 
 async function stills(chrome) {
   const split = await openPage(chrome.browser, VIEW);
-  await split.goto(`${URL}?seed=101&split=1`);
+  await split.goto(`${URL}?seed=101&q=high&split=1`);
   await split.eval(WAIT_FOR_APP);
   const splitTick = await pauseAt(split, 380);
   writeFileSync(join(HERE, 'stage-split.png'), await shot(split, SPLIT_CLIP));
   await split.close();
 
   const page = await openPage(chrome.browser, VIEW);
-  await page.goto(`${URL}?seed=101`);
+  await page.goto(`${URL}?seed=101&q=high`);
   await page.eval(WAIT_FOR_APP);
   await pauseAt(page, 330);
   await selectDrone(page, 100);
@@ -113,7 +127,7 @@ async function stills(chrome) {
 
 async function run(chrome, query, frameDir, label) {
   const page = await openPage(chrome.browser, VIEW);
-  await page.goto(`${URL}?seed=101${query}`);
+  await page.goto(`${URL}?seed=101&q=high${query}`);
   await page.eval(WAIT_FOR_APP);
   const frames = [];
   let killed = false;
@@ -151,7 +165,7 @@ try {
   const encore = await run(chrome, '', frameDir, 'encore');
   const stat = await run(chrome, '&arm=static', frameDir, 'static');
   for (const [a, b] of encore.frames.map((f, i) => [f, stat.frames[i]])) {
-    if (Math.abs(a.tick - b.tick) > 1) throw new Error(`frame ticks differ: ${a.tick} vs ${b.tick}`);
+    if (a.tick !== b.tick) throw new Error(`frame ticks differ: ${a.tick} vs ${b.tick}`);
   }
   mkdirSync(HERE, { recursive: true });
   writeFileSync(join(HERE, 'stage-after-repair.png'), encore.still);
