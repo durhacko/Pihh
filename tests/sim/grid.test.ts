@@ -14,7 +14,9 @@ import { SpatialGrid } from '../../src/sim/grid';
 import { distanceSquared } from '../../src/sim/math';
 import { createRandom } from '../../src/sim/random';
 
+/** Brute force: every live id at distance <= radius. No distance is <= a negative (or NaN) radius. */
 function reference(positions: readonly Vec3[], live: readonly number[], pos: Vec3, radius: number): number[] {
+  if (!(radius >= 0)) return [];
   return live.filter((id) => distanceSquared(pos, positions[id]) <= radius * radius).sort((a, b) => a - b);
 }
 
@@ -68,6 +70,66 @@ describe('SpatialGrid.within equals a brute-force scan', () => {
         expect(grid.within(positions[3], radius), `cell ${cellSize} r ${radius}`).toEqual(reference(positions, live, positions[3], radius));
       }
     }
+  });
+});
+
+describe('SpatialGrid guards (#140): adversarial cell sizes, radii and query points terminate and equal brute force', () => {
+  // Before #140 a tiny positive cell size (1e-20 m) made cell indices exceed 2^53, so `x++` stopped advancing in the
+  // Map fallback and within() never returned; an infinite radius did the same there; and a tiny negative radius
+  // could return a drone sitting exactly on the query point. Each case below has a 10 s timeout, so a stall fails.
+  const RADII = [-Infinity, -1e300, -5, -1e-30, -Number.MIN_VALUE, -0, 0, Number.MIN_VALUE, 1e-300, 1e-30, 0.8, 15, 1e6, 1e300, Infinity, Number.NaN];
+  const show = cloud(11, 120, 60, [0, 30, 0]);
+  const outliers: Vec3[] = [...cloud(12, 80, 30), [1e7, 0, 0], [-3e6, 4e6, 2e6], [0, 0, -9e6]];
+  const queries = (positions: readonly Vec3[]): Vec3[] => [
+    positions[0], positions[5], [0, 30, 0], [-1e9, 1e9, 0], [1e300, -1e300, 1e300], [Infinity, 0, 0], [0, Number.NaN, 0],
+  ];
+  const check = (positions: readonly Vec3[], cellSizes: readonly number[]) => {
+    const live = positions.map((_, id) => id).filter((id) => id % 5 !== 2);
+    for (const cellSize of cellSizes) {
+      const grid = new SpatialGrid(positions, live, cellSize);
+      for (const [q, pos] of queries(positions).entries()) {
+        for (const radius of RADII) {
+          expect(grid.within(pos, radius), `cell ${cellSize} r ${radius} q ${q}`).toEqual(reference(positions, live, pos, radius));
+        }
+      }
+    }
+  };
+
+  it('tiny positive cell sizes (1e-20, 1e-300, Number.MIN_VALUE) on a show-sized cloud', () => {
+    check(show, [1e-9, 1e-20, 1e-300, Number.MIN_VALUE]);
+  }, 10_000);
+
+  it('tiny positive cell sizes on a cloud with far outliers (the Map fallback)', () => {
+    check(outliers, [1e-20, 1e-300, Number.MIN_VALUE]);
+  }, 10_000);
+
+  it('real-sized and huge cell sizes, in both layouts', () => {
+    check(show, [0.8, 15, 1e6, 1e300]);
+    check(outliers, [8, 15, 1e300]);
+  }, 10_000);
+
+  it('invalid cell sizes (0, negative, NaN, Infinity) with adversarial radii', () => {
+    check(show, [0, -1, Number.NaN, Infinity, -Infinity]);
+  }, 10_000);
+
+  it('a negative radius returns [] even with a drone exactly on the query point; -0 counts as 0', () => {
+    const positions: Vec3[] = [[1, 2, 3], [1, 2, 3.5]];
+    for (const cellSize of [0.5, 1e-20]) {
+      const grid = new SpatialGrid(positions, [0, 1], cellSize);
+      expect(grid.within([1, 2, 3], -1e-30), `cell ${cellSize}`).toEqual([]);
+      expect(grid.within([1, 2, 3], -1), `cell ${cellSize}`).toEqual([]);
+      expect(grid.within([1, 2, 3], Number.NaN), `cell ${cellSize}`).toEqual([]);
+      expect(grid.within([1, 2, 3], -0), `cell ${cellSize}`).toEqual([0]);
+      expect(grid.within([1, 2, 3], 0.5), `cell ${cellSize}`).toEqual([0, 1]);
+    }
+  });
+
+  it('all drones at the origin (extent 0) with a tiny cell size', () => {
+    const positions: Vec3[] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const grid = new SpatialGrid(positions, [0, 1, 2], 1e-300);
+    expect(grid.within([0, 0, 0], 0)).toEqual([0, 1, 2]);
+    expect(grid.within([0, 0, 0], Infinity)).toEqual([0, 1, 2]);
+    expect(grid.within([1, 0, 0], 0.5)).toEqual([]);
   });
 });
 
