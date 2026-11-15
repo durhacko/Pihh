@@ -7,15 +7,16 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { makeParams, OPERATOR } from '../../src/contracts';
 import type { EnvEvent, MetricsSample, WorldSnapshot } from '../../src/contracts';
-import { expandRecipe } from '../../src/score';
+import { currentMovement, expandRecipe } from '../../src/score';
 import { createWorld, idsInSphere } from '../../src/sim';
 import { bindControls } from '../../src/app/actions';
 import { readViewMode, resetViewMode } from '../../src/app/render/colourModes/viewMode';
 import { controlContext, createWorlds, DEFAULT_N0, viewModeDisplay, type Pair, type ShellHooks, type Worlds } from '../../src/app/worlds';
 import { createSelectionArm } from '../../src/app/ui/popovers';
+import { createPhaseTracker, readoutItems, type ArmPhase, type ReadoutItem } from '../../src/app/ui/Readout';
 import {
   BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoViewAt, dispatchTick,
-  INJECT_DRONE, JAM_CENTRE, JAM_RADIUS, KILL_CENTRE, KILL_RADIUS, LEAD_TICKS, type DemoBeat,
+  INJECT_DRONE, INJECT_RECIPE, JAM_CENTRE, JAM_RADIUS, KILL_CENTRE, KILL_RADIUS, LEAD_TICKS, type DemoBeat,
 } from '../../src/app/ui/DemoScript';
 
 afterEach(() => resetViewMode());
@@ -79,6 +80,14 @@ describe('scripted demo constants', () => {
     expect(expandRecipe({ kind: 'text', text: 'ENCORE' }, DEMO_N0, worlds.params).slots[INJECT_DRONE].pos[0]).toBeGreaterThan(28);
   });
 
+  it('the preloaded score is still on its sphere when the demo ends, so the final caption\'s "not comparable" can hold', () => {
+    // The static arm flies the preloaded score; the final caption says the readout marks it not comparable with the
+    // Encore arm's injected helix. A preloaded movement change before END (e.g. a DEFAULT_RECIPES reorder) breaks that.
+    const { worlds } = rig();
+    for (const tick of [DEMO_TICKS.NEW_MOVEMENT, DEMO_TICKS.FINAL, DEMO_TICKS.END]) expect(currentMovement(worlds.score, tick).movement.recipe.kind, `tick ${tick}`).toBe('sphere');
+    expect(INJECT_RECIPE.kind).not.toBe('sphere');
+  });
+
   it('the repair beat turns X-ray off so the hole and its refill show; the jam turns it back on (#134)', () => {
     expect(DEMO_TICKS.REPAIR).toBe(460);   // measured: first claim 455, first commit 475, first hole slot filled 495
     expect(DEMO_BEATS.find(beat => beat.id === 'repair')).toMatchObject({ tick: DEMO_TICKS.REPAIR, action: { kind: 'view', xray: false, beliefColours: false } });
@@ -105,6 +114,9 @@ describe('scripted demo run', () => {
   const firstClaim: Pair<number | null> = { encore: null, static: null };
   const firstCommit: Pair<number | null> = { encore: null, static: null };
   let previous: Pair<WorldSnapshot> | null = null;
+  const selectedAt: Record<string, number | null> = {};
+  let finalPhases: Pair<ArmPhase | null> | null = null;
+  let finalReadout: ReadoutItem[] = [];
   const watched = [DEMO_TICKS.KILL - 1, DEMO_TICKS.KILL, DEMO_TICKS.JAM_ON, DEMO_TICKS.INJECT, DEMO_TICKS.JAM_OFF - 1, DEMO_TICKS.JAM_OFF];
   beforeAll(() => {
     r = rig();
@@ -123,6 +135,19 @@ describe('scripted demo run', () => {
       // Kill ids resolve from positions when the beat is sent, up to LEAD_TICKS early: they must not drift.
       if (tick >= DEMO_TICKS.KILL - LEAD_TICKS && tick < DEMO_TICKS.KILL) leadIds.push(idsInSphere(snapshots.encore, KILL_CENTRE, KILL_RADIUS));
       if (tick === DEMO_TICKS.JAM_ON) jammedAtOn = snapshots.encore.drones.filter(d => d.alive && dist(d.pos, JAM_CENTRE) <= JAM_RADIUS).length;
+      // The selection right after the injection is sent (still its target) and while it spreads (cleared, #134).
+      if (tick === DEMO_TICKS.INJECT - LEAD_TICKS + 2) selectedAt.send = readViewMode().selectedDroneId;
+      if (tick === DEMO_TICKS.INJECT + 2) selectedAt.spread = readViewMode().selectedDroneId;
+      if (tick === DEMO_TICKS.JAM_OFF + 2) selectedAt.jamOff = readViewMode().selectedDroneId;
+      if (tick === DEMO_TICKS.FINAL) {
+        // What main.ts shows (armPhases + readout.update): each arm's phase from its observer's slot status, named by the
+        // observer's reference score (newest registered score its live drones believe), in split view.
+        const track = createPhaseTracker();
+        const samples = r.worlds.samples();
+        const phaseOf = (arm: 'encore' | 'static') => track(arm, r.worlds.observers[arm], { tick, inHold: r.worlds.observers[arm].slotStatus(snapshots[arm]).inHold }, samples[arm], r.worlds.scores());
+        finalPhases = { encore: phaseOf('encore'), static: phaseOf('static') };
+        finalReadout = readoutItems({ samples, view: 'split', n0: DEMO_N0, phases: finalPhases, fps: null, stopped: null });
+      }
       if (tick === DEMO_TICKS.INJECT) {
         const has = (arm: 'encore' | 'static') => r.worlds.worlds[arm].inspect(INJECT_DRONE)!.input.inbox.some(m => m.type === 'SCORE' && m.from === OPERATOR);
         injected = { encore: has('encore'), static: has('static') };
@@ -179,9 +204,25 @@ describe('scripted demo run', () => {
       expect(dist(target.pos, JAM_CENTRE)).toBeGreaterThan(JAM_RADIUS);
     }
     // View beats went through the display intents; the run ends on the audience view with overlays off.
-    expect(viewAtEnd).toMatchObject({ xray: false, beliefColours: false, selectedDroneId: INJECT_DRONE });
+    expect(viewAtEnd).toMatchObject({ xray: false, beliefColours: false, selectedDroneId: null });
     expect(r.cameras).toEqual(['audience', 'audience']);
     expect(r.transport.speed).toBe(1);
+  });
+
+  it('deselects as the injection lands, so X-ray draws the whole spread; the injection still goes to its target (#134)', () => {
+    expect(first.log.find(event => event.type === 'INJECT_SCORE')).toMatchObject({ tick: DEMO_TICKS.INJECT, droneId: INJECT_DRONE });
+    expect(selectedAt.send).toBe(INJECT_DRONE);   // selected while the injection is sent, so it targets 151
+    expect(selectedAt.spread).toBeNull();          // nothing selected while the new score spreads ...
+    expect(selectedAt.jamOff).toBeNull();          // ... or when it crosses into the drones that were cut off
+    const order = DEMO_BEATS.map(beat => beat.id);
+    expect(order.indexOf('deselect')).toBeGreaterThan(order.indexOf('inject'));
+    expect(dispatchTick(DEMO_BEATS.find(beat => beat.id === 'deselect')!)).toBeGreaterThan(dispatchTick(DEMO_BEATS.find(beat => beat.id === 'inject')!));
+  });
+
+  it('at the final view the readout marks the two arms not comparable, as its caption says (#178)', () => {
+    expect(DEMO_BEATS.find(beat => beat.id === 'final-view')!.caption).toMatch(/not comparable/);
+    expect(finalPhases).toMatchObject({ encore: { name: 'Double helix' }, static: { name: 'Sphere' } });
+    expect(finalReadout.map(item => item.key)).toContain('comparable');
   });
 
   it('shows each caption on its own beat tick, never early, even for events sent ahead', () => {
