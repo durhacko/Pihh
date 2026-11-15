@@ -14,7 +14,7 @@ import type {
 import { composeNext, expandRecipe, launchPos, makeScore, newerVersion } from '../../src/score';
 import { staticBrain } from '../../src/agent/staticBrain';
 import type { StaticState } from '../../src/agent/staticBrain';
-import { steer, steerTarget } from '../../src/agent/steer';
+import { pacedSlotPos, steer, steerTarget } from '../../src/agent/steer';
 
 // ---------- the show used by every test ----------
 
@@ -301,13 +301,13 @@ describe('staticBrain: one step', () => {
   const sensed: Sensed[] = [{ rel: [0.6, 0.1, 0.2], vel: [-2, 0, 0] }, { rel: [3, 0, 0], vel: [0, 0, 0] }];
   const ticks = [1, M2.startTick - 1, M2.startTick, M3.startTick - 1, M3.startTick, 100000];
 
-  it('accel = steer towards its own slot of the current movement; colour = that slot colour; outbox = []', () => {
+  it('accel = steer towards the paced point of its own slot; belief.target = the real slot; colour = that slot colour; outbox = []', () => {
     for (const id of [0, 13, N - 1]) {
       for (const tick of ticks) {
         const s = staticBrain.init({ id, n0: N, initialSlot: id, score: SCORE, params: P, seed: 7 });
         const out = staticBrain.step(s, { tick, pos: [...pos], vel: [...vel], inbox: [], sensed });
         const slot = FORMATIONS[movementAt(tick)].slots[id];
-        expect(out.accel).toEqual(steer(pos, vel, steerTarget(id, pos, slot.pos, P), sensed, P));
+        expect(out.accel).toEqual(steer(pos, vel, pacedSlotPos(SCORE, tick, id, N, P), sensed, P));
         expect(out.colour).toEqual(slot.colour);
         expect(out.outbox).toEqual([]);
         expect(staticBrain.belief(s).target).toEqual(slot.pos);
@@ -321,6 +321,18 @@ describe('staticBrain: one step', () => {
     const alone = staticBrain.step(s, { tick: 1, pos: [...pos], vel: [...vel], inbox: [], sensed: [] });
     const crowded = staticBrain.step(s, { tick: 1, pos: [...pos], vel: [...vel], inbox: [], sensed });
     expect(crowded.accel).not.toEqual(alone.accel);
+  });
+
+  it('mid-transition it does not fly straight at the new slot: the paced point lies strictly between the two slots', () => {
+    const id = 13;
+    const tick = M2.startTick + 20;
+    const s = staticBrain.init({ id, n0: N, initialSlot: id, score: SCORE, params: P, seed: 7 });
+    const out = staticBrain.step(s, { tick, pos: [...pos], vel: [...vel], inbox: [], sensed });
+    const paced = pacedSlotPos(SCORE, tick, id, N, P);
+    expect(dist(paced, FORMATIONS[0].slots[id].pos)).toBeGreaterThan(0);
+    expect(dist(paced, FORMATIONS[1].slots[id].pos)).toBeGreaterThan(0);
+    expect(out.accel).not.toEqual(steer(pos, vel, FORMATIONS[1].slots[id].pos, sensed, P));
+    expect(staticBrain.belief(s).target).toEqual(FORMATIONS[1].slots[id].pos);
   });
 
   it('with transitLanes on, it aims at steerTarget(id, ...), so drones in different lanes steer differently', () => {
@@ -337,7 +349,12 @@ describe('staticBrain: one step', () => {
       staticBrain.init({ id, n0: N, initialSlot: id, score: SCORE, params: P, seed: 7 }),
       { tick: 1, pos: [...pos], vel: [...vel], inbox: [], sensed },
     );
-    expect(withLanes.accel).toEqual(steer(pos, vel, steerTarget(id, pos, slot.pos, lanes), sensed, lanes));
+    // The lane is judged against the real slot and its offset is added to the paced point.
+    const lane = steerTarget(id, pos, slot.pos, lanes);
+    const paced = pacedSlotPos(SCORE, 1, id, N, lanes);
+    const aim: Vec3 = [paced[0] + lane[0] - slot.pos[0], paced[1] + lane[1] - slot.pos[1], paced[2] + lane[2] - slot.pos[2]];
+    expect(lane[2]).not.toBe(slot.pos[2]);
+    expect(withLanes.accel).toEqual(steer(pos, vel, aim, sensed, lanes));
     expect(withLanes.accel).not.toEqual(without.accel);
   });
 

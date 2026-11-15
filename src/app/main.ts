@@ -8,7 +8,7 @@ import { WorldView } from './render/WorldView';
 import { createPanels } from './ui';
 import { bindHud } from './ui/Hud';
 import { idsInSphere } from '../sim';
-import { ARMS, controlContext, createFrameLoop, createWorlds, encoreBrainIsFixture, hudPayload, killEvent, viewModeDisplay, type Arm, type Pair } from './worlds';
+import { ARMS, controlContext, createFrameLoop, createWorlds, hudPayload, killEvent, viewModeDisplay, type Arm, type Pair } from './worlds';
 import './style.css';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -24,7 +24,7 @@ const split = query.get('split') === '1';
 const shownArm: Arm = query.get('arm') === 'static' ? 'static' : 'encore';
 
 app.innerHTML = `<div class="airspace"></div>
-  <header class="masthead"><div><p class="brand">ENCORE / AIRSPACE</p><h1 class="title">A composition of independent minds.</h1><p class="caption">Live simulation · Encore and static worlds in lockstep · seed <span class="seed"></span><br>${encoreBrainIsFixture ? 'Encore brain not merged yet: both arms fly the static baseline.' : 'Encore brain in the Encore arm, static baseline in the other.'}</p></div><span class="preview-badge">${encoreBrainIsFixture ? 'STATIC BRAIN IN BOTH ARMS' : 'LIVE SIMULATION'}</span></header>
+  <header class="masthead"><div><p class="brand">ENCORE / AIRSPACE</p><h1 class="title">A composition of independent minds.</h1><p class="caption">Live simulation · Encore and static worlds in lockstep · seed <span class="seed"></span><br>Encore brain in the Encore arm, the static pre-programmed baseline in the other.</p></div><span class="preview-badge">LIVE SIMULATION</span></header>
   <p class="help">Drag to orbit · right-drag to pan · scroll to zoom</p>
   <nav class="view-controls" aria-label="Camera presets"><button data-preset="audience" aria-pressed="true">1 Audience</button><button data-preset="quarter" aria-pressed="false">2 Three-quarter</button><button data-preset="top" aria-pressed="false">3 Top</button></nav>
   <output class="frame-readout" aria-live="off"></output>`;

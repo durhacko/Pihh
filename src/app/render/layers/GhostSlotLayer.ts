@@ -20,13 +20,19 @@ export const SLOT_STATUS_INTERVAL_MS = 250;
 export interface SlotStatusFeed {
   /** The newest slot status for this snapshot's world, recomputed at most every intervalMs (or at once after a reset). */
   read(snapshot: WorldSnapshot): SlotFrame;
-  /** What read() last returned, with the tick it was computed for; null before the first read. */
+  /** What read() last returned, with the tick it was computed for; null before the first read, and null after a
+   *  reset until the next read (the cached reading belongs to the old observer and the old run). */
   latest(): { tick: number; slots: SlotFrame } | null;
 }
 
 /**
  * A throttled reader of Observer.slotStatus for one world. `observer` is a getter because the app rebuilds
  * observers on reset; a new observer, or a tick that goes backwards, invalidates the cache immediately.
+ *
+ * Cost: the observer caches its formation geometry per snapshot object, and its own sample() fills that cache only on
+ * ticks divisible by 5. So a slotStatus call here reuses the observer's work only when it lands on such a tick for the
+ * same snapshot; on every other tick it computes the geometry itself (~1.6 ms at n0 = 200). The 4 Hz throttle, not the
+ * observer's cache, is what keeps the feed cheap.
  */
 export function createSlotStatusFeed(observer: () => Pick<Observer, 'slotStatus'>, options: { intervalMs?: number; now?: () => number } = {}): SlotStatusFeed {
   const intervalMs = options.intervalMs ?? SLOT_STATUS_INTERVAL_MS;
@@ -41,7 +47,7 @@ export function createSlotStatusFeed(observer: () => Pick<Observer, 'slotStatus'
       if (stale) cached = { source, tick: snapshot.tick, at: time, slots: source.slotStatus(snapshot) };
       return cached!.slots;
     },
-    latest: () => (cached ? { tick: cached.tick, slots: cached.slots } : null),
+    latest: () => (cached && cached.source === observer() ? { tick: cached.tick, slots: cached.slots } : null),
   };
 }
 
@@ -73,6 +79,8 @@ export default function createLayer(): Layer {
   let camera: Camera;
   let visible = true;
   let legend: HTMLDivElement | undefined;
+  let legendSlots: SlotFrame | undefined | null = null;   // null: never built
+  let legendShown = '';
   return {
     id: 'ghost-slots',
     init(ctx) {
@@ -125,6 +133,11 @@ export default function createLayer(): Layer {
       group.userData.ghosts = counts;
       if (legend) {
         legend.hidden = !group.visible;
+        // The DOM legend changes only when the slot reading (a new object from the feed) or its counts do, so it is
+        // not rebuilt on every frame between the feed's 4 Hz readings.
+        const legendKey = slots ? `${slots.inHold}:${counts.vacant}:${counts.inTransit}:${counts.contested}` : '';
+        if (slots === legendSlots && legendKey === legendShown) return;
+        legendSlots = slots; legendShown = legendKey;
         if (!slots) legend.replaceChildren();
         else {
           // Shape named in words and drawn in its colour, so the key never relies on colour or a font glyph alone.

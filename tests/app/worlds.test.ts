@@ -1,10 +1,10 @@
 // tests/app/worlds.test.ts
-// WP-3b (#6): the app's two worlds, headless. Real createWorld, real score, real static brain.
+// WP-3b (#6): the app's two worlds, headless. Real createWorld, real score, the real Encore and static brains.
 import { describe, expect, it, vi } from 'vitest';
 import { makeParams } from '../../src/contracts';
 import type { EnvEvent, WorldSnapshot } from '../../src/contracts';
 import { idsInSphere } from '../../src/sim';
-import { ARMS, createWorlds, DEFAULT_N0, encoreBrainIsFixture, killEvent, type Pair, type Worlds } from '../../src/app/worlds';
+import { ARMS, createWorlds, DEFAULT_N0, killEvent, type Pair, type Worlds } from '../../src/app/worlds';
 
 const SEED = 1234;
 const aliveCount = (s: WorldSnapshot) => s.drones.filter(d => d.alive).length;
@@ -30,8 +30,8 @@ describe('createWorlds', () => {
     expect(baseline.config.seed).toBe(SEED);
     expect(encore.config.params).toEqual(baseline.config.params);
     expect(encore.config.score).toEqual(baseline.config.score);
+    expect(encore.config.brain.kind).toBe('encore');
     expect(baseline.config.brain.kind).toBe('static');
-    expect(encoreBrainIsFixture).toBe(encore.config.brain.kind !== 'encore');
     expect(worlds.tick).toBe(0);
     expect(worlds.latest()).toBeNull();
   });

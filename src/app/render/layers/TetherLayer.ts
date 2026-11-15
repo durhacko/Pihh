@@ -5,7 +5,6 @@
 import { BufferGeometry, DynamicDrawUsage, Float32BufferAttribute, LineBasicMaterial, LineSegments, type Scene } from 'three';
 import type { Layer } from '../Layer';
 import { readViewMode } from '../colourModes/viewMode';
-import { interpolateDrone } from '../SnapshotBuffer';
 
 export const TETHER_COLOUR = 0xffb547;
 
@@ -33,6 +32,7 @@ export default function createLayer(): Layer {
       const mode = readViewMode();
       const capacity = positions.count / 2;
       const array = positions.array as Float32Array;
+      const t = Math.max(0, Math.min(1, frame.alpha));   // interpolateVector's clamp
       let count = 0;
       if (visible) for (const drone of frame.curr.drones) {
         if (!drone.alive || count >= capacity) continue;
@@ -40,8 +40,15 @@ export default function createLayer(): Layer {
         const target = drone.belief.target;
         const dx = drone.pos[0] - target[0], dy = drone.pos[1] - target[1], dz = drone.pos[2] - target[2];
         if (dx * dx + dy * dy + dz * dz <= rOcc2) continue;
-        const from = interpolateDrone(frame.prev.drones[drone.id], drone, frame.alpha).pos;
-        array.set([from[0], from[1], from[2], target[0], target[1], target[2]], count * 6);
+        // The interpolated start, written straight into the buffer: no per-drone arrays or objects on this per-frame
+        // path (in X-ray it runs for every live drone). Same result as interpolateDrone(prev, drone, alpha).pos.
+        const previous = frame.prev.drones[drone.id];
+        const before = previous?.id === drone.id ? previous.pos : drone.pos;
+        const o = count * 6;
+        array[o] = before[0] + (drone.pos[0] - before[0]) * t;
+        array[o + 1] = before[1] + (drone.pos[1] - before[1]) * t;
+        array[o + 2] = before[2] + (drone.pos[2] - before[2]) * t;
+        array[o + 3] = target[0]; array[o + 4] = target[1]; array[o + 5] = target[2];
         count++;
       }
       positions.needsUpdate = true;
