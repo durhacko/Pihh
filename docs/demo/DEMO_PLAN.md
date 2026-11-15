@@ -20,7 +20,7 @@ Quote a numerical result only with its `RunRecord`, revision, seed count and lim
 
 Source checked at `9f78902` (14 Nov 2026, after #107): the app builds two real worlds in lockstep. The **Encore arm flies the Encore brain**: it heals, gossips scores and sends radio. The other arm flies the static pre-programmed baseline. The masthead caption says so, and the HUD labels each arm with the brain kind its world actually runs (`config.brain.kind`). Radio faults, injection, X-ray and belief colours are wired through the controls. The scripted demo (D) is described below. This paragraph covers wiring only; recovery results still need their own run records.
 
-The full headless pipeline at this revision passed 316 tests, typecheck, lint, build and internal links in #71/PR #73. That is engineering verification, not a recovery result or rehearsal. **The browser steps below are a source-based candidate path, not independently rehearsed by this document's author.** Record a browser pass below before calling it known-good.
+`bash scripts/check.sh` passes on `main` after #120 (typecheck, lint, tests, build, internal links). Re-run it at the rehearsal build and record the result here. That is engineering verification, not a recovery result or rehearsal. **The browser steps below are a source-based candidate path, not independently rehearsed by this document's author.** Record a browser pass below before calling it known-good.
 
 Prepare dependencies before going offline (Node 22.12+ and Python 3 required):
 
@@ -31,7 +31,7 @@ npm run build
 npm run preview -- --host 127.0.0.1
 ```
 
-On PowerShell use `npm.cmd` if execution policy blocks `npm`. Keep preview running; open Vite's printed loopback address with `?seed=101&split=1`. The local server is part of the app. Installation needs internet once; runtime needs no external services. A production browser check with networking off is pending.
+On PowerShell use `npm.cmd` if execution policy blocks `npm`. Keep preview running; open Vite's printed loopback address with `?seed=101&split=1`. The local server is part of the app. Installation needs internet once; runtime needs no external services. This was checked on a fresh clone at `9f78902` (15 Nov, about 00:00) in WSL. With networking removed (a separate network namespace with only loopback), `npm run preview` serves the page, `?seed=101&split=1` and its assets, and the bundle fetches nothing external. Still to do: the same in a real browser with Wi-Fi off on the presentation laptop.
 
 1. Read the brain labels. The badge says **LIVE SIMULATION**; the masthead caption and the HUD's per-arm labels show which brain each arm flies, and the HUD label comes from the live world (`config.brain.kind`). Expect the Encore brain in the Encore arm and the static baseline in the other. If a label says otherwise, do not describe any difference as healing.
 2. Use camera presets `1`, `2`, `3` or their buttons; check orbit/zoom on the presentation laptop. Record actual fps during rehearsal, not a target or fixture measurement.
@@ -47,14 +47,14 @@ window.encore.setPlaying(true);
 
 After simulation advances, pause and read `window.encore.alive()` again. Both arms should have lost those three ids. Restart with `window.encore.reset(101)` and `window.encore.setPlaying(true)`. Stop preview with Ctrl+C.
 
-4. Once G1/G4 evidence and UI integration exist, rehearse the [canonical script](../design/experience-and-demo.md#9-scripted-demo). Kill during a hold. Jamming does not freeze flight; a drone leaving a geometric jam may adopt before jam-off. Fixed partition groups stay isolated wherever they fly.
+4. G1 passed, score gossip is merged (relay test T18 passes), and the script is in the app (press D): rehearse the [canonical script](../design/experience-and-demo.md#9-scripted-demo). Do not claim dissemination results until the G4 evidence is in (#26). Kill during a hold. Jamming does not freeze flight; a drone leaving a geometric jam may adopt before jam-off. Fixed partition groups stay isolated wherever they fly.
 5. Check reset/seed behavior, equal failure events, radio lines from real logs and observer-backed HUD against a matching headless record. Run the script twice unattended before using it for judging. No such pass is recorded here.
 
 Startup time, browser fps, offline pass and reset demonstration: **not measured/rehearsed here**. Needs: one laptop on mains power; external screen optional. No drone equipment or external runtime services.
 
 ## Known-good demo path
 
-> **Scripted, not yet rehearsed by a person.** The 90-second script ([experience §9](../design/experience-and-demo.md#9-scripted-demo), #27) runs unattended and gives the same result each time in headless tests. It has had one headless-browser run. No presenter rehearsal is recorded (see below).
+> **Scripted, not yet rehearsed by a person.** The 90-second script ([experience §9](../design/experience-and-demo.md#9-scripted-demo), #27) runs unattended and gives the same result each time in headless tests. It had two headless-browser runs before the #114 retiming and the Encore brain, and none since (see Verification below). No presenter rehearsal is recorded (see below).
 
 **Run it.** Open the production preview with `?split=1`, then press **D** or **Run demo** in the bar at the bottom. The script resets both worlds to its own seed, sets 1×, turns X-ray and belief colours off, and plays, so the seed in the URL does not matter.
 - **Stop:** press **D** again. The script stops and the show resets to seed 101. The reset discards any event the script had already scheduled, up to 3 s ahead. The show keeps playing.
@@ -122,7 +122,7 @@ The amber note follows the brains the live worlds actually fly (their `config.br
 | The demo bar says a step "went out at … s, so this run is off-script", or that a step "failed" | Press **Restart** at 1× and keep the tab in front. Do not quote numbers from that run | Only a run with no such message is the canonical one |
 | The scripted demo stops or misbehaves mid-run | Press **D** to stop; the show resets to seed 101. Then drive similar beats by hand from the control panel (a sequence follows this table) | Hand-driven events land on different ticks and use the controls' default radii (kill 6 m, jam 15 m), not the script's; say so |
 | Split is too slow | Reopen without `split=1`; show both arms' recorded results separately when available | Report the actual laptop observation, not fixture fps |
-| Healing/dissemination is unproven | Show the working shared-world/failure path; explain the mechanism as design and follow the fallback ladder | No staged repair or invented communication result |
+| Repair or spread does not show in this run | Say what the headless tests show (G1; the T18 relay test) and that this run did not show it; never stage it | Quote only the tests, with their limits. No dissemination result before the G4 evidence (#26) |
 | WebGL or all live paths fail | Play a labelled offline backup only if it exists; otherwise show source and real headless evidence with limits | No video/screenshots supplied by this drafting increment |
 
 **Hand-driven sequence** for the second fallback row:
@@ -137,7 +137,7 @@ Criteria come from [BRIEF J1](../competition/BRIEF.md#3-judging). Expected obser
 
 | Criterion / track | System feature | Expected observation | Evidence and current limit |
 |---|---|---|---|
-| Creativity / Innovation | Timed score plus local priority claims | Damage becomes thinner detail when repair succeeds | [Contracts §8](../design/contracts-and-algorithms.md#8-healing-local-claims-adr-007); G1/#17 required; no new-algorithm claim |
+| Creativity / Innovation | Timed score plus local priority claims | Damage becomes thinner detail when repair succeeds | [Contracts §8](../design/contracts-and-algorithms.md#8-healing-local-claims-adr-007); G1 passed (#103; it depends on where the kill lands: 183 of 200 runs in a sweep of every kill centre); no new-algorithm claim |
 | Polish / Completion | 3D view, reset, repeatable demo | Readable formations and reliable reset | [Visual acceptance](../design/experience-and-demo.md#11-visual-acceptance-criteria); browser rehearsal/video pending |
 | Technical Competence / Execution | Isolated brains, radio, read-only observer | Logs and beliefs explain actual decisions | T01–T05/T14 in [evaluation](../validation/evaluation-and-tests.md#6-automated-tests); component tests do not establish complete UI wiring |
 | Research / Learning | Paired baseline and loss split | Wins/ties/losses, censored recovery and collisions | [Evaluation procedure](../validation/evaluation-and-tests.md#5-procedure); #26 records/table pending, no outcome quoted |
@@ -154,7 +154,7 @@ Criteria come from [BRIEF J1](../competition/BRIEF.md#3-judging). Expected obser
 | Does it detect death or repair any damage? | It infers a vacancy from empty sensing plus missing heartbeats; it can be wrong and yield. Repair is local and greedy, paused during transitions/deafness/version disagreement. A hole nobody senses may remain. Never say “always converges.” |
 | Is it safe to fly? | No safety claim or flight software. Collisions/near-misses are counted from simulated true positions and cause no damage. Quote only the displayed run's recorded counts. |
 | Is the baseline fair? | Same seed, score, physics, steering and explicit failures. Static keeps flying, sends nothing and ignores injection by definition. Non-adoption is a capability difference, not a recovery win. Each arm has its own valid reference score. |
-| Does Encore win? | Results pending. Paired scenarios include null runs, random/regional kills, cuts and injection. Report ties/losses. Our geometric priority weighting is paired with coverage and label-independent shape distance. Williams owns records; Arnav owns interpretation. |
+| Does Encore win? | Results pending. Paired scenarios include null runs, random/regional kills, cuts and injection. Report ties/losses. Our geometric priority weighting is paired with coverage and label-independent shape distance. Arnav's sessions own the records (#26) and their interpretation. |
 | What did you build versus libraries and AI? | Point to README “Built with” and “AI use” and the commits. Update disclosures before submission (#8); do not describe AI-generated work as unaided. |
 | Does it meet the sponsor/theme brief? | It addresses them as reported to the team; wording/eligibility are unverified (#1). No confirmed sponsor-fit claim. |
 

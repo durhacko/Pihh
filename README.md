@@ -1,12 +1,12 @@
 # Encore
 
-**A drone light show with no conductor during the performance.** About 200 simulated drones each decide from their own state, what they sense nearby and what they hear on short-range radio. The score and the roster are written beforehand and loaded onto every drone. After failures, nearby survivors are meant to move into the more important parts of the picture. New compositions are meant to spread from drone to drone by radio. A conventional pre-programmed show runs beside it from the same seed, so you can compare the two.
+**A drone light show with no conductor during the performance.** About 200 simulated drones each decide from their own state, what they sense nearby and what they hear on short-range radio. The score and the roster are written beforehand and loaded onto every drone. After failures, nearby survivors move into the more important parts of the picture. This is tested headless, and how much it helps is measured, not assumed (see "Where Encore ties or loses"). New compositions are meant to spread from drone to drone by radio. A conventional pre-programmed show runs beside it from the same seed, so you can compare the two.
 
 Built at DurHack 2026 by Arnav Chitriv, Haris `[HUMAN: Haris's surname]` and William Pimentel. The theme, as reported to the team, is Composition: drones compose an image, and a timed score composes images into a show. The theme wording and the Neptune North challenge brief are not verified online ([#1](https://github.com/durhacko/Pihh/issues/1)).
 
 **It is a simulation, and software only.** There are no physical drones or other hardware, no internet and no backend. Everything runs on one laptop. The drones are logically independent agents inside one program, not separate machines. Each decides for itself; the program plays the air and the radio, not a controller. Collisions are measured, not ruled out.
 
-> **Status at this commit: the Encore world flies the Encore brain and the other world flies the static pre-programmed baseline; the app labels each world with its brain.** Local healing passes its pre-registered headless tests (G1) and is exercised through the app by `tests/app/encoreArm.test.ts`; score dissemination and the evaluation numbers are not yet claimed here. `[UPDATE AT FREEZE: replace this box with the build's real status, the frozen revision and a link to results/RESULTS.md, and resolve every bracketed placeholder below; legend in docs/demo/DEVPOST.md]`
+> **Status at this commit: the Encore world flies the Encore brain and the other world flies the static pre-programmed baseline; the app labels each world with its brain.** Local healing passes its pre-registered headless tests (G1: three tests on seeds 1–5 and 101–105; the clumped-kill result depends on where the kill lands, 183 of 200 runs in a sweep of every kill centre). It is also exercised through the app by `tests/app/encoreArm.test.ts`. Score gossip is merged and its relay test (T18) passes. Dissemination evidence (G4) and the evaluation numbers are not yet claimed here. `[UPDATE AT FREEZE: replace this box with the build's real status, the frozen revision and a link to results/RESULTS.md, and resolve every bracketed placeholder below; legend in docs/demo/DEVPOST.md]`
 
 ## Run the demo (30 seconds)
 
@@ -41,12 +41,15 @@ Open **http://127.0.0.1:4173/?seed=101&split=1**, or the address Vite prints if 
 
 On Windows PowerShell, use `npm.cmd` if the execution policy blocks `npm`.
 
+`npm ci` may print warnings: a deprecated package, `npm audit` findings and, with npm 11, an install-scripts notice for esbuild. They are harmless and do not affect the build. The audit findings are in development tools only: `npm audit --omit=dev` reports none.
+
+On WSL, run npm from a Linux path inside WSL (`cd ~/...`), not on a `\\wsl.localhost\...` path from Windows. Windows npm fails there ("UNC paths are not supported").
+
 ## What to look for
 
-1. **Which brain each world runs.** The badge at the top right, the caption under the title and the HUD's labels all say. Trust them over this README.
+1. **Which brain each world runs.** The caption under the title and the HUD's arm labels say which brain each world flies (the badge reads LIVE SIMULATION). Trust them over this README.
 2. **Two worlds, one difference.** The top world is Encore and the bottom is the static baseline. Both run from the same seed and get the same failures; only the brain differs.
-3. **Kill a region.** `[IF G1]` In the Encore world, survivors next to the hole infer a vacancy and move into more important slots. They give up less important detail, so the image thins instead of keeping a hole. The static world keeps the hole until its next formation. Repair is local and greedy, so it isn't complete, and a hole that no survivor can sense is never noticed.
-   **FALLBACK until G1 passes:** both worlds lose the same drones, and neither repairs.
+3. **Kill a region.** In the Encore world, survivors next to the hole infer a vacancy and move into more important slots. They give up less important detail, so the image thins instead of keeping a hole. The static world keeps the hole until its next formation. Repair is local and greedy, so it isn't complete, and a hole that no survivor can sense is never noticed.
 4. **Jam the radio, then send a new composition to one drone.** `[IF G4]` The new score spreads along real radio messages, stops at the jam, and crosses when the jam lifts. The static world can't adopt it.
    **FALLBACK until G4 passes:** the jam and inject controls work, but neither world adopts the new score.
 5. **The numbers.**
@@ -69,7 +72,7 @@ These cases were written down before any evaluation run, in [evaluation and test
 | **Partition with failures (S4, optional)** | Smaller gain than S2. Drones on opposite sides can claim the same slot, so expect duplicates, more slot changes and losses on some seeds. | `[RESULT: S4, or "not run"]` |
 | **New composition during a partition (S5)** | Two versions fly at once until reconnection. The group left behind repairs its old formation and then unwinds. The static show can't adopt, which is a capability difference, not a win. | `[RESULT: S5 adoption on the injected side, time to one version]` |
 | **Message cost (all scenarios)** | The static show sends nothing, so it is always cheaper. | `[RESULT: messages per drone-second, Encore]` |
-| **Collisions (all scenarios)** | Encore ≥ static. The static world collides during formation changes. Before any fix, one deterministic run of the no-event scenario recorded about 60 collisions and 310 near-misses (200 drones, identical for seeds 1-5, measured on an experiment branch; [#80](https://github.com/durhacko/Pihh/issues/80)). The Encore world shares the same motion code. Counts are lower bounds, sampled at 20 Hz. | `[RESULT: collisions and near-misses per run, both arms, all scenarios]` |
+| **Collisions (all scenarios)** | Encore ≥ static. The static world collides during formation changes. In one deterministic run of the no-event scenario (200 drones, identical for seeds 1–5), pacing each drone's target along its path (#96) cut its transition collisions from about 60 to 14, and near-misses from 310 to 250 ([#80](https://github.com/durhacko/Pihh/issues/80)). The Encore world shares the same motion code. Counts are lower bounds, sampled at 20 Hz. | `[RESULT: collisions and near-misses per run, both arms, all scenarios]` |
 
 Design limits to state alongside the results:
 
@@ -117,7 +120,12 @@ Credited explicitly under [BRIEF R4](docs/competition/BRIEF.md#4-submission-and-
   - App integration of two lockstep worlds (#6).
   - Scenarios, batch runner and results table (#26).
   - World follow-ups (#64).
-  - The Encore brain (#16) and its G1 tests (#17), both in progress at this commit.
+  - The Encore brain (#16) and its G1 tests (#17).
+  - Score adoption and gossip (#21).
+  - The Encore brain in the app (#6).
+  - Paced steering targets (#80).
+  - Isolation and replay tests on the real Encore brain (#65).
+  - The UI design system (#89), command parser (#90), selection and inspector (#91), composer and console (#93), Show timeline and QA harness (#94), and the scripted demo (#27).
   - This Devpost text and README (#8).
 - **OpenAI Codex.** William's and Haris's sessions used Codex for implementation, tests, code and documentation review, GitHub issue coordination and PR integration. This is team-reported: Codex adds no commit trailer. Recorded contributions:
   - Scaffold and CI/import-boundary checks (#5).
@@ -154,10 +162,11 @@ AGENTS.md / CLAUDE.md   protocol for AI agents
 docs/                   specification, design, plan, event brief, demo and submission
 src/contracts/          shared types (change only by [contract] PR)
 src/score/              recipe -> priority-ordered slots
-src/agent/              drone brains: static baseline and steering (Encore brain in #16)
+src/agent/              drone brains: Encore, the static baseline, and steering
 src/sim/                the world: physics, radio, sensing, events
 src/observer/           metrics
-src/app/                Three.js app: views, controls, HUD (scripted demo in #27)
+src/app/                Three.js app: views, controls, HUD, scripted demo; composer, console, inspector
+                        and timeline modules (wired by the app shell, #113)
 src/cli/                headless batch experiments and run records
 tests/  scripts/  assets/  research/  results/
 ```
