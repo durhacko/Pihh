@@ -56,12 +56,11 @@ Three credentials, one per process (RFC §13). Each process refuses a credential
 - `tlsModeLine()` gives the one start-up line stating the effective mode.
 - Error messages name the variable and the rule, never a value.
 
-## Known gaps
+**Refusing to start (T31).**
+- A write, admin or live-write URL (`TIGER_DATABASE_URL`, `TIGER_ADMIN_DATABASE_URL`, `TIGER_LIVE_WRITE_URL`) in the HTTP server's environment makes `createModule` throw the skeleton's `FatalConfigError`. `buildGateway` re-throws it, so **the whole gateway refuses to start**.
+- Any other bad tiger setting is a plain `TigerConfigError`: the registry disables only `tiger` and lists the problem, and the other modules run. Examples: a URL with TLS parameters, a bad `TIGER_TLS_UNVERIFIED`, a malformed URL.
 
-- **T31 is pending a skeleton hook: the server does not yet refuse to start.** The skeleton's registry catches a throwing module factory and disables that module only. So a forbidden credential in the HTTP server's environment disables `tiger` and is listed under the gateway's start-up problems, but the server still starts.
-  - The ruling is that the security rule wins: the server must stop.
-  - The skeleton is getting a `FatalConfigError` (in `errors.ts`) that `buildGateway` re-throws.
-  - When it lands, `createModule` throws it for a forbidden credential.
+## Known gaps
 - **No `.env.importer.example` yet.** TIG-03 lists it, but two shared files refuse it:
   - the skeleton test "no committed .env file" (`test/offline.test.ts`) allows only `.env.example`;
   - the root `.env.*` rule in `.gitignore` ignores it.

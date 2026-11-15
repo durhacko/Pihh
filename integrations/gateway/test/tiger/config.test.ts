@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { inspect } from 'node:util';
+import { FatalConfigError } from '../../src/errors.ts';
 import { buildGateway } from '../../src/router.ts';
 import {
   loadTigerAdminConfig, loadTigerImporterConfig, loadTigerReaderConfig, tlsModeLine, TigerConfigError, TIGER_BUDGETS, URL_TLS_PARAMS,
@@ -151,13 +152,32 @@ test('module: disabled without TIGER_READ_DATABASE_URL, and in this offline buil
   }
 });
 
-test('module: a credential the HTTP server must not hold makes the factory throw', () => {
-  assert.throws(() => createModule({ TIGER_DATABASE_URL: URL_OK }), TigerConfigError);
-  assert.throws(() => createModule({ TIGER_READ_DATABASE_URL: `${URL_OK}?sslmode=no-verify` }), TigerConfigError);
+const FORBIDDEN_IN_SERVER = ['TIGER_DATABASE_URL', 'TIGER_ADMIN_DATABASE_URL', 'TIGER_LIVE_WRITE_URL'];
+
+test('module: a credential the HTTP server must not hold is fatal (FatalConfigError); other bad settings are not', () => {
+  for (const name of FORBIDDEN_IN_SERVER) {
+    for (const env of [{ [name]: URL_OK }, { [name]: '' }, { TIGER_READ_DATABASE_URL: URL_OK, [name]: URL_OK }]) {
+      assert.throws(() => createModule(env), FatalConfigError, name);
+    }
+  }
+  // Not a forbidden credential: a plain TigerConfigError, so the registry contains it.
+  for (const env of [{ TIGER_READ_DATABASE_URL: `${URL_OK}?sslmode=no-verify` }, { TIGER_READ_DATABASE_URL: URL_OK, TIGER_TLS_UNVERIFIED: 'yes' }, { TIGER_READ_DATABASE_URL: 'not a url' }]) {
+    assert.throws(() => createModule(env), (e: unknown) => e instanceof TigerConfigError && !(e instanceof FatalConfigError));
+  }
 });
 
-test('gateway: with a forbidden tiger credential, tiger is disabled and listed as a problem; other modules still run', () => {
-  const gateway = buildGateway({ TIGER_DATABASE_URL: URL_OK });
+test('T31: the gateway refuses to start with a write, admin or live-write URL in its environment; nothing leaks', () => {
+  for (const name of FORBIDDEN_IN_SERVER) {
+    let error: unknown;
+    try { buildGateway({ TIGER_READ_DATABASE_URL: URL_OK, [name]: URL_OK }); } catch (e) { error = e; }
+    assert.ok(error instanceof FatalConfigError, `${name}: expected the build to refuse, got ${String(error)}`);
+    assert.match(error.message, new RegExp(`^module tiger: the gateway HTTP server must not hold ${name}; .*refusing to start$`));
+    for (const leak of [PASSWORD, HOST, 'postgres://', 'encore_api_app']) assert.ok(!error.message.includes(leak), `${name}: message leaks ${leak}`);
+  }
+});
+
+test('gateway: a non-fatal tiger setting disables only tiger and is listed; other modules still run', () => {
+  const gateway = buildGateway({ TIGER_READ_DATABASE_URL: `${URL_OK}?sslmode=no-verify` });
   const body = gateway.health();
   assert.deepEqual(body.modules.tiger, { enabled: false });
   assert.ok('gemini' in body.modules && 'shows' in body.modules);

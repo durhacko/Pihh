@@ -390,6 +390,22 @@ describe('review follow-ups', () => {
     expect(errorsOf(validateRecordObject(record, CTX))).toContainEqual({ code: 'BAD_VALUE', path: '/events/0/ids' });
   });
 
+  it('returns ok:false, never throws, for exotic in-memory values (#231 follow-up)', () => {
+    const cases: [string, () => unknown, string][] = [
+      ['throwing getter', () => { const r = parse('S0_n200_encore_s1.json'); Object.defineProperty(r.summary, 'npwcEnd', { get() { throw new Error('boom'); }, enumerable: true }); return r; }, 'BAD_VALUE'],
+      ['revoked Proxy', () => { const { proxy, revoke } = Proxy.revocable(parse('S0_n200_encore_s1.json'), {}); revoke(); return proxy; }, 'NOT_JSON_VALUE'],
+      ['throwing Proxy trap', () => ({ ...parse('S0_n200_encore_s1.json'), summary: new Proxy({}, { ownKeys() { throw new Error('trap'); } }) }), 'NOT_JSON_VALUE'],
+      ['Array subclass', () => { const r = parse('S1_n200_encore_s1.json'); class Ids extends Array<number> {} r.events[0].ids = Ids.from(r.events[0].ids); return r; }, 'BAD_VALUE'],
+      ['prototype getter', () => { const r = parse('S0_n200_encore_s1.json'); const proto = Object.create(Object.prototype, { stateHash: { get() { throw new Error('proto'); } } }); const { stateHash: _s, ...rest } = r; void _s; return Object.assign(Object.create(proto), rest); }, 'BAD_VALUE'],
+    ];
+    for (const [what, make, code] of cases) {
+      let result: Validation | undefined;
+      expect(() => { result = validateRecordObject(make(), CTX); }, what).not.toThrow();
+      expect(result?.ok, what).toBe(false);
+      expect(result && !result.ok && result.errors.map(e => e.code), what).toContain(code);
+    }
+  });
+
   it('reports dropped warnings with TOO_MANY_WARNINGS', () => {
     const s0 = parse('S0_n200_encore_s1.json');
     const offs = Array.from({ length: MAX_ISSUES + 5 }, (_, i) => ({ type: 'JAM_OFF', tick: 10, id: `J${i}` }));

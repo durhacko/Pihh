@@ -174,6 +174,16 @@ function scanValues(c: Collector, root: unknown): boolean {
     // exponential) is refused; JSON.parse output never has either.
     if (seen.has(value)) { c.error('CYCLE', path, 'value is reachable twice (a cycle or shared reference; JSON data is a tree)'); usable = false; continue; }
     seen.add(value);
+    // Only plain JSON containers: JSON.parse never makes anything else. An in-memory subclass, class instance or
+    // object with an exotic prototype is refused, and accessors are refused without being invoked.
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== (Array.isArray(value) ? Array.prototype : Object.prototype)) {
+      c.error('BAD_VALUE', path, 'not a plain JSON object or array'); usable = false; continue;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    if (Object.values(descriptors).some(d => d.get !== undefined || d.set !== undefined)) {
+      c.error('BAD_VALUE', path, 'accessor property (not JSON data)'); usable = false; continue;
+    }
     if (Array.isArray(value)) {
       // A hole (sparse array) or an extra named key is not JSON: canonicalJson would emit `[,…]` or drop the key.
       // Only in-memory values can have either. Never walk such an array's indices.
@@ -452,7 +462,12 @@ function checkParsed(parsed: unknown, ctx: ValidationContext, text: string | nul
  *  cycle or shared reference), dense arrays, depth ≤ MAX_DEPTH. Never mutates `value`. */
 export function validateRecordObject(value: unknown, ctx: ValidationContext): Validation {
   checkContext(ctx);
-  return checkParsed(value, ctx, null);
+  try {
+    return checkParsed(value, ctx, null);
+  } catch {
+    // An exotic value (a revoked Proxy, a throwing trap) cannot be read as JSON data: refuse it, never throw.
+    return { ok: false, errors: [{ code: 'NOT_JSON_VALUE', path: '', message: 'value cannot be read as JSON data' }], warnings: [] };
+  }
 }
 
 /** RFC §3: bytes → validated `RunRecord`, or every error found. Never mutates `bytes`. */

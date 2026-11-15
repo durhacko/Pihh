@@ -9,13 +9,13 @@ const KEY = 'test-key-not-real-0123456789';
 test('gemini module: disabled offline, and its route is registered anyway', () => {
   const module = createModule({});
   assert.equal(module.name, 'gemini');
-  assert.deepEqual(module.health(), { enabled: false });
+  assert.deepEqual(module.health(), { enabled: false, trialCompile: false });
   assert.deepEqual(module.routes.map(r => [r.method, r.path]), [[GENERATE_FORMATION_ROUTE.method, GENERATE_FORMATION_ROUTE.path]]);
 });
 
-test('gemini module: a configured key alone does not enable it in this build (no provider, no validator)', () => {
+test('gemini module: a configured key alone does not enable it in this build (no provider)', () => {
   const module = createModule({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY });
-  assert.deepEqual(module.health(), { enabled: false });
+  assert.deepEqual(module.health(), { enabled: false, trialCompile: false });
   assert.ok(!JSON.stringify(module.health()).includes(KEY));
 });
 

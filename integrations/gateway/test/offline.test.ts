@@ -70,6 +70,11 @@ const BRIDGES: Record<string, string[]> = {
     '../../../../src/score/canonical.ts',
     '../../../../src/contracts/params.ts',
   ],
+  'src/gemini/validate.ts': [
+    '../../../../src/score/generated/hashing.ts',
+    '../../../../src/score/generated/types.ts',
+    '../../../../src/score/generated/validation.ts',
+  ],
   // TIG-04 offline (#261; orchestrator-approved shared-file edit): repository.ts for types, importer.ts for the
   // pure telemetry pipeline (validate, identity, manifest, rows, ledger).
   'src/tiger/repository.ts': ['../../../../src/telemetry/index.ts'],
@@ -77,6 +82,30 @@ const BRIDGES: Record<string, string[]> = {
   // TIG-06 offline (#262, durhack-5b; same orchestrator sign-off): the read services' bridge.
   'src/tiger/services/bridge.ts': ['../../../../../src/contracts/params.ts', '../../../../../src/telemetry/index.ts'],
 };
+
+test('every XI-2 bridge target is one the boundaries allow (src/contracts, src/score, src/telemetry, compose/validate)', () => {
+  for (const [bridge, targets] of Object.entries(BRIDGES)) {
+    for (const target of targets) {
+      const inRepo = relative(repo, join(gateway, dirname(bridge), target)).replaceAll('\\', '/');
+      assert.ok(/^src\/(?:contracts|score|telemetry)\//.test(inRepo) || inRepo === 'src/app/compose/validate.ts', `${bridge} -> ${inRepo}`);
+    }
+  }
+});
+
+test('no child processes (XI-23) and no module imports another module', () => {
+  for (const file of source) {
+    const text = code(file);
+    // A bare call only: `regex.exec(...)` (RegExp.prototype.exec) is a method call and is fine.
+    assert.ok(!/child_process|(?<![\w$.])(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)\s*\(/.test(text), `${rel(file)} starts a process`);
+    const own = rel(file).split('/')[1];
+    if (!['gemini', 'shows', 'tiger'].includes(own ?? '')) continue;
+    for (const [, specifier] of raw(file).matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)) {
+      const target = relative(join(gateway, 'src'), join(dirname(file), specifier ?? '')).replaceAll('\\', '/');
+      const other = target.split('/')[0];
+      assert.ok(!['gemini', 'shows', 'tiger', 'tiger-live'].includes(other ?? '') || other === own, `${rel(file)} imports another module: ${specifier}`);
+    }
+  }
+});
 
 test('the gateway source has the expected files', () => {
   const names = source.map(rel);

@@ -5,16 +5,23 @@
 // always disabled: health is `{ enabled: false, db: 'disabled' }` (analytics RFC §3.1), and the routes TIG-06 adds
 // answer `moduleDisabled()` while it is not configured.
 //
-// A credential the HTTP server must not hold (TIGER_DATABASE_URL, TIGER_ADMIN_DATABASE_URL, TIGER_LIVE_WRITE_URL), a
-// URL carrying TLS parameters or an unacknowledged `require` makes `createModule` throw: the registry then disables
-// this module and lists the problem. Refusing the whole server start (T31) needs a skeleton hook (see README).
-import { errorResponse, type ErrorEnvelope } from '../errors.ts';
+// T31: a credential the HTTP server must not hold (TIGER_DATABASE_URL, TIGER_ADMIN_DATABASE_URL, TIGER_LIVE_WRITE_URL)
+// throws FatalConfigError, which the registry re-throws: the whole gateway refuses to start. Any other bad setting (a
+// URL with TLS parameters, a bad TIGER_TLS_UNVERIFIED, a malformed URL) throws a plain TigerConfigError, so the
+// registry disables only this module and lists the problem; this module holds no forbidden secret in that case.
+import { errorResponse, FatalConfigError, type ErrorEnvelope } from '../errors.ts';
 import type { GatewayModule, ModuleFactory } from '../module.ts';
-import { loadTigerReaderConfig } from './config.ts';
+import { loadTigerReaderConfig, TigerConfigError } from './config.ts';
 
 export const createModule: ModuleFactory = (env): GatewayModule => {
   // Validated even though this build cannot connect, so a bad or forbidden setting is caught now, not at TIG-06.
-  loadTigerReaderConfig(env);
+  try {
+    loadTigerReaderConfig(env);
+  } catch (error) {
+    // The message names the variable and the rule, never a value (config.ts).
+    if (error instanceof TigerConfigError && error.reason === 'FORBIDDEN_CREDENTIAL') throw new FatalConfigError(`${error.message}; refusing to start`);
+    throw error;
+  }
   return Object.freeze({
     name: 'tiger',
     routes: Object.freeze([]),
