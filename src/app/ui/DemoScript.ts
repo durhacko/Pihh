@@ -9,7 +9,6 @@ import type { ControlIntent, ControlResult, ControlStatus } from '../actions';
 import type { CameraPreset } from '../render/CameraRig';
 import { readViewMode } from '../render/colourModes/viewMode';
 import { cascadeOptIn } from '../render/layers/CascadeLayer';
-import { parseQuality } from '../render/quality';
 import type { PanelContext } from './index';
 
 // --- Frozen demo inputs. Placements are measured for the app's default roster (n0 = 200) and preloaded score
@@ -92,8 +91,12 @@ export const DEMO_BEATS: readonly DemoBeat[] = [
  * So TRAIL_OFF, at 45 s (tick 900), shows every one of them and leaves X-ray off again before the next movement.
  */
 export const TRAIL_OFF = 45 * SECOND;
-/** Two lines, like the caption it replaces: the arrows are the refill, so they replace "part of the hole refills". */
-export const REPAIR_TRAIL_CAPTION = 'Encore arm: neighbours sense the gap and claim its most important slots by heartbeat; each green arrow is one observed slot change. Static baseline: the hole stays.';
+/**
+ * Two lines, like the caption it replaces (measured in Chrome at 1440x900, split view: 2 lines, box top y 731, as the
+ * default caption; the static formation's lowest drone is at y 712). The arrows are the refill, so they replace "part
+ * of the hole refills from its rim".
+ */
+export const REPAIR_TRAIL_CAPTION = 'Encore arm: neighbours sense the gap and claim its most important slots. Each green arrow is one observed slot change. Static baseline: the hole stays.';
 
 /** The demo's beats: exactly DEMO_BEATS (the same array) without the cascade flag. */
 export function demoBeatsFor(options: { cascade: boolean }): readonly DemoBeat[] {
@@ -105,14 +108,13 @@ export function demoBeatsFor(options: { cascade: boolean }): readonly DemoBeat[]
 }
 
 /**
- * The beats for this page: the URL is read once per call (off when there is no location, as in node). A forced render
- * quality above 0 (?q=low, ?q=1..4) hides the trail layer (WP §2.4), so the flag then keeps today's script rather than
- * an X-ray view whose caption promises arrows that are never drawn. An automatic step-down during the show cannot be
- * known here: the rehearsal confirms the level stays at 0 (storyboard §1).
+ * The beats for this page: the URL is read once per call (off when there is no location, as in node). The trail layer
+ * draws at every render quality level (E3), so ?q= does not change the script: with ?p2=cascade the repair keeps X-ray
+ * on at any level, and the arrows it promises are drawn.
  */
 export function activeDemoBeats(): readonly DemoBeat[] {
   const search = typeof location !== 'undefined' ? location.search : '';
-  return demoBeatsFor({ cascade: cascadeOptIn(search) && parseQuality(search).level === 0 });
+  return demoBeatsFor({ cascade: cascadeOptIn(search) });
 }
 
 /** Beats whose caption describes what only the Encore brain shows. While the live Encore world flies another brain

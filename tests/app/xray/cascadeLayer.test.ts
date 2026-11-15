@@ -225,15 +225,17 @@ describe('cascade layer: enabled', () => {
   });
 
   it('reset clears the trail; dispose removes it from the scene', () => {
-    const { scene, layer, group, shafts, feed } = setup();
+    const { scene, layer, group, shafts, heads, feed } = setup();
     setViewMode({ xray: true });
     feed(snap(1)); feed(arrived(2));
     layer.reset!();
     expect(group.visible).toBe(false);
     expect(shafts.count).toBe(0);
     expect(group.userData.cascade).toMatchObject({ drawn: 0, changes: 0 });
+    const released = [vi.spyOn(shafts, 'dispose'), vi.spyOn(heads, 'dispose')];
     layer.dispose();
     expect(scene.children).toHaveLength(0);
+    for (const spy of released) expect(spy).toHaveBeenCalledOnce();   // the instance buffers are released too
   });
 });
 

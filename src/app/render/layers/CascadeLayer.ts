@@ -7,7 +7,7 @@
 // its tether), fading over 6 s.
 //
 // Visibility (E3): the arrows are solid 3D arrows (an instanced cylinder shaft and cone head), sized in metres so they
-// read at the audience camera (about 95 m away: roughly 4-8 px for the shaft, against the 1 px heartbeat lines),
+// read at the audience camera (about 95 m away: about 3-7 px for the shaft, against the 1 px heartbeat lines),
 // not 1 px lines. Colours reuse no existing X-ray meaning (experience §3) and stay clear of the cyan claim heartbeats:
 // commit (to a more important slot) a yellow-green, pop (to a less important one) violet. Opted in, the trail stays
 // on at every render quality level: it costs two instanced draws of at most `capacity` arrows, and silently dropping
@@ -90,13 +90,14 @@ function buildDrawing(group: Group, n0: number, rOcc: number, capacity: number):
     shafts.setColorAt(count, colour); heads.setColorAt(count, colour);
     count++;
   };
+  const meshes = [shafts, heads] as const;   // hoisted: write() allocates nothing per frame
   return {
     trail, shafts, heads,
-    dispose() { shaftGeometry.dispose(); headGeometry.dispose(); material.dispose(); },
+    dispose() { shafts.dispose(); heads.dispose(); shaftGeometry.dispose(); headGeometry.dispose(); material.dispose(); },
     write(tick, alpha) {
       count = 0;
       trail.forEachArrow(tick, alpha, writeOne);
-      for (const mesh of [shafts, heads]) {
+      for (const mesh of meshes) {
         mesh.count = count;
         mesh.instanceMatrix.needsUpdate = true;
         mesh.instanceColor!.needsUpdate = true;
