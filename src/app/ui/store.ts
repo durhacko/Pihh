@@ -10,10 +10,12 @@ import type { Arm } from '../worlds';
  * A stage preview. `recipe` and `label` as before. GF-WP-10 (#265) adds two optional fields:
  * - `formation`: a precomputed formation (the preview worker's compile of a committed fixture scene), drawn
  *   instead of expanding `recipe`. `recipe` is then only a placeholder, never flown or injected.
- * - `source: 'fixture'`: where that formation came from; the stage label says so.
+ * - `source`: where that formation came from, `'fixture'` (a committed scene) or `'generated'` (a scene the gateway
+ *   returned, #213), with `provider` naming who generated it (e.g. "offline-fake provider (not Gemini)"); the stage
+ *   label says so and never calls a generated scene a fixture.
  * Without them, everything behaves exactly as before.
  */
-export interface StagePreview { recipe: Recipe; label: string; formation?: Formation; source?: 'fixture' }
+export interface StagePreview { recipe: Recipe; label: string; formation?: Formation; source?: 'fixture' | 'generated'; provider?: string }
 
 export type ColourMode = 'show' | 'belief';
 export type ViewMode = 'encore' | 'split' | 'static';

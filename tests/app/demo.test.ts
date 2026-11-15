@@ -110,8 +110,7 @@ describe('scripted demo constants', () => {
   it('without ?p2=cascade the script is unchanged, byte for byte: the same beats array, captions and schedule (#232)', () => {
     expect(demoBeatsFor({ cascade: false })).toBe(DEMO_BEATS);
     expect(activeDemoBeats()).toBe(DEMO_BEATS);                    // node: no location
-    // A forced quality above 0 hides the trail layer, so the flag must not keep X-ray on for arrows it cannot draw.
-    for (const search of ['', '?seed=101', '?p2=inv', '?p2=cascades', '?cascade=1', '?q=low&p2=cascade', '?q=1&p2=cascade', '?p2=cascade&q=4']) {
+    for (const search of ['', '?seed=101', '?p2=inv', '?p2=cascades', '?cascade=1', '?q=low', '?q=4&p2=inv']) {
       vi.stubGlobal('location', { search });
       expect(activeDemoBeats(), search).toBe(DEMO_BEATS);
     }
@@ -123,7 +122,8 @@ describe('scripted demo constants', () => {
     vi.stubGlobal('location', { search: '?p2=inv,cascade' });
     const beats = activeDemoBeats();
     expect(beats).toEqual(demoBeatsFor({ cascade: true }));
-    for (const search of ['?q=high&p2=cascade', '?q=0&p2=cascade', '?p2=cascade&seed=7']) {
+    // The trail draws at every quality level (E3), so a forced ?q never drops the flag schedule.
+    for (const search of ['?q=high&p2=cascade', '?q=0&p2=cascade', '?p2=cascade&seed=7', '?q=low&p2=cascade', '?q=1&p2=cascade', '?p2=cascade&q=4']) {
       vi.stubGlobal('location', { search });
       expect(activeDemoBeats(), search).toEqual(beats);
     }

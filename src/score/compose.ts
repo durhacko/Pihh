@@ -3,7 +3,7 @@
 // generated-recipe helpers of GF-CC-01 / GF-CC-02: makeGeneratedRecipe, copyRecipe and the brain's acceptsRecipe.
 import { OPERATOR } from '../contracts';
 import type { GeneratedRecipe, Movement, Params, Recipe, RGB, SceneSpec, Score, Vec3 } from '../contracts';
-import { compiledSlotsDigest, expandRecipeStrict } from './expand';
+import { compiledSlotsDigest, expandRecipeStrict, wellFormedDigest } from './expand';
 import { compileGeneratedScene, COMPILER_VERSION, type CompileWarning, type RejectCode } from './generated/compile';
 import { sceneHash } from './generated/hashing';
 import { validateScene } from './generated/validation';
@@ -159,32 +159,73 @@ export function acceptsRecipe(recipe: Recipe, n0: number, params: Params): boole
     if (recipe.compilerVersion !== COMPILER_VERSION) return false;
     if (!wellFormedDigest(recipe.slotsDigest)) return false;          // copyRecipe on adoption needs it; the type requires it
     if (typeof recipe.sceneHash !== 'string') return false;
-    const hash = sceneHashOf(recipe);                                   // validator caps first, then the hash
-    if (hash === null || hash !== recipe.sceneHash) return false;
-    const digest = compiledSlotsDigest(recipe, n0, params);
-    if (digest === null) return false;
+    // The labels are compared on every call; only what is recomputed from the scene is memoised (sceneFacts).
+    const facts = sceneFacts(recipe, n0, params);
+    if (facts.hash === null || facts.hash !== recipe.sceneHash) return false;
+    if (facts.digest === null) return false;
     const label = recipe.slotsDigest;
-    if (label.n0 === n0 && label.slotSpacingMin === params.slotSpacingMin && label.digest !== digest) return false;
+    if (label.n0 === n0 && label.slotSpacingMin === params.slotSpacingMin && label.digest !== facts.digest) return false;
     return true;
   } catch {
     return false;
   }
 }
 
-function wellFormedDigest(d: unknown): d is GeneratedRecipe['slotsDigest'] {
-  if (typeof d !== 'object' || d === null) return false;
-  const { n0, slotSpacingMin, digest } = d as Record<string, unknown>;
-  return Number.isInteger(n0) && typeof slotSpacingMin === 'number' && Number.isFinite(slotSpacingMin) && typeof digest === 'string';
+// Adoption memo (GF-CC-02, #289): what the adoption check recomputes from a scene, keyed on the scene's exact JSON.
+// Every drone that adopts one injection checks the same scene, so it is validated, hashed and compiled once per world
+// instead of once per drone. A memo of pure results; the oldest entry is dropped beyond SCENE_FACTS_MAX.
+const SCENE_FACTS_MAX = 16;
+const hashes = new Map<string, string | null>();
+const digests = new Map<string, string | null>();
+
+function memo<V>(map: Map<string, V>, key: string, compute: () => V): V {
+  if (map.has(key)) return map.get(key) as V;
+  const value = compute();
+  if (map.size >= SCENE_FACTS_MAX) {
+    const oldest = map.keys().next();
+    if (!oldest.done) map.delete(oldest.value);
+  }
+  map.set(key, value);
+  return value;
 }
 
 /**
- * The hash of a generated recipe's scene as it is, never its label: null if the scene does not pass the validator
- * (its size caps run before any canonicalising or hashing). Brains key refusal memory on it (GF-CC-02).
+ * The hash of the scene whose JSON is `json`: the validator (its size caps run before any canonicalising or hashing),
+ * then sceneHash of the canonical scene; null if it does not validate. Computed on `JSON.parse(json)`, never on the
+ * caller's object, so the result depends on the JSON alone. Brains check JSON copies, for which the two agree.
+ */
+function hashOfJson(json: string): string | null {
+  return memo(hashes, json, () => {
+    try {
+      const validated = validateScene(JSON.parse(json) as unknown);
+      return validated.ok ? sceneHash(validated.scene) : null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+/** The recomputed sceneHash, and the slotsDigest of this drone's compile at (n0, slotSpacingMin); null if rejected. */
+function sceneFacts(recipe: GeneratedRecipe, n0: number, params: Params): { hash: string | null; digest: string | null } {
+  const json = JSON.stringify(recipe.scene) as string | undefined;
+  if (typeof json !== 'string') return { hash: null, digest: null };
+  const hash = hashOfJson(json);
+  if (hash === null) return { hash, digest: null };
+  const digest = memo(digests, `${n0}|${params.slotSpacingMin}|${json}`, () =>
+    // The compile reads only the scene; the parsed copy keeps it a function of the JSON.
+    compiledSlotsDigest({ ...recipe, scene: JSON.parse(json) as GeneratedRecipe['scene'] }, n0, params));
+  return { hash, digest };
+}
+
+/**
+ * The hash of a generated recipe's scene recomputed from the scene's JSON, never its label: null if the scene does
+ * not pass the validator (its size caps run before any canonicalising or hashing). Brains key refusal memory on it
+ * (GF-CC-02). Memoised on that JSON, shared with `acceptsRecipe`.
  */
 export function sceneHashOf(recipe: GeneratedRecipe): string | null {
   try {
-    const validated = validateScene(recipe.scene);
-    return validated.ok ? sceneHash(validated.scene) : null;
+    const json = JSON.stringify(recipe.scene) as string | undefined;
+    return typeof json === 'string' ? hashOfJson(json) : null;   // memoised on the scene's exact JSON
   } catch {
     return null;
   }

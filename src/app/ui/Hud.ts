@@ -27,6 +27,13 @@ export interface HudPresentation {
 }
 
 export function formatPercent(value: number | null): string { return value === null || !Number.isFinite(value) ? 'Unavailable' : `${(value * 100).toFixed(1)}%`; }
+/** nPWC as the readout and the pane labels show it: a 0–1 fraction to 3 places (E7: Metrics showed a percentage). */
+export function formatFraction(value: number | null): string { return value === null || !Number.isFinite(value) ? 'Unavailable' : value.toFixed(3); }
+/** A MetricsSample.versions key "issuedTick:origin" as the inspector labels it: "v0:-1 (preloaded)", "v400:12 (uplink via #12)". */
+export function versionText(key: string): string {
+  const origin = key.split(':')[1];
+  return origin === '-1' ? `v${key} (preloaded)` : origin !== undefined && /^\d+$/.test(origin) ? `v${key} (uplink via #${origin})` : key;
+}
 export function formatMetres(value: number | null): string { return value === null || !Number.isFinite(value) ? 'Unavailable' : `${value.toFixed(2)} m`; }
 function count(value: number): string { return Number.isFinite(value) ? value.toLocaleString('en-GB') : 'Unavailable'; }
 
@@ -67,12 +74,12 @@ export class HudModel {
       return {
         label: kind ? `${base} · ${kind === 'static' ? 'static brain' : 'Encore brain'}` : `${base} · brain not reported`,
         tick: count(sample.tick), alive: `${count(sample.alive)} / ${roster}`,
-        npwc: formatPercent(sample.npwc), npwcNote: sample.npwc === null ? sample.alive === 0 ? 'No live drones' : 'Observer value unavailable' : 'Priority-weighted by our own slot order',
+        npwc: formatFraction(sample.npwc), npwcNote: sample.npwc === null ? sample.alive === 0 ? 'No live drones' : 'Observer value unavailable' : 'Priority-weighted by our own slot order',
         transitioning: payload.inHold?.[arm] === undefined ? null : !payload.inHold[arm],
         coverage: formatPercent(sample.coverage), fidelity: `${formatMetres(sample.sfMean)} mean / ${formatMetres(sample.sfMax)} max`,
         messages: rate === null ? 'Waiting for rate sample' : `${rate.toFixed(1)} broadcasts / sim s`,
         delivered: candidates === 0 ? 'No transmission candidates' : `${formatPercent(sample.msgs.delivered / candidates)} delivered (cumulative)`,
-        versions: Object.entries(sample.versions).map(([version, live]) => `${version}: ${count(live)} live`).join(' · ') || 'No live score beliefs',
+        versions: Object.entries(sample.versions).map(([version, live]) => `${versionText(version)}: ${count(live)} live`).join(' · ') || 'No live score beliefs',
         duplicates: count(sample.dupSlots), collisions: count(sample.collisions), nearMisses: count(sample.nearMisses), slotChanges: count(sample.slotChanges),
       };
     };

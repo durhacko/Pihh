@@ -40,14 +40,15 @@ describe('HUD sample presentation', () => {
     const model = new HudModel(); const encore = sample(5, { npwc: 0.9 }); const baseline = sample(5, { npwc: 0.6 });
     for (const layout of ['split', 'encore', 'static'] as const) {
       model.update({ encore, static: baseline, rosterSize: 200, layout, inHold: { encore: false }, brainKinds: { encore: 'static', static: 'static' } });
-      const view = model.present(); expect(view.encore?.npwc).toBe('90.0%'); expect(view.static?.npwc).toBe('60.0%');
+      const view = model.present(); expect(view.encore?.npwc).toBe('0.900'); expect(view.static?.npwc).toBe('0.600');
+      expect(view.encore?.versions).toBe('v0:-1 (preloaded): 40 live');
       expect(view.encore?.alive).toBe('40 / 200'); expect(view.encore?.transitioning).toBe(true); expect(view.static?.transitioning).toBeNull();
       expect(view.encore?.label).toContain('static brain');
     }
   });
   it('copies samples and resets rates on backward ticks or counter resets', () => {
     const model = new HudModel(); const first = sample(); model.update({ encore: first, static: first });
-    first.npwc = 0; expect(model.present().encore?.npwc).toBe('100.0%');
+    first.npwc = 0; expect(model.present().encore?.npwc).toBe('1.000');
     model.update({ encore: sample(10), static: sample(10) });
     model.update({ encore: sample(0), static: sample(0) }); expect(model.present().encore?.messages).toBe('Waiting for rate sample');
     model.update({ encore: sample(5), static: sample(5) });
@@ -125,7 +126,7 @@ it('presents real observer samples before and after an actual all-drone kill', (
     expect(view.status).toBe('Observer measurements · same simulation tick');
     for (const arm of ['encore', 'static'] as const) {
       expect(view[arm]?.alive).toBe(`${metrics.alive} / ${params.n0}`);
-      expect(view[arm]?.npwc).toBe(metrics.npwc === null ? 'Unavailable' : `${(metrics.npwc * 100).toFixed(1)}%`);
+      expect(view[arm]?.npwc).toBe(metrics.npwc === null ? 'Unavailable' : metrics.npwc.toFixed(3));
       const candidates = metrics.msgs.delivered + metrics.msgs.lost + metrics.msgs.blocked;
       expect(view[arm]?.delivered).toBe(candidates === 0 ? 'No transmission candidates'
         : `${(metrics.msgs.delivered / candidates * 100).toFixed(1)}% delivered (cumulative)`);
