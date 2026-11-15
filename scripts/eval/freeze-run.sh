@@ -71,6 +71,26 @@ case "$rc" in
   6) die "results/RESULTS.md: no notes section found (see above); nothing was run" ;;
   *) die "reading results/RESULTS.md failed (status $rc)" ;;
 esac
+# The full matrix: FREEZE_FULL_SPECS overrides it (space-separated n0:scenarios:lo-hi specs), for testing a small one.
+read -r -a FULL_SPECS <<< "${FREEZE_FULL_SPECS:-200:S0,S1,S2,S3,S4,S5:1-20 100:S1,S2:1-20}"
+if [ "$FULL" = 1 ]; then
+  for spec in "${FULL_SPECS[@]}"; do
+    dir="results/full/n${spec%%:*}"
+    [ -d "$dir" ] || continue
+    set +e; helper extras "$dir" "$spec"; rc=$?; set -e
+    case "$rc" in
+      0) ;;
+      7) die "$dir may hold only the records of $spec; move the JSON files above elsewhere and run again" ;;
+      *) die "checking $dir for other JSON files failed (status $rc)" ;;
+    esac
+    set +e; helper split "$dir/RESULTS.md" "$WORK/precheck.gen" "$WORK/precheck.notes"; rc=$?; set -e
+    case "$rc" in
+      0) ;;
+      6) die "$dir/RESULTS.md: notes that would be lost (see above); nothing was run" ;;
+      *) die "reading $dir/RESULTS.md failed (status $rc)" ;;
+    esac
+  done
+fi
 
 step "1. scripts/check.sh"
 bash scripts/check.sh
@@ -126,7 +146,7 @@ results_md() {
   local dir="$1" old="$2" req="$3" tag rv
   tag="$(echo "$dir" | tr '/' '_')"
   if [ "$req" = 1 ]; then cp "$WORK/generated.old.md" "$WORK/$tag.gen.old"; cp "$WORK/notes.md" "$WORK/$tag.notes";
-  else helper split "$old" "$WORK/$tag.gen.old" "$WORK/$tag.notes"; fi
+  else helper split "$old" "$WORK/$tag.gen.old" "$WORK/$tag.notes" || die "reading the old $dir/RESULTS.md failed (it was checked at step 0)"; fi
   npm run -s eval -- --report "$dir" --report-out "$WORK/$tag.gen.new" >/dev/null
   { cat "$WORK/$tag.gen.new"; if [ -s "$WORK/$tag.notes" ]; then echo; cat "$WORK/$tag.notes"; fi; } > "$dir/RESULTS.md"
   echo "--- $dir/RESULTS.md: diff of the generated tables (old -> new) ---"
@@ -157,7 +177,7 @@ helper replay "$STAGE" "$REPLAY" "$MIN_SPEC" "$REPLAY_SEED"
 step "5. Install the minimum matrix in results/"
 install_set "$STAGE" results "$MIN_SPEC"
 set +e; helper top-git results "$HEAD_SHA"; rc=$?; set -e
-[ "$rc" = 0 ] || die "results/ (top level) holds records from another commit (listed above): not one frozen revision (status $rc)"
+[ "$rc" = 0 ] || die "results/ (top level) holds JSON that is not a record of HEAD (listed above): not one frozen revision (status $rc)"
 
 step "6. results/RESULTS.md: regenerate the generated section, keep the hand-written notes"
 results_md results "$WORK/RESULTS.old.md" 1
@@ -165,8 +185,6 @@ results_md results "$WORK/RESULTS.old.md" 1
 if [ "$FULL" = 1 ]; then
   step "7. Full matrix (FREEZE_FULL=1) into results/full/"
   FT0=$(date +%s)
-  # FREEZE_FULL_SPECS overrides the full matrix (space-separated n0:scenarios:lo-hi specs), for testing a small one.
-  read -r -a FULL_SPECS <<< "${FREEZE_FULL_SPECS:-200:S0,S1,S2,S3,S4,S5:1-20 100:S1,S2:1-20}"
   for spec in "${FULL_SPECS[@]}"; do
     n0="${spec%%:*}"; rest="${spec#*:}"; scen="${rest%%:*}"; range="${rest#*:}"; lo="${range%-*}"; hi="${range#*-}"
     dir="results/full/n$n0"

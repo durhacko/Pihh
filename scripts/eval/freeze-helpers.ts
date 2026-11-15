@@ -8,11 +8,13 @@
 //   compare <oldDir> <newDir> <spec>              exit 0 if every old record of the matrix equals its new one apart from `git`,
 //                                                 3 if any differs or is missing, 4 if there are no old records of the matrix
 //   old-git <dir> <spec>                          the commit label of the old records of the matrix (one sha, or "mixed-<sha>")
-//   extras <dir> <spec>                           list records in <dir> (top level) outside the matrix; exit 7 if there are any
-//   top-git <dir> <git>                           every record in <dir> (top level) carries <git>; exit 8 if not
+//   extras <dir> <spec>                           every *.json in <dir> (top level, as the report reads them) that is not a
+//                                                 record of the matrix; exit 7 if there are any
+//   top-git <dir> <git>                           every *.json in <dir> is named like a record (else exit 7) and carries <git> (else exit 8)
 //   split <RESULTS.md> <generatedOut> <notesOut> [--require-notes]
-//                                                 split at the rule line before "## Notes"; with --require-notes, exit 6 if the
-//                                                 file exists and is non-empty but has no notes section (never lose notes silently)
+//                                                 split at the rule line before "## Notes". Exit 6 if a notes heading has no rule
+//                                                 line before it, and, with --require-notes, if the file has content but no notes
+//                                                 section (never lose notes silently)
 //   review <oldGenerated> <newGenerated> <notes>  print what in the notes may need a manual update; exit 5 if anything does
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -41,6 +43,8 @@ const fileName = (n0: number, s: string, arm: string, seed: number) => `${s}_n${
 const expected = (sp: Spec) => sp.scenarios.flatMap((s) => ARMS.flatMap((a) => sp.seeds.map((k) => fileName(sp.n0, s, a, k))));
 const load = (dir: string, f: string) => JSON.parse(readFileSync(join(dir, f), 'utf8')) as RunRecord;
 const recordFiles = (dir: string) => (existsSync(dir) ? readdirSync(dir).filter((f) => RECORD.test(f)).sort() : []);
+/** Every *.json at the top of <dir>: the same filter `npm run eval -- --report` uses (src/cli/main.ts runReport). */
+const jsonFiles = (dir: string) => (existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')).sort() : []);
 /** What must be equal between two runs of the same code: everything but the commit stamp. */
 const body = (r: RunRecord) => JSON.stringify({ ...r, git: undefined });
 
@@ -160,11 +164,12 @@ ${JSON.stringify(JSON.parse(json), null, 2)}
   }
 
   case 'extras': {
+    // Every *.json the report would read; anything that is not a record of the matrix (any other name) is an extra.
     const [dir, specText] = args as [string, string];
     const want = expected(parseSpec(specText));
-    const extra = recordFiles(dir).filter((f) => !want.includes(f));
+    const extra = jsonFiles(dir).filter((f) => !want.includes(f));
     if (extra.length) {
-      console.log(`extras: ${extra.length} records in ${dir} outside the minimum matrix: ${extra.slice(0, 10).join(', ')}${extra.length > 10 ? ', …' : ''}`);
+      console.log(`extras: ${extra.length} JSON files in ${dir} that are not records of the ${specText} matrix (the report would read them): ${extra.slice(0, 10).join(', ')}${extra.length > 10 ? ', …' : ''}`);
       process.exit(7);
     }
     console.log(`extras: none in ${dir}`);
@@ -172,13 +177,20 @@ ${JSON.stringify(JSON.parse(json), null, 2)}
   }
 
   case 'top-git': {
+    // Every *.json the report would read must be a record (by name) and carry <git>.
     const [dir, git] = args as [string, string];
-    const bad = recordFiles(dir).filter((f) => load(dir, f).git !== git);
+    const all = jsonFiles(dir);
+    const odd = all.filter((f) => !RECORD.test(f));
+    if (odd.length) {
+      console.error(`FREEZE: ${odd.length} JSON files in ${dir} are not named like records (the report would read them): ${odd.slice(0, 10).join(', ')}`);
+      process.exit(7);
+    }
+    const bad = all.filter((f) => load(dir, f).git !== git);
     if (bad.length) {
       console.error(`FREEZE: ${bad.length} records in ${dir} do not carry git ${git}: ${bad.slice(0, 10).join(', ')}`);
       process.exit(8);
     }
-    console.log(`top-git: all ${recordFiles(dir).length} records in ${dir} carry git ${git.slice(0, 12)}`);
+    console.log(`top-git: all ${all.length} JSON files in ${dir} are records carrying git ${git.slice(0, 12)}`);
     break;
   }
 
@@ -188,6 +200,12 @@ ${JSON.stringify(JSON.parse(json), null, 2)}
     const text = existsSync(path) ? readFileSync(path, 'utf8') : '';
     const lines = text.split('\n');
     const at = notesStart(lines);
+    // A notes heading without its rule line would be dropped with the generated section: never allow that.
+    const strayHeading = lines.findIndex((l) => NOTES_HEADING.test(l));
+    if (at < 0 && strayHeading >= 0) {
+      fail(`${path} line ${strayHeading + 1} has a notes heading ('${(lines[strayHeading] ?? '').trim()}') without a ---, *** or ___ rule line before it.\n` +
+        `  Refusing to continue: those notes would be lost. Put a rule line before the heading and run again.`, 6);
+    }
     if (at < 0 && requireNotes && text.trim() !== '') {
       fail(`${path} has content but no notes section (a ---, *** or ___ rule followed by a '## Notes' heading).\n` +
         `  Refusing to continue: the hand-written notes would be lost. Restore the marker, or move the notes, and run again.`, 6);
