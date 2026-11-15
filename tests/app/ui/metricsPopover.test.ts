@@ -2,7 +2,8 @@
 // #134 P1: the Metrics popover's nPWC note. Each arm is measured against its own reference formation, and an arm in
 // transition reads low while it flies there. The note checked only Encore, so after an inject a static arm in
 // transition (1.3–31.5 % beside Encore's 100 %) had no qualifier, in split and in Static-only view. Through the real
-// createMetrics on a headless DOM (fakeDom as the global document), plus the pure npwcNote rule.
+// createMetrics on a headless DOM (fakeDom as the global document), plus the pure npwcNote rule. The popover shows
+// both columns in every view, so both arms are checked in every view.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ArmHud, HudPresentation } from '../../../src/app/ui/Hud';
 import { createMetrics, npwcNote, type PopoverContext } from '../../../src/app/ui/popovers';
@@ -59,16 +60,19 @@ describe('Metrics nPWC note: both arms (#134 P1)', () => {
     expect(renderedNote(hud(false, false), 'split')).toBe(DEFAULT);
     expect(renderedNote(hud(null, null), 'split')).toBe(DEFAULT);
   });
-  it('Static-only view checks the static arm', () => {
+  // The popover shows both columns in every view, so a single view still qualifies the other arm's column.
+  it('Static-only view checks both arms', () => {
     expect(renderedNote(hud(false, true), 'static')).toBe('static in transition: read with care');
-    expect(renderedNote(hud(true, false), 'static')).toBe(DEFAULT);
+    expect(renderedNote(hud(true, false), 'static')).toBe('Encore in transition: read with care');
+    expect(renderedNote(hud(false, false), 'static')).toBe(DEFAULT);
   });
-  it('Encore-only view checks the Encore arm', () => {
+  it('Encore-only view checks both arms', () => {
     expect(renderedNote(hud(true, false), 'encore')).toBe('Encore in transition: read with care');
-    expect(renderedNote(hud(false, true), 'encore')).toBe(DEFAULT);
+    expect(renderedNote(hud(false, true), 'encore')).toBe('static in transition: read with care');
+    expect(renderedNote(hud(false, false), 'encore')).toBe(DEFAULT);
   });
   it('npwcNote tolerates a missing arm', () => {
-    expect(npwcNote({ encore: null, static: arm('Static', '1.3%', true) }, 'split')).toBe('static in transition: read with care');
-    expect(npwcNote({ encore: null, static: null }, 'static')).toBe(DEFAULT);
+    expect(npwcNote({ encore: null, static: arm('Static', '1.3%', true) })).toBe('static in transition: read with care');
+    expect(npwcNote({ encore: null, static: null })).toBe(DEFAULT);
   });
 });
