@@ -8,7 +8,8 @@ import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 import { makeParams } from '../../src/contracts';
 import { checkReplayLog, compileWithProvenance, generatedProvenance, generatedRecipeProblem, injectPreflight, isProvenance, makeReplayLog, provenanceFromCompile, replayFromProvenance, type GeneratedProvenance } from '../../src/cli/generated';
-import type { EnvEvent } from '../../src/contracts';
+import type { EnvEvent, RunRecord } from '../../src/contracts';
+import { buildReport } from '../../src/cli/report';
 import { COMPILER_VERSION, compileGeneratedScene, type SceneSpec } from '../../src/score/generated';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -191,5 +192,25 @@ describe('run provenance from INJECT_SCORE events', () => {
     expect(generatedRecipeProblem({ ...recipe, scene: invalid[0]!.scene })).toMatch(/^scene-invalid/);
     expect(generatedRecipeProblem({ kind: 'generated' })).toBe('malformed generated recipe');
     expect(generatedRecipeProblem({ kind: 'sphere' })).toBeNull();
+  });
+});
+
+describe('report: the generated-scene provenance section', () => {
+  const c = compiled(40).find(x => x.result.ok)!;
+  if (!c.result.ok) throw new Error('no compiling fixture');
+  const recipe = generatedRecipeOf({ ...clone(c.scene), title: 'Rocket | <b>launch</b>' } as SceneSpec, 40);
+  const rec = (arm: 'encore' | 'static', events: EnvEvent[]): RunRecord =>
+    ({ v: 1, git: 'abc', paramsHash: 'p'.repeat(64), scenario: 'S5', arm, seed: 1, n0: 40, events, series: [], summary: { npwcEnd: 0.9 }, stateHash: 'h' }) as RunRecord;
+
+  it('lists each generated injection; a title cannot break the table', () => {
+    const md = buildReport([rec('encore', [injectOf(recipe, 200, 7)]), rec('static', [injectOf(recipe, 200, 7)])]);
+    expect(md).toContain('## Generated scenes (provenance)');
+    expect(md).toContain(`| S5 | 40 | encore | 1 | 200 | 7 | Rocket   <b>launch</b> | \`${recipe.sceneHash.slice(0, 12)}\` | ${COMPILER_VERSION} | \`${recipe.slotsDigest.digest.slice(0, 12)}\` |`);
+    expect(md.split('\n').filter(l => l.startsWith('| S5 | 40 |'))).toHaveLength(2);
+  });
+
+  it('adds nothing when no run injected a generated scene (existing reports unchanged)', () => {
+    const plain = [rec('encore', [injectOf({ kind: 'helix' }, 200, 7)]), rec('static', [])];
+    expect(buildReport(plain)).not.toContain('Generated scenes');
   });
 });
