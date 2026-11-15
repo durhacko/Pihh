@@ -8,7 +8,7 @@ import type { RouteResponse } from './errors.ts';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
-/** What a route handler receives. The server (later PR) builds it after the shared guard has passed the request
+/** What a route handler receives. `server.ts` builds it after the shared guard has passed the request
  *  (Host, Origin, Content-Type, token, body size); a handler never re-implements those checks. */
 export interface RouteRequest {
   readonly method: HttpMethod;

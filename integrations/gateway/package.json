@@ -3,9 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Optional local gateway for Encore integrations (X-RUN/live). Offline skeleton: no provider, no SDK, no network code.",
+  "description": "Optional local gateway for Encore integrations (X-RUN/live). Offline skeleton: no provider, no SDK, no outbound network code.",
   "engines": { "node": ">=22.12.0" },
   "scripts": {
+    "start": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/server.ts",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json"
   }

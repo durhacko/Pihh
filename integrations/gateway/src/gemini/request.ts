@@ -9,8 +9,11 @@ export type ParsedRequest =
   | { ok: false; status: number; body: ErrorEnvelope };
 
 const ALLOWED_KEYS = new Set(['prompt', 'mode', 'requestId']);
-// Control characters and lone surrogates are not printable.
-const NOT_PRINTABLE = /[\p{Cc}\p{Cs}]/u;
+// Not printable: controls, lone surrogates, private use, line/paragraph separators, the BOM, and the invisible
+// zero-width and bidi-control characters (U+200B, U+200E-U+200F, U+202A-U+202E, U+2060-U+2064, U+2066-U+2069),
+// which can hide or reorder prompt text. ZWJ (U+200D) and ZWNJ (U+200C) stay: emoji sequences and several scripts
+// need them.
+const NOT_PRINTABLE = /[\p{Cc}\p{Cs}\p{Co}\p{Zl}\p{Zp}​‎‏‪-‮⁠-⁤⁦-⁩﻿]/u;
 
 function fail(code: 'VALIDATION_FAILED' | 'PAYLOAD_TOO_LARGE', message: string, path: string, reason: string, requestId?: string): ParsedRequest {
   return { ok: false, ...errorResponse(code, message, { details: [{ path, reason }], requestId }) };

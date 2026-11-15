@@ -60,3 +60,9 @@ test('errorResponse builds the one envelope: no success flag, normalised reasons
   assert.ok(!isErrorEnvelope({ error: { code: 'NOPE' } }));
   assert.ok(!isErrorEnvelope(null));
 });
+
+test('SCHEMA_VERSION_UNSUPPORTED defaults to 500 (a stored record newer than the gateway), overridable per module', () => {
+  assert.equal(STATUS_OF.SCHEMA_VERSION_UNSUPPORTED, 500);
+  assert.equal(errorResponse('SCHEMA_VERSION_UNSUPPORTED', 'x').status, 500);
+  assert.equal(errorResponse('SCHEMA_VERSION_UNSUPPORTED', 'x', { status: 400 }).status, 400);
+});

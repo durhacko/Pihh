@@ -50,19 +50,55 @@ export function envInteger(env: Env, name: string, fallback: number, min: number
   return fallback;
 }
 
-export const GATEWAY_DEFAULTS = Object.freeze({ port: 8787 });
+export const GATEWAY_DEFAULTS = Object.freeze({
+  port: 8787,
+  /** The X-IN gate (boundaries §3.1) and the shows v1 cap: 64 KiB, counted while streaming. */
+  maxBodyBytes: 64 * 1024,
+});
+
+/** The only bind address (boundaries §6.2). Another address needs a server-side authorisation (MDB-D3), which
+ *  this build does not have, so `GATEWAY_BIND` set to anything else makes the gateway refuse to start. */
+export const LOOPBACK = '127.0.0.1';
 
 export interface GatewayConfig {
   readonly port: number;
+  /** Requested bind address; `startGateway` refuses anything but `LOOPBACK`. */
+  readonly bind: string;
+  /** Exact origins allowed on non-GET requests (boundaries §6.2). Empty by default: every non-GET is refused
+   *  until the operator names the app's origin. Each entry is a serialised origin, e.g. `http://localhost:5173`. */
+  readonly allowedOrigins: readonly string[];
+  /** When true, the server makes a per-launch token at start, prints it once, and every route except
+   *  `GET /api/health` needs `Authorization: Bearer <token>`. */
+  readonly requireToken: boolean;
+  readonly maxBodyBytes: number;
   /** Notes about ignored values (never contains a value). */
   readonly problems: readonly string[];
 }
 
-/** Gateway-level settings (prefix `GATEWAY_`). The bind address is not configurable here: the guard binds
- *  127.0.0.1 only (boundaries §6.2). */
+function readOrigins(raw: string | undefined, problems: string[]): string[] {
+  const out: string[] = [];
+  for (const item of (raw ?? '').split(',').map(s => s.trim()).filter(s => s !== '')) {
+    let origin: string | null = null;
+    try {
+      const url = new URL(item);
+      if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === item) origin = url.origin;
+    } catch {
+      origin = null;
+    }
+    if (origin === null) problems.push('GATEWAY_ALLOWED_ORIGINS has an entry that is not an exact http(s) origin; it is ignored');
+    else if (!out.includes(origin)) out.push(origin);
+  }
+  return out;
+}
+
+/** Gateway-level settings (prefix `GATEWAY_`). */
 export function readGatewayConfig(env: Env): GatewayConfig {
   const problems: string[] = [];
   const own = moduleEnv(env, 'GATEWAY_');
   const port = envInteger(own, 'GATEWAY_PORT', GATEWAY_DEFAULTS.port, 1, 65_535, problems);
-  return Object.freeze({ port, problems: Object.freeze(problems) });
+  const bind = (own.GATEWAY_BIND ?? '').trim() || LOOPBACK;
+  const allowedOrigins = Object.freeze(readOrigins(own.GATEWAY_ALLOWED_ORIGINS, problems));
+  const requireToken = envFlag(own.GATEWAY_REQUIRE_TOKEN);
+  const maxBodyBytes = envInteger(own, 'GATEWAY_MAX_BODY_BYTES', GATEWAY_DEFAULTS.maxBodyBytes, 1024, 1024 * 1024, problems);
+  return Object.freeze({ port, bind, allowedOrigins, requireToken, maxBodyBytes, problems: Object.freeze(problems) });
 }
