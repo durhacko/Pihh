@@ -9,6 +9,7 @@
 // resolution) need the 512² mask of GF-WP-03; V11 (trial compile) and V12 (linter) run
 // operator-side once the compiler exists (GF-WP-10). No clock, no randomness, no I/O.
 
+import { canonicalJson } from '../canonical';
 import type { SceneSpec } from './types';
 
 export interface SceneIssue { code: string; path: string; message: string }
@@ -97,7 +98,9 @@ function validateDecoded(raw: unknown, limits: SceneLimits): SceneValidation {
   checkSchema(raw, limits, schema);                     // V3
   if (schema.any) return fail(schema.list);
   const scene = canonicalise(raw as Obj);               // §6.7 steps 1–3
-  const bytes = utf8Length(placeholderCanonicalJson(scene));
+  // V1b measures the one canonical JSON (XI-7, spec §6.7 step 4) of the quantised scene.
+  // TODO(GF-WP-02): switch to canonicalSceneJson once it exists.
+  const bytes = utf8Length(canonicalJson(scene));
   if (bytes > limits.canonicalBytes) {                  // V1b
     return fail([{ code: 'too-large', path: '', message: `canonical scene is ${bytes} bytes; the cap is ${limits.canonicalBytes}` }]);
   }
@@ -383,20 +386,6 @@ function canonicalise(raw: Obj): Obj {
   return scene;
 }
 
-/**
- * TEMPORARY PLACEHOLDER for GF-WP-02's `canonicalSceneJson` (src/score/canonical.ts, XI-7):
- * keys sorted by UTF-16 code unit, no whitespace, values through JSON.stringify. It is used
- * here only to measure V1b; it is not the hash input and must be replaced, not copied.
- * TODO(GF-WP-02): import the canonical-JSON module once it lands.
- */
-function placeholderCanonicalJson(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(placeholderCanonicalJson).join(',')}]`;
-  if (isObj(v)) {
-    const ks = Object.keys(v).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${ks.map(k => `${JSON.stringify(k)}:${placeholderCanonicalJson(v[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(v);
-}
 
 // ---------------------------------------------------------------- V4 references
 

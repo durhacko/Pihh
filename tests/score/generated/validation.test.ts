@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { SCENE_LIMITS, quantise, utf8Length, validateScene, type SceneIssue, type SceneValidation } from '../../../src/score/generated/validation';
+import { canonicalJson } from '../../../src/score/canonical';
 
 const fixtureDir = new URL('../../fixtures/scenes/', import.meta.url);
 const schemaDir = new URL('../../../src/score/generated/schema/', import.meta.url);
@@ -111,9 +112,6 @@ const wave = (k: number, dim = 2, y = 0): number[][] => Array.from({ length: 3 *
   return dim === 2 ? [x, wy] : [x, wy, 0];
 });
 const tube = (id: string, k: number, y: number): Json => ({ id, shape: { type: 'taperedTube', points: wave(k, 3, y), startRadius: 0.01, endRadius: 0.01 }, materialId: 'm', importance: 3 });
-const sortedJson = (v: unknown): string => Array.isArray(v) ? `[${v.map(sortedJson).join(',')}]`
-  : typeof v === 'object' && v !== null ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${sortedJson((v as Json)[k])}`).join(',')}}`
-  : JSON.stringify(v);
 
 // ------------------------------------------------------------------ fixtures
 
@@ -153,6 +151,7 @@ const INVALID: Record<string, { code: string; path: string }> = {
   'invalid-schema-symmetry.json': { code: 'schema', path: '/parts/0/symmetry' },
   'invalid-schema-unknown-key.json': { code: 'schema', path: '/parts/0/colour' },
   'invalid-schema-unknown-type.json': { code: 'schema', path: '/parts/0/geometry/type' },
+  'invalid-too-large-canonical.json': { code: 'too-large', path: '' },
   'invalid-unsupported-version.json': { code: 'unsupported-version', path: '/version' },
 };
 
@@ -405,7 +404,7 @@ describe('GF-T04 complexity and byte limits', () => {
 
   it('canonical size: exactly at the cap is accepted; one byte under the size is rejected', () => {
     const s = load('valid-3d-elephant.json');
-    const bytes = utf8Length(sortedJson(accepted(validateScene(s)).scene));
+    const bytes = utf8Length(canonicalJson(accepted(validateScene(s)).scene));
     accepted(validateScene(s, { ...SCENE_LIMITS, canonicalBytes: bytes }));
     expect(first(validateScene(s, { ...SCENE_LIMITS, canonicalBytes: bytes - 1 }))).toEqual({ code: 'too-large', path: '' });
   });
@@ -542,7 +541,7 @@ describe('canonical scene and determinism', () => {
   it('two scenes that differ only below the grid validate to the same canonical scene', () => {
     const a = accepted(validateScene(scene2D([disc({ geometry: { type: 'ellipse', center: [0.30001, 0], radii: [0.5, 0.5] } })])));
     const b = accepted(validateScene(scene2D([disc({ geometry: { type: 'ellipse', center: [0.29999, 0], radii: [0.5, 0.5] } })])));
-    expect(sortedJson(a.scene)).toBe(sortedJson(b.scene));
+    expect(canonicalJson(a.scene)).toBe(canonicalJson(b.scene));
   });
 
   it('is deterministic and never mutates its input', () => {
@@ -564,10 +563,10 @@ describe('canonical scene and determinism', () => {
 describe('purity and import boundaries', () => {
   const sources = readdirSync(sourceDir).filter(f => f.endsWith('.ts'));
 
-  it('generated sources import only each other', () => {
+  it('generated sources import only each other and the one canonical-JSON module', () => {
     for (const file of sources) {
       const src = readFileSync(new URL(file, sourceDir), 'utf8');
-      for (const [, spec] of src.matchAll(/(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/g)) expect(spec, file).toMatch(/^\.\/[a-z]+$/);
+      for (const [, spec] of src.matchAll(/(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/g)) expect(spec, file).toMatch(/^(?:\.\/[a-z]+|\.\.\/canonical)$/);
       expect(src, file).not.toMatch(/\b(?:require|import)\s*\(/);
     }
   });
