@@ -1,6 +1,6 @@
 # Optional integration boundaries
 
-> **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing in this file exists in code. Encore today makes no network call and has no import or export path beyond the CLI's `RunRecord` files and reports. Every boundary below is optional, provider-neutral and Track P. `X-IN` and `X-OUT` stay offline; `X-RUN`, its live variant `X-RUN/live` (§6.1) and `X-PERSIST` also need decision `D3` ([roadmap](../planning/PHASE2_ROADMAP.md#decisions-for-arnav)), and `integrations/` (proposed `P2-WP-30b`, §9) merges only after gate `P2-G6` ([roadmap gate rule](../planning/PHASE2_ROADMAP.md#gates)). This file names no sponsor and designs no provider integration.
+> **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing in this file exists in code. Encore today makes no network call and has no import or export path beyond the CLI's `RunRecord` files and reports. Every boundary below is optional, provider-neutral and Track P. `X-IN` and `X-OUT` stay offline; `X-RUN`, its live variant `X-RUN/live` (§6.1) and `X-PERSIST` also need decision `D3` ([roadmap](../planning/PHASE2_ROADMAP.md#decisions-for-arnav)), and `integrations/` (proposed `P2-WP-30b`, §9) merges only after gate `P2-G6` ([roadmap gate rule](../planning/PHASE2_ROADMAP.md#gates)). It designs no provider integration; it records the shared cross-integration rulings (XI-*) that #117, #130 and #142 cite.
 
 Purpose: define how optional external integrations may touch Encore without changing the offline core. Status: proposal for Phase 2 (Track P, after submission). Owner: Arnav (Phase 2 architecture, issue #110). Audit base: `origin/main` 26b438a (first audited at 7a50a69). Re-checked at `origin/main` c697f6c (02:58 GMT, 15 Nov 2026).
 
@@ -27,7 +27,7 @@ It links to, and does not restate:
 | Candidate list | [`PHASE2_CANDIDATES.md`](../ideation/PHASE2_CANDIDATES.md) |
 | Sponsor facts | [`BRIEF.md`](../competition/BRIEF.md#5-prize-tracks) (every sponsor brief is ❌ at 26b438a; `BRIEF.md` unchanged at c697f6c) |
 
-Sponsor-specific investigation, requirements and architecture belong to William. See §12.
+The sponsor-specific design lives in the integration specs (#117, #130, #142), not here. William keeps sponsor-specific decisions. See §12.
 
 ### 1.1 What exists today
 
@@ -54,7 +54,7 @@ Status codes: (a) implemented and tested on main · (b) implemented, not integra
 flowchart LR
   subgraph EXT["X-RUN: separate process, own folder and dependencies"]
     P["external producer or service"] --> CF["composition file (encore.composition v1)"]
-    EX2["read exports"] --> PS["X-PERSIST store (optional)"]
+    EX2["read X-OUT exports (later) or committed RunRecord files (MVP)"] --> PS["X-PERSIST store (optional)"]
     GW["optional gateway (X-RUN/live, D3, flag off by default)"]
   end
   subgraph CORE["Encore core: offline, unchanged"]
@@ -66,6 +66,7 @@ flowchart LR
     O -->|"after the step, read-only"| X["X-OUT writer: versioned NDJSON"]
   end
   X -->|"files"| EX2
+  O -->|"committed RunRecord files"| EX2
 ```
 
 These rules hold for every boundary:
@@ -96,7 +97,7 @@ This is the ports-and-adapters pattern (Cockburn, "Hexagonal architecture", 2005
 
 Two gaps must be closed first. They are part of `P2-WP-30` (the offline half, proposed `P2-WP-30a`, §9); see [work packages](../development/PHASE2_WORK_PACKAGES.md).
 - **Palette range.** `validateDraft` does not check that palette components are finite and in [0, 1]. A non-finite value would also make `canonicalJson` throw. Add the check **to `validateDraft`**, so the composer and `X-IN` share it.
-- **Headless use.** `Composer.ts` imports `PreviewLayer` (three.js) and DOM helpers. To validate headless, move `validateDraft` into a pure module (`src/app/compose/validate.ts`, §6.2) with no behaviour change, and keep re-exporting it from `Composer.ts` so the #112 tests stay unchanged. A `--validate-composition <file>` CLI flag can then write a validation report (§4, kind `validation`); it changes `src/cli/main.ts`, which stays untouched for the whole of Track H because the freeze run uses it ([roadmap base state](../planning/PHASE2_ROADMAP.md#base-state-this-roadmap-depends-on)), so it lands only in Track P, after the `P2-G0` (P) archive. `X-RUN` can pre-check its output with it as a subprocess.
+- **Headless use.** `Composer.ts` imports `PreviewLayer` (three.js) and DOM helpers. To validate headless, move `validateDraft` into a pure module (`src/app/compose/validate.ts`, §6.2) with no behaviour change, and keep re-exporting it from `Composer.ts` so the #112 tests stay unchanged. A `--validate-composition <file>` CLI flag can then write a validation report (§4, kind `validation`); it changes `src/cli/main.ts`, which stays untouched for the whole of Track H because the freeze run uses it ([roadmap base state](../planning/PHASE2_ROADMAP.md#base-state-this-roadmap-depends-on)), so it lands only in Track P, after the `P2-G0` (P) archive. The flag is an operator CLI tool only. The gateway never runs it; it validates by importing the pure modules (§6, Coupling).
 
 ### 3.2 File format sketch (`encore.composition`, v1)
 
@@ -128,7 +129,7 @@ These fields are rejected because they are unknown keys: `version`, `origin`, `m
 **Proposed, needs Arnav.** Until v2 is approved, step 4 accepts v1 only, and a v1 file that carries any v2 field is rejected as an unknown key. v1 stays exactly as §3.2. `encore.composition` v1 and v2 are the only composition formats; there is no `CompositionFile` or `encore.show` kind.
 
 v2 adds two things to v1:
-- **`holdTicks`**: an optional per-cue hold, as a tick count. Its bounds are set when v2 is approved. A saved show with holds exports only as v2 (MongoDB MCR-20, #130).
+- **`holdTicks`**: an optional per-cue hold, as a tick count. It is a safe integer in [0, 6000], matching MongoDB R9 (#130). v2 must keep this bound, or the MDB-WP-09 export and import round trip breaks. A minimum hold is still open (MQ-11, #130). A saved show with holds exports only as v2 (MongoDB MCR-20, #130).
 - **Generated recipes**: only after `GF-CC-01` (#117) is approved. They use unit-space geometry, and their shape is defined there, not here. Each generated cue is capped at 16 KB. The per-file rule for v2 (beside the 64 KiB gate of §3.1 step 2) is open: `GQ-3` in #117.
 
 v2 changes nothing else. A v2 file still passes steps 2–8 of §3.1. `motion` stays rejected until `P2-CC-01` (§3.2).
@@ -199,7 +200,7 @@ interface ExportLineV1 {
 
 ## 5. X-PERSIST: optional persistence
 
-`X-PERSIST` is anything that keeps data beyond a local file: a database, an object store or a remote dashboard. It covers two things only: saved compositions (a show library) and experiment evidence (validated `X-OUT` run records). It never covers live control. It runs **only inside `X-RUN`** (an `integrations/` process or the gateway of §6.1). Inside the core, the only persistence is the local files of the `X-OUT` writer and the existing `RunRecord` files.
+`X-PERSIST` is anything that keeps data beyond a local file: a database, an object store or a remote dashboard. It covers two things only: saved compositions (a show library) and experiment evidence: validated run records (committed CLI `RunRecord` files in the MVP, `X-OUT` records later, only after `P2-WP-30a` exists) (XI-4, XI-22). It never covers live control. It runs **only inside `X-RUN`** (an `integrations/` process or the gateway of §6.1). Inside the core, the only persistence is the local files of the `X-OUT` writer and the existing `RunRecord` files.
 
 It must **not**:
 - control the clock (no pacing and no "wait for acknowledgement");
@@ -209,10 +210,16 @@ It must **not**:
 - change deterministic results.
 
 It **must**:
-- read only closed files (a `footer` is present), or tail by `seq` and treat a missing footer as truncated;
-- be asynchronous, with a bounded queue whose capacity is fixed in its own configuration. On backpressure it drops and counts, and reports the counts;
-- write idempotently on (`runId`, `kind`, `seq`), so re-ingesting a file changes nothing;
+- be asynchronous, with a bounded queue whose capacity is fixed in its own configuration;
+- write idempotently, so re-ingesting a file changes nothing;
 - retry a bounded number of times with backoff, and log failures in `X-RUN` only.
+
+For `X-OUT` inputs only, it must also:
+- read only closed files (a `footer` is present), or tail by `seq` and treat a missing footer as truncated;
+- key its writes on (`runId`, `kind`, `seq`);
+- on backpressure, drop and count, and report the counts.
+
+For committed `RunRecord` files (the MVP input), the import is idempotent on the record's artifact hash, as the Tiger ingestion RFC defines (#142). An importer reads these files; there is no upload route (XI-22).
 
 The in-core `X-OUT` writer bounds its own buffer the same way and records drops in `footer.dropped`.
 
@@ -220,10 +227,10 @@ The in-core `X-OUT` writer bounds its own buffer the same way and records drops 
 
 | Rule | Detail |
 |---|---|
-| Location | Proposed: `integrations/<name>/` at the repo root, never under `src/` or `tests/`. A networked service is the one shared optional gateway `integrations/gateway/`, with one independently optional module per approved integration (#117, #130, #142). Each module is enabled only by its own server-side configuration, and losing one disables nothing else. It merges only after `P2-G6` (proposed `P2-WP-30b`, §9) |
+| Location | Proposed: `integrations/<name>/` at the repo root, never under `src/` or `tests/`. A networked service is the one shared optional gateway `integrations/gateway/`, with one independently optional module per approved integration (#117, #130, #142). Its layout is in §6.2 (XI-20). Its only second entry point is the Tiger live writer `integrations/gateway/src/tiger-live/server.ts`, allowed only if OIB-Q5 is accepted (§6.2). Each module is enabled only by its own server-side configuration, and losing one disables nothing else. It merges only after `P2-G6` (§9) |
 | Dependencies | Each integration (the gateway counts as one) has its own `package.json` and lockfile. It is not an npm workspace, so the root `npm ci` installs none of it |
 | Excluded from core checks | Already excluded: root `tsconfig.json` includes only `src`, `tests` and `vite.config.ts`; vitest includes only `tests/**`; Vite bundles only what `index.html` reaches. **Not yet excluded:** `eslint .` lints from the root (only `dist`, `node_modules` and `research` are ignored), so `P2-WP-30` (proposed `30b`) adds `integrations/**` to the ignores in `eslint.config.js` (a build-config change, skimmed by its owner per [WORKFLOW](../development/WORKFLOW.md)) |
-| Coupling | It talks to Encore through `X-IN` files it writes into its own `out/` folder, `X-OUT` files it reads from a folder the operator gives it, and, for the gateway only, `X-RUN/live` (§6.1). It may run the core's headless validator as a subprocess (§3.1). It may import, by relative path, only pure, dependency-free modules: `src/contracts/**`, `src/score/**`, the pure composition validator (`src/app/compose/validate.ts`, §6.2) and `src/telemetry/**` (proposed, #142). It never imports `src/app` UI code, `src/agent`, `src/sim`, `src/observer` or `src/cli`. Nothing under `src/` imports from `integrations/` |
+| Coupling | It talks to Encore through `X-IN` files it writes into its own `out/` folder, files it reads from a folder the operator gives it (committed CLI `RunRecord` files in the MVP, `X-OUT` files later, §5), and, for the gateway only, `X-RUN/live` (§6.1). The gateway never spawns child processes; it validates by importing the pure modules listed here (XI-2, XI-23). It may import, by relative path, only pure, dependency-free modules: `src/contracts/**`, `src/score/**`, the pure composition validator (`src/app/compose/validate.ts`, §6.2) and `src/telemetry/**` (proposed, #142). It never imports `src/app` UI code, `src/agent`, `src/sim`, `src/observer` or `src/cli`. Nothing under `src/` imports from `integrations/` |
 | Writes | Atomic: write a temporary file, then rename it, so a half-written composition never exists |
 | Network | Allowed only in `X-RUN`, and only after `D3` is approved for that integration. Credentials come from that process's environment. The app side of `X-RUN/live` is the one exception under `src/` (§6.1) |
 | Demo | The judged demo path never depends on `X-RUN`, and its build has `X-RUN/live` off |
@@ -231,7 +238,9 @@ The in-core `X-OUT` writer bounds its own buffer the same way and records drops 
 
 ### 6.1 X-RUN/live (provisional, D3-gated)
 
-`X-RUN/live` is an HTTP request/response channel between the app and the optional gateway (§6). It exists because the stacked integration specs #117 and #130 ask the app to fetch candidate compositions and saved shows while the simulation runs. Until `D3` is approved it stays documentation, and #117 and #130 cite it as "X-RUN/live (provisional, #110)". Without it, the same work uses file-based `X-IN` (OFFLINE-AUTHORING).
+`X-RUN/live` is an HTTP request/response channel between the app and the optional gateway (§6). It exists because the stacked integration specs ask the app to fetch data while the simulation runs: candidate compositions (#117), saved shows (#130) and read-only analytics (#142, XI-4). Until `D3` is approved it stays documentation, and #117, #130 and #142 cite it as "X-RUN/live (provisional, #110)". Without it, each use has its own offline fallback:
+- compositions and saved shows: file-based `X-IN` (OFFLINE-AUTHORING in #117);
+- analytics: the local `RunRecord` files and the CLI report (`results/RESULTS.md`).
 
 | Rule | Detail |
 |---|---|
@@ -249,11 +258,18 @@ The gateway skeleton, its guard, the `requestId` rule and the app-side folder ar
 
 ### 6.2 Shared gateway skeleton and guard
 
-Stated once here, for every gateway module (#117, #130, #142). Module specs cite this section and never redefine any of it. The rulings are the orchestrator's cross-integration rulings XI-11 to XI-14. Everything here is proposed and `D3`-gated, like §6.1.
+Stated once here, for every gateway module (#117, #130, #142). Module specs cite this section and never redefine any of it. The rulings are the orchestrator's cross-integration rulings XI-3, XI-11 to XI-14, XI-16, XI-20 and XI-23. Everything here is proposed and `D3`-gated, like §6.1.
 
 **Skeleton (XI-12).** `integrations/gateway/` has one server, one `guard.ts`, one `errors.ts`, one `config.ts` and one `GET /api/health`. Whichever module work package is approved first builds it. Every other module depends on it.
-- `errors.ts` holds the one error envelope, `sanitise` and `redact`. Every route fails with `{ "error": { "code", "message", "details"?: [{ "path", "reason" }], "requestId"? } }`. `code` is SCREAMING_SNAKE from one shared list (`VALIDATION_FAILED`, `NOT_FOUND`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`, `RATE_LIMITED`, `UNAUTHORIZED`, `FORBIDDEN`, `CONFLICT`, `SCHEMA_VERSION_UNSUPPORTED`, `DATABASE_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`, `PROVIDER_ERROR`, `TIMEOUT`, `INTERNAL`). Module-specific reasons go in `details[].reason`. A success body has no `success` flag; the HTTP status carries it.
+- `errors.ts` holds the one error envelope, `sanitise` and `redact` (XI-3). Every route fails with `{ "error": { "code", "message", "details"?: [{ "path", "reason" }], "requestId"? } }`. `code` is SCREAMING_SNAKE from one shared list (`VALIDATION_FAILED`, `NOT_FOUND`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`, `RATE_LIMITED`, `UNAUTHORIZED`, `FORBIDDEN`, `CONFLICT`, `SCHEMA_VERSION_UNSUPPORTED`, `DATABASE_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`, `PROVIDER_ERROR`, `TIMEOUT`, `INTERNAL`). Module-specific reasons go in `details[].reason`. `details[].reason` values are SCREAMING_SNAKE in every module (XI-16), for example `MODULE_DISABLED`, `PROVIDER_BLOCKED`, `RESPONSE_TOO_LARGE`, `RADIO_PARTITIONED` and `REPORT_NOT_ENABLED`. App-side typed rejection codes inside `src/score` (for example `below-floor`) may stay kebab-case, and the gateway maps them into `details[].reason` in SCREAMING_SNAKE. A success body has no `success` flag; the HTTP status carries it.
 - Each module is enabled only by its own server-side configuration. One module failing or absent disables nothing else (§6).
+- The gateway never spawns child processes (XI-23). It validates by importing the pure modules allowed in §6 (Coupling).
+
+**Layout (XI-20).** One package, `integrations/gateway/`, with one `package.json` and one lockfile.
+- Skeleton: `integrations/gateway/src/{server,guard,errors,config,health}.ts`.
+- Modules: one folder each, `integrations/gateway/src/<module>/` (`gemini`, `shows`, `tiger`).
+- Tests: `integrations/gateway/test/<module>/`.
+- The only second entry point is the Tiger live writer `integrations/gateway/src/tiger-live/server.ts` (OIB-Q5). It is allowed only if OIB-Q5 is accepted. It is part of the same package and uses the same skeleton (guard, errors, config), with its own credential. No module builds its own HTTP stack; this one separately approved entry point is the only exception to "one server".
 
 **Guard (XI-12).** One guard for every module:
 
@@ -280,7 +296,7 @@ Stated once here, for every gateway module (#117, #130, #142). Module specs cite
 
 ## 7. Failure handling
 
-In every row Encore remains fully usable. The **offline fallback** is a library of saved, validated composition files (proposed `assets/compositions/*.json`). They are committed with the repo and re-validated by a test (proposed `tests/cli/compositions.test.ts`) on every check, so they cannot silently rot. Both are owned by `P2-WP-30a` (the offline half of `P2-WP-30`): its allowed files list them and its step 3 commits and re-validates them ([work packages](../development/PHASE2_WORK_PACKAGES.md#p2-wp-30--integration-boundaries-in-code-offline); OIB-Q4, resolved).
+In every row Encore remains fully usable. The **offline fallback** is a library of saved, validated composition files (proposed `assets/compositions/*.json`). They are committed with the repo and re-validated by a test (proposed `tests/cli/compositions.test.ts`) on every check, so they cannot silently rot. This is the only committed composition library: every `encore.composition` v1 and v2 file lives here, including offline-authored generated scenes as one-cue v2 compositions, once v2 and `GF-CC-01` are approved. There is no separate scene library, and raw provider output is never committed (XI-18). Both are owned by `P2-WP-30a` (the offline half of `P2-WP-30`): its allowed files list them and its step 3 commits and re-validates them ([work packages](../development/PHASE2_WORK_PACKAGES.md#p2-wp-30--integration-boundaries-in-code-offline); OIB-Q4, resolved).
 
 | Failure | Detected in | Encore core | Operator sees | Fallback |
 |---|---|---|---|---|
@@ -330,11 +346,11 @@ NFR-10 is the software-only, no-hardware rule; the network and external-service 
 2. Network access is allowed only inside `X-RUN` (`integrations/`, including the gateway), per approved integration (intake §11). The single exception under `src/` is the confined `X-RUN/live` folder in a non-default build (§6.1).
 3. The core passes `bash scripts/check.sh` offline with `integrations/` removed and `X-RUN/live` off (`P2-T35`).
 
-**Only `X-RUN` and `X-RUN/live` need `D3`** (and `X-PERSIST`, which runs inside `X-RUN`). `X-IN` and `X-OUT` are offline files and need no amendment. `D3` is one decision, shared with the integration specs' own network gates (#117, #130, #142). Approving it for one integration does not approve it for another.
+**Only `X-RUN` and `X-RUN/live` need `D3`** (and `X-PERSIST`, which runs inside `X-RUN`). `X-IN` and `X-OUT` are offline files and need no amendment. `X-OUT/live` (OIB-Q5), if accepted, is not covered by `D3` unless a `D3` revision names it explicitly (TR-3). `D3` is one decision, shared with the integration specs' own network gates (#117, #130, #142). Approving it for one integration does not approve it for another.
 
 **Which package merges when.** The gate rule is canonical in the [roadmap gates](../planning/PHASE2_ROADMAP.md#gates); this file does not set it. [`PHASE2_ARCHITECTURE.md` §4.11](PHASE2_ARCHITECTURE.md#411-stage-11-optional-export) proposes splitting `P2-WP-30` in two:
 - **`P2-WP-30a`**: `X-IN` and `X-OUT` in `src/cli`, the pure validator module and its palette checks, and `--validate-composition`. It is offline, needs no `D3`, and is gated by `P2-G0` (P) only.
-- **`P2-WP-30b`**: `integrations/` (including the gateway), the `eslint.config.js` ignore and `X-RUN`. It is gated by `P2-G6` and `D3`.
+- **`P2-WP-30b`**: the `integrations/` folder rules, the `eslint.config.js` ignore and non-networked `X-RUN`. It is gated by `P2-G6` and `D3`. The gateway skeleton and its modules are not in `30b`. They are built by the first approved module package (GF-WP-12, MDB-WP-03 or TIG-03; XI-12, XI-24), each needing `D3` for its integration.
 
 Until the roadmap adopts the split (the work packages already have), the roadmap gates both halves at `P2-G6`; `30a` also merges after `P2-WP-23` (`Composer.ts`). Either way, `integrations/` merges only after `P2-G6`.
 
@@ -423,14 +439,20 @@ Commands run and their results, honestly (the AGENTS handoff format). "Not run" 
 
 ## 12. Intentionally left to William
 
-This file decides none of the following. Each belongs in William's intake documents, which are reviewed by Arnav before `P2-G6`:
-- which sponsors or providers to pursue, and whether any is worth integrating at all;
-- verifying sponsor requirements (`BRIEF.md` is the place for event facts; #1 tracks capture);
-- provider SDKs, API workflows, request and response shapes, rate limits, quotas and cost;
-- authentication and credential flows;
-- schemas or data models in any external store used by `X-PERSIST`;
-- any model, prompt or content-generation design inside `X-RUN`;
-- the integration's own tests and demonstration plan, within §6 and `D7`.
+This file decides none of the following.
+
+**Sponsor-specific design.** It lives in the integration specs, written from William's handoffs, with Arnav as integrator. Each spec has its own evaluation doc.
+- #117: `docs/integrations/gemini-generated-formations.md`;
+- #130: `docs/integrations/mongodb-atlas-show-library.md`;
+- #142: `docs/integrations/tiger-data-analytics.md`.
+
+They hold the provider SDKs and API workflows, credential flows, external-store schemas (for example `encore.saved_shows` and the Tiger DDL), generation design, and each integration's tests and demonstration plan (within §6 and `D7`).
+
+**Sponsor-specific decisions.** William keeps these: which sponsors or providers to pursue, eligibility, provider choices, and verifying sponsor requirements (`BRIEF.md` holds event facts; #1 tracks capture). This is a decision role, not a work lane (XI-10, XI-24).
+
+**Implementation.** Nobody is assigned. Every implementation package is "TBD by Arnav" (XI-10).
+
+**Further integrations.** The §11 intake template stays optional for any integration not yet covered by a spec.
 
 ## 13. Open questions
 
@@ -440,4 +462,4 @@ This file decides none of the following. Each belongs in William's intake docume
 | OIB-Q2 | How does the app reach the gateway: a Vite dev proxy for `/api` (a `vite.config.ts` change, owner sign-off) or a local origin with CORS on the gateway? Until it is decided for CORS, the gateway sends no CORS headers (XI-12, §6.2) | Arnav, with the build-config owner | `X-RUN/live` wiring in #117, #130 and #142 |
 | OIB-Q3 | Which work package owns the app-side `X-RUN/live` client folder (`src/app/live/`, §6.2) and the `P2-T35` extension? Neither half of `P2-WP-30` does: the proposed `30a` is offline, and the proposed `30b` covers `integrations/`, not app code under `src/` (§9) | Arnav | `X-RUN/live` code |
 | OIB-Q4 | **Resolved.** `P2-WP-30a` now lists the saved-composition library (`assets/compositions/*.json`) and its re-validation test (`tests/cli/compositions.test.ts`) in its allowed files, and its step 3 commits and re-validates them ([work packages](../development/PHASE2_WORK_PACKAGES.md#p2-wp-30--integration-boundaries-in-code-offline)). The §7 fallback is owned | Arnav | Nothing |
-| OIB-Q5 | `X-OUT/live` (proposed by #142, TIG-11): a `D3`-named amendment for streaming per-frame telemetry samples from `src/app/live/telemetry/` to a separate, write-only gateway process. Neither `X-OUT` (offline files) nor `X-RUN/live` (operator-initiated requests only, no world state per tick, §6.1) covers it. **Not accepted; Arnav decides** | Arnav | Any streaming telemetry code in #142 |
+| OIB-Q5 | `X-OUT/live` (proposed by #142, TIG-11): a `D3`-named amendment for streaming per-frame telemetry samples from `src/app/live/telemetry/` to a separate, write-only gateway process. That process is the one allowed second entry point `integrations/gateway/src/tiger-live/server.ts` (§6.2, XI-20), and it exists only if this is accepted. Neither `X-OUT` (offline files) nor `X-RUN/live` (operator-initiated requests only, no world state per tick, §6.1) covers it. **Not accepted; Arnav decides** | Arnav | Any streaming telemetry code in #142 |
