@@ -1,7 +1,7 @@
 // integrations/gateway/src/health.ts
 // Body of `GET /api/health`. Skeleton-owned. The envelope (`service`, `version`) is the skeleton's; each module
 // defines its own `modules.<name>` entry, which always has `enabled: boolean` (mongodb spec §10.4, Tiger analytics
-// RFC §3.1). A module is `enabled` only when it can actually answer. Pure: the server (later PR) only serialises it.
+// RFC §3.1). A module is `enabled` only when it can actually answer. Pure: `server.ts` only serialises it.
 import type { GatewayModule, ModuleHealth } from './module.ts';
 
 export const GATEWAY_SERVICE = 'encore-gateway';

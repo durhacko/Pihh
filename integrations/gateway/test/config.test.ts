@@ -24,7 +24,7 @@ test('GATEWAY_PORT is read; a bad value falls back and is reported', () => {
 test('the gateway config reads only GATEWAY_* and holds no module secret', () => {
   const config = readGatewayConfig({ GATEWAY_PORT: '9000', GEMINI_API_KEY: KEY, MONGODB_URI: KEY });
   assert.ok(!JSON.stringify(config).includes(KEY));
-  assert.deepEqual(Object.keys(config).sort(), ['port', 'problems']);
+  assert.deepEqual(Object.keys(config).sort(), ['allowedOrigins', 'bind', 'maxBodyBytes', 'port', 'problems', 'requireToken']);
 });
 
 test('moduleEnv passes only the variables with the module prefix', () => {

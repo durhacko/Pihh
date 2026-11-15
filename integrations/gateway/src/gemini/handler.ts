@@ -1,7 +1,7 @@
 // integrations/gateway/src/gemini/handler.ts
 // `POST /api/generate-formation` as a pure async function: raw body in, { status, body } out. Every outcome maps to
-// one row of gemini spec §10.1's table. The server, the shared guard (415, Host, Origin, token) and the gateway's own
-// rate bucket run before this and are not in this package yet.
+// one row of gemini spec §10.1's table. The server and the shared guard (415, Host, Origin, token, body size) run
+// before this; the gateway's own rate bucket is not in this package yet.
 //
 // Offline is the default: unless the module is enabled in config (flag and key) AND a provider AND a scene validator
 // are wired, every valid request gets 503 PROVIDER_UNAVAILABLE / MODULE_DISABLED and nothing upstream is touched.

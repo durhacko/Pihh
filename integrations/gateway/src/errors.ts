@@ -15,7 +15,9 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
  *  well-formed request it refuses (boundaries §6.2, gemini spec §10.1), so `errorResponse` takes an override. */
 export const STATUS_OF: Readonly<Record<ErrorCode, number>> = {
   VALIDATION_FAILED: 400, NOT_FOUND: 404, PAYLOAD_TOO_LARGE: 413, UNSUPPORTED_MEDIA_TYPE: 415, RATE_LIMITED: 429,
-  UNAUTHORIZED: 401, FORBIDDEN: 403, CONFLICT: 409, SCHEMA_VERSION_UNSUPPORTED: 400, DATABASE_UNAVAILABLE: 503,
+  // SCHEMA_VERSION_UNSUPPORTED is 500: a stored record newer than this gateway understands (mongodb spec §7.4,
+  // MDB-T16), not a client fault. A module that rejects a client's version passes `status` explicitly.
+  UNAUTHORIZED: 401, FORBIDDEN: 403, CONFLICT: 409, SCHEMA_VERSION_UNSUPPORTED: 500, DATABASE_UNAVAILABLE: 503,
   PROVIDER_UNAVAILABLE: 503, PROVIDER_ERROR: 502, TIMEOUT: 504, INTERNAL: 500,
 };
 
@@ -26,7 +28,7 @@ export interface ErrorEnvelope {
   error: { code: ErrorCode; message: string; details?: ErrorDetail[]; requestId?: string };
 }
 
-/** What a route handler returns. The server (not in this package yet) writes `body` as JSON with `status`. A success
+/** What a route handler returns. `server.ts` writes `body` as JSON with `status`. A success
  *  body has no `success` flag: the status carries it (XI-3). */
 export interface RouteResponse<T> { status: number; body: T | ErrorEnvelope }
 

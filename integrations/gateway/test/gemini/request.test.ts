@@ -62,3 +62,12 @@ test('prompt: 1 to 500 printable characters after trimming', () => {
   assert.equal(reject(JSON.stringify({ prompt: 'line\nbreak', mode: 'scene3d' })).reason, 'BAD_REQUEST');
   assert.equal(reject('{"prompt":"lone \\ud800 surrogate","mode":"scene3d"}').reason, 'BAD_REQUEST');
 });
+
+test('prompt: invisible, bidi, private-use and separator characters are refused; ZWJ and ZWNJ are kept', () => {
+  const body = (prompt: string) => JSON.stringify({ prompt, mode: 'scene3d' });
+  for (const bad of ['a\u200Bb', 'a\u200Eb', 'a\u200Fb', 'a\u202Eb', 'a\u2066b', 'a\u2069b', 'a\u2060b', 'a\uFEFFb', 'a\uE000b', 'a\u2028b', 'a\u2029b', 'a\u0007b']) {
+    const r = parseGenerateRequest(body(bad));
+    assert.ok(!r.ok, JSON.stringify(bad));
+  }
+  for (const ok of ['a family 👨\u200D👩\u200D👧', 'می\u200Cخواهم', 'Éléphant 象 🐘']) assert.ok(parseGenerateRequest(body(ok)).ok, ok);
+});

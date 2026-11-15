@@ -1,6 +1,6 @@
 // integrations/gateway/src/router.ts
-// Builds the gateway from the registry and routes requests. Skeleton-owned. Pure: no socket. The server (later PR,
-// `node:http`, behind `guard.ts`) turns each HTTP request into a `GatewayRequest` and writes the `RouteResponse`.
+// Builds the gateway from the registry and routes requests. Skeleton-owned. Pure: no socket. `server.ts` runs the
+// shared guard, turns each HTTP request into a `GatewayRequest` and writes the `RouteResponse`.
 //
 // One module failing never disables another (boundaries §6.2): a factory that throws, or a module whose routes are
 // invalid or collide, is replaced by a disabled module and reported in `problems`; a handler that throws answers
