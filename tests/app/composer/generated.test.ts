@@ -56,8 +56,12 @@ describe('opt-in and labels', () => {
     const entries = fixtureEntries();
     expect(entries.length).toBeGreaterThanOrEqual(10);
     for (const e of entries) expect(e.file).toMatch(/^valid-(2d|3d)-[a-z0-9-]+\.json$/);
-    const code = readFileSync('src/app/ui/GeneratedSource.ts', 'utf8').replace(/\/\/.*$/gm, '');
-    expect(code).not.toMatch(/gemini/i);
+    // Comments and identifiers (`origin.gemini`) may name Gemini, to say what is NOT it; no string the tab shows may.
+    // The honest provider labels come only from src/app/live/generate.ts (#213, tested there).
+    const code = readFileSync('src/app/ui/GeneratedSource.ts', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const literals = code.match(/'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`|"(?:[^"\\\n]|\\.)*"/g) ?? [];
+    expect(literals.length).toBeGreaterThan(20);
+    expect(literals.filter(s => /gemini/i.test(s))).toEqual([]);
     expect(INJECT_BLOCKED).toBe('needs GF-WP-07 (D2)');
   });
 });
