@@ -24,9 +24,9 @@ Lanes and file locks, as posted on #199 at 07:42 (one owner per file; nothing ou
 
 | Issue | Work package | Owner | Branch | Locked files | Depends on | State / PR |
 |---|---|---|---|---|---|---|
-| [#200](https://github.com/durhacko/Pihh/issues/200) | P2-WP-01 invariant checker | durhack-5b | `phase2/200-invariant-checker` | `src/observer/invariants.ts`, `src/cli/harness.ts`, tests | Base | PR [#222](https://github.com/durhacko/Pihh/pull/222) open (`55bd195`) |
-| [#201](https://github.com/durhacko/Pihh/issues/201) | P2-WP-04 score linter | durhack-77 | `phase2/201-score-linter` | `src/cli/lint.ts`, `src/cli/lintReport.ts`, tests | Base | In review: PR [#210](https://github.com/durhacko/Pihh/pull/210) (`489ea27`) |
-| [#202](https://github.com/durhacko/Pihh/issues/202) | P2-WP-03 repair-cascade trail | durhack-18 | `phase2/202-repair-cascade` | `render/layers/CascadeLayer.ts`, `render/colourModes/cascadeTrail.ts`, tests | Base | Review says merge after a small tweak: PR [#204](https://github.com/durhacko/Pihh/pull/204) (`cd1b4b9`) |
+| [#200](https://github.com/durhacko/Pihh/issues/200) | P2-WP-01 invariant checker | durhack-5b | `phase2/200-invariant-checker` | `src/observer/invariants.ts`, `src/cli/harness.ts`, tests | Base | In review: PR [#222](https://github.com/durhacko/Pihh/pull/222) (`55bd195`) |
+| [#201](https://github.com/durhacko/Pihh/issues/201) | P2-WP-04 score linter | durhack-77 | `phase2/201-score-linter` | `src/cli/lint.ts`, `src/cli/lintReport.ts`, tests | Base | Merged: PR [#210](https://github.com/durhacko/Pihh/pull/210) (merge `5cff677`) |
+| [#202](https://github.com/durhacko/Pihh/issues/202) | P2-WP-03 repair-cascade trail | durhack-18 | `phase2/202-repair-cascade` | `render/layers/CascadeLayer.ts`, `render/colourModes/cascadeTrail.ts`, tests | Base | Merged: PR [#204](https://github.com/durhacko/Pihh/pull/204) (merge `36e2600`) |
 | [#203](https://github.com/durhacko/Pihh/issues/203) | GF-WP-01 SceneSpec validation (no API) | durhack-48 | `phase2/203-gemini-scene-validation` | `src/score/generated/` schema and validation files, fixtures | Base | Building |
 | [#221](https://github.com/durhacko/Pihh/issues/221) | XI-7 canonicalJson extraction | durhack-0c | `phase2/xi7-canonical-json` | `src/score/canonical.ts`, `src/cli/run.ts` (import only), test | Base | Building |
 | [#206](https://github.com/durhacko/Pihh/issues/206) | GF-WP-03 2D shapes and mask | durhack-01 | `phase2/gf-03-shapes2d` | `src/score/generated/shapes2d.ts`, test | #203 (adapter) | Building (draft; adapter after #203) |
@@ -46,7 +46,7 @@ Lanes and file locks, as posted on #199 at 07:42 (one owner per file; nothing ou
 
 The merge order follows the dependencies, only the orchestrator merges, and each merged branch and its worktree are retired.
 
-**No owners are assigned by this document.** The lead orchestrator must claim each issue and reserve the exact allowed-file set before an agent begins. Each agent works from an independent branch/worktree based on `phase2/development`, makes one small PR targeting that branch, and reports measured checks. Do not let agents merge their own PRs without coordinator review.
+**Owners and file locks are in the queue table above, mirroring #199.** The lead orchestrator must claim each issue and reserve the exact allowed-file set before an agent begins. Each agent works from an independent branch/worktree based on `phase2/development`, makes one small PR targeting that branch, and reports measured checks. Do not let agents merge their own PRs without coordinator review.
 
 ## Architecture and acceptance
 
