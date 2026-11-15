@@ -7,8 +7,14 @@
 //
 // One `generate` call = exactly one HTTP request, never a retry: `withRetries` (provider.ts) owns the 429/503 policy
 // (§10.3: the SDK's own retries must be off; with plain HTTP there are none). The per-attempt timeout is applied here
-// too, as defence in depth, and the whole-request `signal` aborts the request. `generate` never rejects. Every answer
-// is mapped through `mapProviderResponse`, which alone interprets finish reasons.
+// too, as defence in depth, and the whole-request `signal` aborts the request. The HARD time bound is withRetries'
+// per-attempt race (provider.ts `attempt`): this adapter alone cannot stop a transport that ignores its abort signal
+// and never settles. `generate` never rejects. Every answer is mapped through `mapProviderResponse`, which alone
+// interprets finish reasons.
+//
+// Redirects are never followed (`redirect: 'error'`): on a cross-origin redirect the platform fetch drops
+// `Authorization` but not a custom `x-goog-api-key` header, so following one could forward the key to another host and
+// would also bypass the https-only endpoint check. A 3xx is an upstream error, unread.
 //
 // What the spec does and does not establish (§10.6 "VERIFIED" = an official source seen on 2026-11-15; it is about the
 // JS SDK, not the REST wire format):
@@ -34,8 +40,9 @@ import type { FormationMode, GeminiProvider, ProviderOutcome, ProviderRequest } 
 /** UNVERIFIED: the Generative Language REST base (API version v1beta). Overridable for a proxy or a test. */
 export const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
-/** §10.3† proposed defaults, per mode. They keep output well under the handler's 64 KiB raw cap (4,096 tokens is about
- *  the 16 KB scene cap at ~4 bytes per token); the handler's cap remains the real guard. */
+/** §10.3† proposed defaults, per mode. By estimate (~4 bytes per token, a planning figure, not a measured bound) they
+ *  keep output under the handler's 64 KiB raw cap; 4,096 tokens is about the 16 KB scene cap. The handler's cap is the
+ *  real guard. */
 export const MAX_OUTPUT_TOKENS: Readonly<Record<FormationMode, number>> = Object.freeze({ silhouette2d: 2_048, scene3d: 8_192 });
 
 /** William's settings to benchmark (spec §10.6, handoff §2): minimal thinking for 2D, low for 3D. Wire casing UNVERIFIED. */
@@ -63,21 +70,22 @@ export const PLACEHOLDER_PROMPTS: Readonly<Record<FormationMode, string>> = Obje
     'symmetric about x = 0. Output only the JSON object.',
 });
 
-/** The few parts of a WHATWG `Response` the adapter reads. `body` and `headers` are optional so a minimal fake works;
- *  with them (the platform fetch) the answer is read with a byte cap instead of all at once. */
+/** The few parts of a WHATWG `Response` the adapter reads. The body is always read as a stream, with a byte cap; a
+ *  200 without a body stream is refused (there is no whole-body `text()` fallback). */
 export interface TransportResponse {
   readonly status: number;
-  text(): Promise<string>;
-  readonly body?: ReadableStream<Uint8Array> | null;
+  readonly body: ReadableStream<Uint8Array> | null;
   readonly headers?: { get(name: string): string | null };
 }
 
-/** What the adapter sends. Exactly the shape of `fetch(url, init)`, so under D3 the platform fetch can be passed as is. */
+/** What the adapter sends. Exactly the shape of `fetch(url, init)`, so under D3 the platform fetch can be passed as is.
+ *  `redirect: 'error'` makes the platform fetch reject instead of following a 3xx (see the header). */
 export interface TransportInit {
   readonly method: 'POST';
   readonly headers: Readonly<Record<string, string>>;
   readonly body: string;
   readonly signal: AbortSignal;
+  readonly redirect: 'error';
 }
 
 export type Transport = (url: string, init: TransportInit) => Promise<TransportResponse>;
@@ -166,7 +174,8 @@ export function readResponseBody(httpStatus: number, body: string, latencyMs: nu
   return Object.keys(usage).length > 0 ? { raw, usage } : { raw };
 }
 
-/** Reads at most MAX_RESPONSE_BYTES of an answer; null if it is larger (the rest is not read). */
+/** Reads at most MAX_RESPONSE_BYTES of an answer's body stream; null if it is larger (the rest is not read) or if
+ *  there is no body stream at all. */
 async function readBounded(response: TransportResponse): Promise<string | null> {
   const declared = Number(response.headers?.get('content-length') ?? Number.NaN);
   const stream = response.body;
@@ -174,27 +183,22 @@ async function readBounded(response: TransportResponse): Promise<string | null> 
     await stream?.cancel().catch(() => {});
     return null;
   }
-  if (stream && typeof stream.getReader === 'function') {
-    const reader = stream.getReader();
-    const decoder = new TextDecoder('utf-8', { fatal: false });
-    let bytes = 0;
-    let text = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.byteLength;
-      if (bytes > MAX_RESPONSE_BYTES) {
-        await reader.cancel().catch(() => {});
-        return null;
-      }
-      text += decoder.decode(value, { stream: true });
+  if (!stream || typeof stream.getReader !== 'function') return null;
+  const reader = stream.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  let bytes = 0;
+  let text = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > MAX_RESPONSE_BYTES) {
+      await reader.cancel().catch(() => {});
+      return null;
     }
-    return text + decoder.decode();
+    text += decoder.decode(value, { stream: true });
   }
-  const text = await response.text();
-  // A UTF-8 byte count is never below the string length, so the cheap check comes first.
-  if (text.length > MAX_RESPONSE_BYTES || new TextEncoder().encode(text).length > MAX_RESPONSE_BYTES) return null;
-  return text;
+  return text + decoder.decode();
 }
 
 function checkedBase(endpoint: string | undefined): string {
@@ -249,10 +253,12 @@ export function createGeminiProvider(config: EnabledGeminiConfig, deps: GeminiPr
           headers: { 'content-type': 'application/json', 'x-goog-api-key': config.apiKey.reveal() },
           body: JSON.stringify(buildRequestBody(request, deps)),
           signal: controller.signal,
+          redirect: 'error',
         });
         status = Number.isInteger(response.status) ? response.status : 0;
         if (status !== 200) {
-          // An error status is final whatever its body: nothing in it is read (a 429 stays a 429, however large).
+          // An error status (a 3xx included) is final whatever its body: nothing in it is read (a 429 stays a 429,
+          // however large; a redirect is never followed).
           await response.body?.cancel().catch(() => {});
           return finish(timedOut || controller.signal.aborted ? { kind: 'timeout' } : { kind: 'upstream-error', status }, status);
         }

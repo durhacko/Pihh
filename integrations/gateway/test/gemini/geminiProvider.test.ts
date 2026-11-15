@@ -46,13 +46,20 @@ interface Call { url: string; init: TransportInit }
 /** The request body as sent, read back for assertions. */
 interface SentBody { contents: unknown; systemInstruction: unknown; generationConfig: Record<string, unknown> }
 /** A transport that records every call and answers from `answer`. */
+/** A body stream of `text` in two chunks, as the platform fetch delivers one. */
+function streamOf(text: string): ReadableStream<Uint8Array> {
+  const bytes = new TextEncoder().encode(text);
+  const cut = Math.floor(bytes.length / 2);
+  return new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes.slice(0, cut)); c.enqueue(bytes.slice(cut)); c.close(); } });
+}
+
 function transport(answer: (call: Call, index: number) => Promise<{ status: number; body: string }> | { status: number; body: string }) {
   const calls: Call[] = [];
   const fn: Transport = async (url, init) => {
     const call = { url, init };
     calls.push(call);
     const { status, body } = await answer(call, calls.length - 1);
-    return { status, text: async () => body };
+    return { status, body: streamOf(body) };
   };
   return { fn, calls };
 }
@@ -72,6 +79,7 @@ test('the request: one POST to the model\'s generateContent, key in a header onl
     assert.equal(url, `${GEMINI_REST_BASE}/models/gemini-3.1-flash-lite:generateContent`);
     assert.ok(!url.includes(KEY), 'the key is never in the URL');
     assert.equal(init.method, 'POST');
+    assert.equal(init.redirect, 'error', 'a redirect is never followed: it could forward x-goog-api-key to another host');
     assert.deepEqual(init.headers, { 'content-type': 'application/json', 'x-goog-api-key': KEY });
     const body = JSON.parse(init.body) as SentBody;
     assert.deepEqual(body.contents, [{ role: 'user', parts: [{ text: request.prompt }] }]);
@@ -196,7 +204,7 @@ test('observations carry status, outcome, finish reason and token counts, never 
 });
 
 test('the provider object exposes no key: not as a property, not through JSON or String', () => {
-  const provider = createGeminiProvider(config(), { transport: async () => ({ status: 200, text: async () => '{}' }), schemas: SCHEMAS, now });
+  const provider = createGeminiProvider(config(), { transport: async () => ({ status: 200, body: streamOf('{}') }), schemas: SCHEMAS, now });
   assert.deepEqual(Object.keys(provider).sort(), ['generate', 'model']);
   assert.ok(!JSON.stringify(provider).includes(KEY));
   assert.ok(!String(provider).includes(KEY));
@@ -210,9 +218,9 @@ test('readResponseBody copies exactly the fields mapProviderResponse reads', () 
 
 // ------------------------------------------------------------------ review follow-ups (bounded reads, totality, hygiene)
 
-/** A response whose text() must never be called (the adapter must not read it). */
+/** A response with no body unless one is given (a body stream that must not be read can be passed in). */
 const unreadable = (status: number, extra: Partial<{ headers: { get(n: string): string | null }; body: ReadableStream<Uint8Array> }> = {}) =>
-  ({ status, text: async () => { throw new Error('text() was read'); }, ...extra });
+  ({ status, body: null, ...extra });
 
 test('an error status is final without reading its body: a 429 or 503 stays retryable however large', async () => {
   for (const status of [429, 503, 400]) {
@@ -247,8 +255,25 @@ test('reads are bounded: a declared content-length over the cap is refused unrea
   assert.equal(parsed.kind === 'output' && parsed.text, SPHERE);
 });
 
+test('redirects: a 3xx is an upstream error, unread; a fetch that rejects on redirect is an upstream error of unknown status', async () => {
+  for (const status of [301, 302, 307, 308]) {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } });
+    const outcome = await createGeminiProvider(config(), { transport: async () => unreadable(status, { body, headers: { get: (n: string) => (n === 'location' ? 'https://elsewhere.example/' : null) } }), schemas: SCHEMAS, now }).generate(REQ3D, live());
+    assert.deepEqual(outcome, { kind: 'upstream-error', status });
+    assert.equal(cancelled, true);
+  }
+  // With redirect: 'error' the platform fetch rejects with a TypeError on a 3xx: that is PROVIDER_ERROR, never a retry.
+  const rejecting: Transport = async (_url, init) => { if (init.redirect === 'error') throw new TypeError('fetch failed: unexpected redirect'); return unreadable(200); };
+  assert.deepEqual(await createGeminiProvider(config(), { transport: rejecting, schemas: SCHEMAS, now }).generate(REQ3D, live()), { kind: 'upstream-error', status: 0 });
+});
+
+test('a 200 without a body stream is refused (no whole-body fallback)', async () => {
+  assert.deepEqual(await createGeminiProvider(config(), { transport: async () => unreadable(200), schemas: SCHEMAS, now }).generate(REQ3D, live()), { kind: 'upstream-error', status: 0 });
+});
+
 test('a transport that ignores the abort and answers after the attempt timeout is still a timeout', async () => {
-  const late: Transport = () => new Promise(resolve => setTimeout(() => resolve({ status: 200, text: async () => candidateBody('STOP', [{ text: SPHERE }]) }), 60));
+  const late: Transport = () => new Promise(resolve => setTimeout(() => resolve({ status: 200, body: streamOf(candidateBody('STOP', [{ text: SPHERE }])) }), 60));
   assert.deepEqual(await createGeminiProvider(config(), { transport: late, schemas: SCHEMAS, now }).generate({ ...REQ3D, attemptTimeoutMs: 10 }, live()), { kind: 'timeout' });
 });
 
