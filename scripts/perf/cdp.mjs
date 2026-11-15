@@ -89,7 +89,7 @@ export async function openPage(browser, { width, height }) {
     },
     async key(key) {
       const code = /^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` : /^\d$/.test(key) ? `Digit${key}` : key;
-      const keyCode = key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0;
+      const keyCode = key.length === 1 ? key.toUpperCase().charCodeAt(0) : ({ Escape: 27, Enter: 13, Tab: 9 }[key] ?? 0);
       for (const type of ['keyDown', 'keyUp']) await page.send('Input.dispatchKeyEvent', { type, key, code, windowsVirtualKeyCode: keyCode, text: type === 'keyDown' && key.length === 1 ? key : undefined });
     },
     async click(x, y) {
