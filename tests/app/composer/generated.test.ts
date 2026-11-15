@@ -12,7 +12,7 @@ import type { SceneSpec } from '../../../src/score/generated';
 import createPreviewLayer, { connectPreview, previewLabel } from '../../../src/app/render/layers/PreviewLayer';
 import { generatedFlag } from '../../../src/app/ui/Composer';
 import {
-  createGeneratedSource, fixtureEntries, generatedOptIn, INJECT_BLOCKED, PLACEHOLDER_RECIPE, statusText, type FixtureEntry,
+  createGeneratedSource, fixtureEntries, generatedOptIn, NOT_CONNECTED, PLACEHOLDER_RECIPE, statusText, type FixtureEntry,
 } from '../../../src/app/ui/GeneratedSource';
 import { Store } from '../../../src/app/ui/store';
 import { createFormationClient, type CompileReply, type CompileRequest, type WorkerLike } from '../../../src/app/workers/formationClient';
@@ -62,7 +62,7 @@ describe('opt-in and labels', () => {
     const literals = code.match(/'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`|"(?:[^"\\\n]|\\.)*"/g) ?? [];
     expect(literals.length).toBeGreaterThan(20);
     expect(literals.filter(s => /gemini/i.test(s))).toEqual([]);
-    expect(INJECT_BLOCKED).toBe('needs GF-WP-07 (D2)');
+    expect(NOT_CONNECTED).toBe('Injection is not connected on this page.');
   });
 });
 

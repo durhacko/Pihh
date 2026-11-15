@@ -4,12 +4,15 @@
 // Off by default, twice over:
 // - build time: only a build with VITE_GENERATE_LIVE === '1' (a non-secret flag) offers it;
 // - run time: only with `?p2=generated,live`.
-// Otherwise no instance exists, nothing is ever sent, and the tab says "live Gemini unavailable (D3 not granted)". With
-// a client, the gateway's own answer is reported: the shipped gateway answers 503 PROVIDER_UNAVAILABLE /
-// MODULE_DISABLED, shown as "live Gemini unavailable (gateway: MODULE_DISABLED)". It never presents anything as Gemini
-// output unless the gateway names a Gemini model: the gateway's offline test provider (model `offline-fake`) is always
-// labelled as not Gemini. The gateway sends no CORS headers, so the page must be served from the gateway's origin or
-// through a dev proxy for `/api` (vite.config has none); otherwise every call reads "gateway unreachable".
+// Otherwise no instance exists, nothing is ever sent, and the tab says "live Gemini unavailable (live mode is off on
+// this page)". With a client, the gateway's own answer is reported: a gateway with the module disabled answers 503
+// PROVIDER_UNAVAILABLE / MODULE_DISABLED, shown as "live Gemini unavailable (gateway: MODULE_DISABLED)".
+// Labels (D3 granted, free quota): "live Gemini (<model>)" ONLY for a successful response whose `model` (the gateway's
+// provenance: `provider.model` of the wired provider) is a real Gemini model id, `gemini-<digit>…`. The gateway's
+// offline test provider (`offline-fake`) and any other id read "<model> provider (not Gemini)". The success envelope
+// carries no other provider identity (§10.1), so the model id is the one check. The gateway sends no CORS headers: the
+// page must be served from the gateway's origin or through the narrow dev proxy for /api/health and
+// /api/generate-formation; otherwise every call reads "gateway unreachable".
 //
 // No secret is ever in the bundle: the per-launch gateway token (GATEWAY_REQUIRE_TOKEN) is typed in at run time, held
 // in memory only and sent as `Authorization: Bearer`. Provider keys live only in the gateway's environment.
@@ -19,7 +22,7 @@
 export type LiveMode = 'silhouette2d' | 'scene3d';
 
 /** The honest state when this page offers no live generation at all (no client: the build or URL flag is off). */
-export const D3_UNAVAILABLE = 'live Gemini unavailable (D3 not granted)';
+export const LIVE_OFF = 'live Gemini unavailable (live mode is off on this page)';
 /** The state when the gateway answered that it cannot generate: its own reason, never a guess about why. */
 export const gatewayUnavailable = (reason: string): string => `live Gemini unavailable (gateway: ${reason})`;
 /** The state when the gateway could not be reached at all (down, wrong origin, or the browser's CORS refusal). */
@@ -53,9 +56,10 @@ export interface GenerateClient {
   generate(request: { prompt: string; mode: LiveMode; requestId?: string; token?: string; signal?: AbortSignal }): Promise<GenerateOutcome>;
 }
 
-/** The provider label shown next to a generated scene. Only a model id that starts with `gemini` is called Gemini. */
+/** The provider label shown next to a generated scene. Only a Gemini model id (`gemini-<digit>…`, e.g.
+ *  gemini-3.1-flash-lite) is called Gemini; `gemini`, `geminix` or anything else is not. */
 export function providerLabel(model: string): { provider: string; gemini: boolean } {
-  const gemini = /^gemini[a-z0-9.-]*$/i.test(model);
+  const gemini = /^gemini-\d[a-z0-9.-]*$/i.test(model);
   return gemini ? { provider: `live Gemini (${model})`, gemini } : { provider: `${model} provider (not Gemini)`, gemini };
 }
 
