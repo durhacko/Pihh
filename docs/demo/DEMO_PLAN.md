@@ -56,7 +56,7 @@ Startup time, browser fps, offline pass and reset demonstration: **not measured/
 
 > **Scripted, not yet rehearsed by a person.** The 90-second script ([experience §9](../design/experience-and-demo.md#9-scripted-demo), #27) runs unattended and gives the same result each time in headless tests. It had two headless-browser runs before the #114 retiming and the Encore brain, and none since (see Verification below). No presenter rehearsal is recorded (see below).
 
-**Run it.** Open the production preview, then press **Show** in the dock or **D**. The script resets both worlds to its own seed, sets 1×, turns X-ray and belief colours off, shows the Encore view, and plays, so neither the seed nor `?split=1` in the URL matters. Its captions appear above the dock. A line under each caption shows progress and any problem.
+**Run it.** Open the production preview, then press **Show** in the dock or **D**. The script resets both worlds to its own seed, sets 1×, turns X-ray, belief colours and tethers off, shows the Encore view, and plays, so neither the seed nor `?split=1` in the URL matters. Its captions appear above the dock. A line under each caption shows progress and any problem.
 - **Stop:** press **D** (or **Show**) again. The script stops, and the show resets to seed 101 in the Encore view. The reset discards any event the script had already scheduled, up to 3 s ahead. The show keeps playing.
 - **Run again:** there is no Restart button. Press **D** (or **Show**) to start from the beginning: once after the end, or twice while it runs (stop, then start).
 - **Outside reset:** a reset or seed change from the dock, the keys or the console stops the script.
@@ -87,9 +87,9 @@ The "Encore arm" column was measured headless on `9f78902`: seed 101, the script
 | 12 | 240 | X-ray on | No radio lines: the static brain sends nothing | Sampled heartbeats |
 | 16 | 320 | Switch to split view | Below | Above |
 | 20 | 400 | Regional `KILL` | 20-drone hole in the first E; alive 180 / 200 | Same ids, same tick |
-| 21–48 | 420 | Caption only | The hole stays; nPWC 0.931 | 8 survivors claim vacated slots by 30 s, so part of the hole refills; nPWC 0.931 → 0.972 by 48 s |
+| 23–48 | 460 | X-ray and belief colours off, so the hole and its refill show (X-ray dims the show to 25 %) | The hole stays; nPWC 0.931 | First claim heartbeat at tick 455 and first slot commit at 475; the first vacated slot is occupied at 495 (7 of 20 by 505). nPWC dips to 0.921 at 490 while the claimers leave their own slots, then 0.958 at 505 and 0.972 from 675 (measured with this script's events, recorded in `DemoScript.ts`) |
 | 48 | 963 | Preloaded sphere movement | Re-forms as a sphere, formed from tick 1216 | Same |
-| 61 | 1220 | `JAM_ON`; belief colours; select drone 151 | Jam sphere on the formed cap | The 18 drones inside are deaf by 64 s |
+| 61 | 1220 | `JAM_ON`; X-ray and belief colours on; select drone 151 | Jam sphere on the formed cap | The 18 drones inside are deaf by 64 s |
 | 64 | 1280 | `INJECT_SCORE` (helix) into drone 151, selected again as the injection is sent at 61 s, so a presenter's click cannot change the target; 0.5× | Nothing changes; the static brain ignores injection | 162 of 180 drones adopt within 1 s; none of the 18 inside the jam do |
 | 67 | 1340 | 1× (new movement starts) | Still a sphere | Adopters fly the helix; the cut-off cap keeps the sphere |
 | 73 | 1460 | `JAM_OFF` | Jam sphere gone | All 180 hold the new score within 1 s and join the helix by the clock |
@@ -125,14 +125,14 @@ The brain note in the caption's sub-line follows the brains the live worlds actu
 |---|---|---|
 | Playback/controls misbehave | Reset to the rehearsed seed using tested UI or the console above; reload the production URL if necessary | No repair claim from an unrehearsed reset |
 | A toast or the caption's sub-line says a step "went out at … s, so this run is off-script", or that a step "failed" | Press **D** twice (stop, then start) at 1× and keep the tab in front. Do not quote numbers from that run | Only a run with no such message is the canonical one |
-| The scripted demo stops or misbehaves mid-run | Press **D** to stop; the show resets to seed 101. Then drive similar beats by hand with the keys and the dock (a sequence follows this table) | Hand-driven events land on different ticks and use other radii than the script's 6 m: **K** always destroys 8 m and **J** always jams 12 m. Only the Disrupt popover's own buttons use its radius sliders, so a slider never changes K or J. Say so |
+| The scripted demo stops or misbehaves mid-run | Press **D** to stop; the show resets to seed 101. Then drive similar beats by hand with the keys and the dock (a sequence follows this table) | Hand-driven events land on different ticks. **K** and **J** use the one stored radius each, which the Disrupt sliders show and change: Region radius 6 m by default (the same as the script's kill), Jam radius 12 m by default (the script's jam is 6 m). Say so if yours differ |
 | Split is too slow | Press **Encore** in the dock, or **B** twice (split → static → Encore), to show one world; show both arms' recorded results separately when available. A running demo switches back to split at its 16 s beat, so stop it first (**D**) | Report the actual laptop observation, not fixture fps |
 | Repair or spread does not show in this run | Say what the headless tests and the evaluation show (G1; G4 with the relay test and S5; [RESULTS](../../results/RESULTS.md)) and that this run did not show it; never stage it | Quote only the tests and results, with their limits and costs |
 | WebGL or all live paths fail | Play a labelled offline backup only if it exists; otherwise show source and real headless evidence with limits | No video/screenshots supplied by this drafting increment |
 
 **Hand-driven sequence** for the second fallback row. In split view, click drones in the **Encore pane** (the top one). Picks are answered only there. K and J act around a drone selected in the Encore pane; with a drone selected in the static pane they refuse, with the toast "Faults are centred in the Encore world: select in the Encore pane."
-1. Once the word holds, click a drone in the middle of the first E, then press **K**. With a drone selected, K destroys the 8 m region around it; with none selected, it asks for a click on the centre.
-2. After the sphere forms, click a drone at its top and press **J**. This jams 12 m around it.
+1. Once the word holds, click a drone in the middle of the first E, then press **K**. With a drone selected, K destroys the region around it at the Region radius (6 m by default); with none selected, it asks for a click on the centre.
+2. After the sphere forms, click a drone at its top and press **J**. This jams around it at the Jam radius (12 m by default). Both radii are the Disrupt popover's sliders: changing a slider changes what K and J do.
 3. Press **F** (or **Compose** in the dock) and choose **Double helix**. Under Transmit, press **Pick in stage** and click a drone at the bottom, or type its id. Then press **Inject … into drone N**. The console does the same with `form helix` then `inject --pick`.
 4. Press **J** again to lift the jam.
 

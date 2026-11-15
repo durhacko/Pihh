@@ -121,9 +121,9 @@ HUD, 4 Hz, from each world's `MetricsSample`:
 | 12 | — | X-ray | Dim, sampled real heartbeats |
 | 16 | — | Split | Identical static arm below |
 | 20 | `KILL{ids}`: `idsInSphere` over one letter, about 10% of `n0` | Ghosts | Same hole in both arms |
-| 20–44 | None: drones act | — | Above: claim heartbeats, tethers, hole refilling from its rim, nPWC rising. Below: unchanged |
+| 20–44 | None: drones act | X-ray off | Above: the hole refilling from its rim as neighbours claim its slots, nPWC rising. X-ray is off here because it dims the show, so the hole would not read. Claim heartbeats show only with X-ray on, and tethers only with the tethers lens, which is off by default. Below: unchanged |
 | 44 | Preloaded movement 1 (helix) | Split off | Survivors re-form with no messages |
-| 54 | `JAM_ON`, upper third | Belief colours | Jam sphere, deaf rings; drones keep flying their score |
+| 54 | `JAM_ON`, upper third | X-ray and belief colours on (X-ray back on, off since the repair beat) | Jam sphere, deaf rings; drones keep flying their score |
 | 58 | `INJECT_SCORE` (sphere), one un-jammed drone | Speed 0.5× | New colour spreads along real `SCORE` lines; the jam blocks sends involving drones currently inside it |
 | 58 + `scoreLead` | New movement starts | Speed 1× | Still-isolated drones keep the old score; drones that leave the geometric jam may receive and adopt the new score |
 | 68 | `JAM_OFF` | — | Colour crosses; late adopters join by the clock |
