@@ -7,7 +7,8 @@
 // The last rung of the documented ladder, a lower drone-count preset, needs a new world and therefore a reload with
 // another roster: it is not automatic (see `?n0=`, issue #113).
 //
-// Automatic: below AUTO_FPS_FLOOR rendered fps, step down one level at a time (after a warm-up, with a hold between
+// Automatic, as a safety net for weak (software-GL) machines: only when rendered fps stays below AUTO_FPS_FLOOR for
+// SUSTAIN_WINDOWS consecutive windows (about 4.5 s) does it step down one level (after a warm-up, with a hold between
 // steps), never back up, so a demo does not flicker between levels. `?q=low` forces the lowest level, `?q=high` the
 // highest, `?q=0`..`?q=4` a given level; a forced level never changes.
 
@@ -29,6 +30,8 @@ export const WARMUP_MS = 3000;
 export const HOLD_MS = 2000;
 /** A gap between two frames longer than this (hidden tab, debugger) restarts the window instead of counting. */
 export const GAP_MS = 500;
+/** Step only after this many CONSECUTIVE windows below the floor (about 4.5 s): a brief dip never degrades. */
+export const SUSTAIN_WINDOWS = 3;
 
 export type QualityMode = 'auto' | 'forced';
 export type QualityListener = (level: number) => void;
@@ -53,6 +56,7 @@ export class QualityController {
   private lastFrame = 0;
   private frames = 0;
   private lastChange = -Infinity;
+  private lowWindows = 0;
 
   constructor(initial: { level: number; mode: QualityMode } = { level: 0, mode: 'auto' }) {
     this.level = initial.level;
@@ -76,7 +80,10 @@ export class QualityController {
     this.windowStart = now;
     this.frames = 0;
     if (this.mode !== 'auto' || now - this.started < WARMUP_MS || now - this.lastChange < HOLD_MS) return false;
-    if (this.fps < AUTO_FPS_FLOOR && this.level < LOWEST_QUALITY) {
+    // At or above the floor nothing changes, ever; below it, only a sustained drop steps one level down.
+    this.lowWindows = this.fps < AUTO_FPS_FLOOR ? this.lowWindows + 1 : 0;
+    if (this.lowWindows >= SUSTAIN_WINDOWS && this.level < LOWEST_QUALITY) {
+      this.lowWindows = 0;
       this.set(this.level + 1, now);
       return true;
     }

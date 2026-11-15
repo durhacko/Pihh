@@ -16,17 +16,25 @@ export class WorldView {
   readonly layers: Layer[];
   private resizeObserver: ResizeObserver;
   private unsubscribeQuality: () => void;
-  /** The static pane of a split (main.ts marks it data-arm="static") may render at half rate. */
+  /** Only the static pane of a SPLIT may render at half rate; the caller says so explicitly (options.splitArm). */
   private readonly isStaticPane: boolean;
   private halfRate = false;
   private frameCount = 0;
 
-  constructor(private host: HTMLElement, params: Params, readonly rig: CameraRig, quality: QualityController = sharedQuality()) {
+  /**
+   * options.splitArm: which arm this view shows when it is one pane of a split (omit for a single view). Only
+   * splitArm 'static' takes the half-rate quality rung. options.quality: test seam; the app uses the shared controller.
+   */
+  constructor(
+    private host: HTMLElement, params: Params, readonly rig: CameraRig,
+    options: { splitArm?: 'encore' | 'static'; quality?: QualityController } = {},
+  ) {
+    const quality = options.quality ?? sharedQuality();
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.domElement.setAttribute('aria-label', 'Three dimensional drone airspace');
     host.append(this.renderer.domElement);
-    this.isStaticPane = host.dataset.arm === 'static';
+    this.isStaticPane = options.splitArm === 'static';
     this.layers = createLayers();
     for (const layer of this.layers) layer.init({ scene: this.scene, camera: rig.camera, params });
     this.resizeObserver = new ResizeObserver(() => this.resize());

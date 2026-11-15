@@ -7,7 +7,7 @@ import type { RadioEvent, WorldSnapshot } from '../../src/contracts';
 import { makeFakeSnapshot } from '../fixtures/fakeSnapshot';
 import { RadioTrace } from '../../src/app/render/colourModes/radioTrace';
 import {
-  AUTO_FPS_FLOOR, FPS_WINDOW_MS, HOLD_MS, LOWEST_QUALITY, QUALITY_LADDER, QualityController, WARMUP_MS, parseQuality,
+  AUTO_FPS_FLOOR, FPS_WINDOW_MS, HOLD_MS, LOWEST_QUALITY, QUALITY_LADDER, QualityController, SUSTAIN_WINDOWS, WARMUP_MS, parseQuality,
 } from '../../src/app/render/quality';
 
 /** Feeds frames at `fps` for `ms` starting at `t`; returns the time after the last frame. */
@@ -34,11 +34,23 @@ describe('?q= parsing', () => {
 });
 
 describe('automatic stepping', () => {
-  it('stays at full quality at 60 fps', () => {
+  it('stays at full quality at 60 fps (and at 180 fps: nothing changes at high frame rates)', () => {
+    for (const fps of [60, 180]) {
+      const q = new QualityController();
+      run(q, 0, fps, 20_000);
+      expect(q.level).toBe(0);
+      expect(q.fps).toBeGreaterThan(fps * 0.9);
+    }
+  });
+
+  it('a brief dip (fewer than SUSTAIN_WINDOWS slow windows) never steps down', () => {
     const q = new QualityController();
-    run(q, 0, 60, 20_000);
+    let t = run(q, 0, 60, WARMUP_MS + 2000);
+    for (let i = 0; i < 5; i++) {
+      t = run(q, t, 15, (SUSTAIN_WINDOWS - 1) * FPS_WINDOW_MS);   // two slow windows...
+      t = run(q, t, 60, FPS_WINDOW_MS * 2);                         // ...then recovered
+    }
     expect(q.level).toBe(0);
-    expect(q.fps).toBeGreaterThan(55);
   });
 
   it('below the floor: waits out the warm-up, then steps one level at a time, HOLD_MS apart, down to the lowest only', () => {
@@ -63,7 +75,7 @@ describe('automatic stepping', () => {
 
   it('stops stepping once the frame rate is back above the floor', () => {
     const q = new QualityController();
-    const t = run(q, 0, 20, WARMUP_MS + FPS_WINDOW_MS + 10);
+    const t = run(q, 0, 20, WARMUP_MS + SUSTAIN_WINDOWS * FPS_WINDOW_MS + 10);
     const reached = q.level;
     expect(reached).toBeGreaterThan(0);
     run(q, t, 40, 30_000);
