@@ -1,5 +1,5 @@
 // tests/app/quality.test.ts
-// The render quality ladder (src/app/render/quality.ts): ?q= parsing, automatic step-down below 30 fps (warm-up,
+// The render quality ladder (src/app/render/quality.ts): ?q= parsing, automatic step-down below 27 fps (warm-up,
 // hold, one level at a time, never back up, gaps ignored), forced levels, and the plain-heartbeat trim in the
 // radio trace (claims and SCOREs always drawn; the drawn/observed counts stay honest).
 import { describe, expect, it } from 'vitest';
@@ -125,7 +125,7 @@ describe('forced levels', () => {
     off();
     run(q, 0, 10, 60_000);
     expect(seen).toEqual([0]);
-    expect(q.describe()).toMatch(/^Quality 4\/4 · static view at half rate in split · auto below 30 fps$/);
+    expect(q.describe()).toMatch(/^Quality 4\/4 · static view at half rate in split · auto below 27 fps$/);
   });
 });
 
@@ -175,5 +175,50 @@ describe('the level in the readout (#113 shell, Readout.ts)', () => {
     expect(readoutItems(base).some(i => i.key === 'quality')).toBe(false);
     const item = readoutItems({ ...base, quality: q(2) }).find(i => i.key === 'quality');
     expect(item).toEqual({ key: 'quality', label: 'Q2/4', value: 'halos off', muted: true, title: 'Quality 2/4' });
+  });
+});
+
+describe('#126 review: a 30 Hz cap is not a slow machine; a gap forgets earlier slow windows', () => {
+  /** Frames at a fixed period with a deterministic +-jitter (ms), from t for ms. */
+  function runPeriod(q: QualityController, t: number, periodMs: number, ms: number, jitter = 0): number {
+    let i = 0;
+    for (let now = t; now < t + ms; now += periodMs) q.frame(now + (jitter ? ((i++ * 7919) % 3) - 1 : 0) * jitter);
+    return t + ms;
+  }
+
+  it('the floor sits clearly below 30', () => {
+    expect(AUTO_FPS_FLOOR).toBe(27);
+  });
+
+  it('29.97 fps (every-second vsync on a 59.94 Hz panel) never steps down', () => {
+    const q = new QualityController();
+    runPeriod(q, 0, 1000 / 29.97, 120_000);
+    expect(q.level).toBe(0);
+  });
+
+  it('30 Hz with +-1 ms jitter (Energy Saver, Low Power, 30 Hz panel) never steps down', () => {
+    const q = new QualityController();
+    runPeriod(q, 0, 1000 / 30, 120_000, 1);
+    expect(q.level).toBe(0);
+    expect(q.fps).toBeGreaterThan(AUTO_FPS_FLOOR);
+  });
+
+  it('20 fps still steps down, to the lowest level', () => {
+    const q = new QualityController();
+    run(q, 0, 20, 120_000);
+    expect(q.level).toBe(LOWEST_QUALITY);
+  });
+
+  it('slow windows before a gap longer than GAP_MS do not count after it', () => {
+    // 15 fps from t = 0: windows counted at about 3.1 s and 4.6 s (two slow windows, one short of a step), then a gap,
+    // then ONE more slow window. Counting across the gap would make three and step; it must not.
+    const q = new QualityController();
+    let t = run(q, 0, 15, 5000);
+    t += GAP_MS + 1000;
+    run(q, t, 15, FPS_WINDOW_MS + 100);
+    expect(q.level).toBe(0);
+    // ...and a sustained slow stretch after the gap still steps as usual.
+    run(q, t + FPS_WINDOW_MS + 100, 15, SUSTAIN_WINDOWS * FPS_WINDOW_MS + 200);
+    expect(q.level).toBe(1);
   });
 });

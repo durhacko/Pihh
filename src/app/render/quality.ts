@@ -20,8 +20,12 @@ export const QUALITY_LADDER = [
   'static view at half rate in split',
 ] as const;
 export const LOWEST_QUALITY = QUALITY_LADDER.length - 1;
-/** Step down when the measured rendered frame rate is below this. */
-export const AUTO_FPS_FLOOR = 30;
+/**
+ * Step down when the measured rendered frame rate is below this. Deliberately under 30, not at it: a browser capped
+ * at 30 Hz (Chrome Energy Saver on battery, Safari Low Power, a 30 Hz panel, or every-second vsync on a 59.94 Hz
+ * panel = 29.97 fps) is a capable machine and must never be degraded (#126 review).
+ */
+export const AUTO_FPS_FLOOR = 27;
 /** Rendered fps is measured over windows of this length. */
 export const FPS_WINDOW_MS = 1500;
 /** Ignore start-up (shader compilation, first layout) before judging. */
@@ -74,6 +78,7 @@ export class QualityController {
       this.windowStart = now;
       this.lastFrame = now;
       this.frames = 0;
+      this.lowWindows = 0;   // slow windows from before a gap must not count after it (#126 review)
       return false;
     }
     this.lastFrame = now;
