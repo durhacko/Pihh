@@ -121,11 +121,13 @@ function integrityOf(rows: RunRows, recovery: RecoveryState): string[] {
   return out;
 }
 
-/** Verification on the metrics route (§2.1). The fake source carries no Tiger verification: provenance says so. */
-function metricsVerification(run: StoredRun): Provenance['verification'] {
-  if (run.verification === 'mismatch') return 'mismatch';
-  if (run.verification === 'ok') return run.telemetryState === 'archived' ? 'verified-without-series' : 'verified';
-  return 'not-checked';
+/**
+ * Verification on the metrics route (§2.1). That route's 'verified' needs the per-read digest recomputation, which
+ * this build does not do yet, so it never says 'verified' (or 'verified-without-series'): a stored mismatch stays
+ * 'mismatch' (a known failure is never hidden), and everything else is 'not-checked' until recomputation exists.
+ */
+export function metricsVerification(run: StoredRun): Provenance['verification'] {
+  return run.verification === 'mismatch' ? 'mismatch' : 'not-checked';
 }
 
 export function runMetrics(run: StoredRun, rows: RunRows, q: MetricsQuery, kind: ReadSourceKind): RunMetricsResponse {

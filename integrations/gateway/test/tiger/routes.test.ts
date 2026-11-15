@@ -13,6 +13,7 @@ import type { StoredRunRow, TigerReader, VerificationRow } from '../../src/tiger
 import { createModule, createTigerModule, OFFLINE_FIXTURE_ENV } from '../../src/tiger/module.ts';
 import { readSourceFrom, type RunReadSource } from '../../src/tiger/services/source.ts';
 import { listRuns, parseListQuery } from '../../src/tiger/services/runs.ts';
+import { metricsVerification, parseMetricsQuery, runMetrics } from '../../src/tiger/services/metrics.ts';
 import { createFakeRepository } from '../../src/tiger/fakeRepository.ts';
 import { importFiles, operatorDt, type ArtifactFile } from '../../src/tiger/importer.ts';
 import type { ImportManifestV1 } from '../../../../src/telemetry/index.ts';
@@ -44,7 +45,8 @@ function loadFixtures(): Fixture[] {
 const FIXTURES = loadFixtures();
 
 /** A minimal in-memory TigerReader over the fixtures (the TIG-04 fake repository will replace it). */
-function reader(fixtures: Fixture[], over: { archived?: string[]; verifications?: Record<string, VerificationRow['outcome']> } = {}): TigerReader {
+/** `verifications`: per run, the latest row's outcome and, optionally, digests that differ from the run's. */
+function reader(fixtures: Fixture[], over: { archived?: string[]; verifications?: Record<string, VerificationRow['outcome'] | { outcome: VerificationRow['outcome']; wrongDigest: 'series' | 'events' | 'summary' }> } = {}): TigerReader {
   const byId = new Map(fixtures.map(f => [f.stored.run_id, f]));
   const state = (f: Fixture): StoredRunRow => ({ ...f.stored, telemetry_state: over.archived?.includes(f.stored.run_id) ? 'archived' : 'present' });
   return {
@@ -55,8 +57,14 @@ function reader(fixtures: Fixture[], over: { archived?: string[]; verifications?
     },
     async readBack(runId) { const f = byId.get(runId); return f ? { run: state(f), rows: structuredClone(f.rows) } : null; },
     async verifications(runId) {
-      const outcome = over.verifications?.[runId];
-      return outcome ? [{ verificationId: 1, runId, verifiedAt: 'x', verifierVersion: 't', digests: { seriesDigest: '', eventsDigest: '', summaryDigest: '' }, outcome }] : [];
+      const spec = over.verifications?.[runId];
+      const f = byId.get(runId);
+      if (spec === undefined || f === undefined) return [];
+      const { outcome, wrongDigest } = typeof spec === 'string' ? { outcome: spec, wrongDigest: null } : spec;
+      // The run's own stored digests, as a real verification row records them, unless a test asks for one to differ.
+      const digests = { seriesDigest: f.stored.series_digest, eventsDigest: f.stored.events_digest, summaryDigest: f.stored.summary_digest };
+      if (wrongDigest !== null) digests[`${wrongDigest}Digest`] = '0'.repeat(64);
+      return [{ verificationId: 1, runId, verifiedAt: 'x', verifierVersion: 't', digests, outcome }];
     },
     async conflicts() { return []; },
   };
@@ -259,15 +267,34 @@ test('fed by the TIG-04 importer: results/ -> importFiles -> fake repository -> 
   }
 });
 
-test('a Tiger-kind source maps verification as Q17 says (list: verified-at-import; metrics: verified / mismatch / not-checked)', async () => {
-  const [a, b, c] = FIXTURES.map(f => f.stored.run_id);
-  const tiger = readSourceFrom(reader(FIXTURES, { verifications: { [a!]: 'verified', [b!]: 'mismatch' } }), 'tiger');
+test('a Tiger-kind source, list route: "ok" only on Q17\'s full condition (latest verified AND all three digests equal the run\'s)', async () => {
+  const [a, b, c, d, e, f] = FIXTURES.map(x => x.stored.run_id);
+  const tiger = readSourceFrom(reader(FIXTURES, { verifications: {
+    [a!]: 'verified',                                            // verified, digests equal: the only 'ok'
+    [b!]: 'mismatch',                                            // a mismatch row
+    [d!]: { outcome: 'verified', wrongDigest: 'series' },        // 'verified' row, but a digest differs from the run's
+    [e!]: { outcome: 'verified', wrongDigest: 'events' },
+    [f!]: { outcome: 'verified', wrongDigest: 'summary' },
+  } }), 'tiger');
   const list = await tiger.listRuns();
   const v = (id: string) => list.find(r => r.run.run_id === id)!.verification;
-  assert.deepEqual([v(a!), v(b!), v(c!)], ['ok', 'mismatch', null]);
+  assert.deepEqual([v(a!), v(b!), v(c!), v(d!), v(e!), v(f!)], ['ok', 'mismatch', null, 'mismatch', 'mismatch', 'mismatch']);
   const items = listRuns(list, parseListQuery({ limit: '200' }), 'tiger').items;
   const byId = (id: string) => items.find(m => m.runId === id)!.provenance;
   assert.deepEqual([byId(a!).verification, byId(a!).verified, byId(a!).source], ['verified-at-import', true, 'tiger']);
-  assert.deepEqual([byId(b!).verification, byId(b!).verified], ['mismatch', false]);
+  for (const id of [b!, d!, e!, f!]) assert.deepEqual([byId(id).verification, byId(id).verified], ['mismatch', false], id);
   assert.deepEqual([byId(c!).verification, byId(c!).verified], ['not-checked', false]);
+});
+
+test('a Tiger-kind source, metrics route: never "verified" until per-read recomputation exists; a stored mismatch stays "mismatch"', async () => {
+  const [a, b, c] = FIXTURES.map(x => x.stored.run_id);
+  const tiger = readSourceFrom(reader(FIXTURES, { archived: [c!], verifications: { [a!]: 'verified', [b!]: 'mismatch', [c!]: 'verified' } }), 'tiger');
+  const prov = async (id: string) => {
+    const run = (await tiger.getRun(id))!;
+    return runMetrics(run, run.rows!, parseMetricsQuery({}), 'tiger').run.provenance;
+  };
+  assert.deepEqual([(await prov(a!)).verification, (await prov(a!)).verified], ['not-checked', false]);   // stored 'ok', not re-read
+  assert.deepEqual([(await prov(b!)).verification, (await prov(b!)).verified], ['mismatch', false]);
+  assert.deepEqual([(await prov(c!)).verification, (await prov(c!)).verified], ['not-checked', false]);   // archived + ok: not 'verified-without-series'
+  for (const run of await tiger.listRuns()) assert.notEqual(metricsVerification(run), 'verified');
 });
