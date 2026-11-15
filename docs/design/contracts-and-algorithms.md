@@ -509,6 +509,34 @@ pacedSlotPos(score, tick, slot, n0, params):
 
 The point reaches the slot 3 s before `holdStart` (the settle allowance of the authoring formula, section 6), so the formation is on its slots when the hold starts. Every drone of a formation moves its point in step, so crossing traffic meets at transit speeds the sidestep can handle, not at `vMax`. Movement 0 is paced from the launch grid only when it starts at or before tick 0; a later movement 0 is in practice the current movement that `composeNext` carries into an injected score, whose previous formation that score no longer holds, so it is flown unpaced. In S0 (static) this cut collisions per run from 27 to 7 at n0 = 100, 60 to 14 at n0 = 200 and 92 to 30 at n0 = 300 (`research/experiments/80-collisions/` on the spike branch). The paced point is used **only** for steering: the target a brain reports (`Belief.target`), its at-slot and settled checks, and vacancy sensing all use the real slot position. A brain whose slot changes (healing) paces against its new slot index, which in a hold is the slot itself.
 
+**Adoption pacing (MUST, Encore; [contract] #123, approved by the orchestrator as the contract owner's delegate).** `pacedSlotPos` is a function of the score and the clock, so a drone that adopts a score after that score's current movement has begun would find its paced point already far along and fly at it at close to `vMax`. In S5 this caused about 80–85% of Encore's collisions (#123: the group cut off by the partition adopts at tick ≈ 704, 61% of the way through BRAVO's paced flight). Therefore, when a brain adopts a newer score at tick `t` and `midTransition(m.startTick, m.holdStart, t)` holds for the adopted score's current movement `m` (`max(m.startTick, 0) < t < m.holdStart − PACE_SETTLE_TICKS`), it steers at a per-drone anchored point instead of `pacedSlotPos` (`src/agent/steer.ts`):
+
+```text
+anchorPace(m, slot, t, pos, holdStart, minTicks):   from = pos (my position at t);  begin = t
+  end = max(holdStart - PACE_SETTLE_TICKS, t + minTicks)
+anchoredPos(tick) = from + (to - from) * clamp((tick - begin) / (end - begin), 0, 1)     # to = my slot of m
+minTicks on adoption:     adoptionSpan(m) = m.holdStart - PACE_SETTLE_TICKS - max(m.startTick, 0)   # the movement's whole paced span
+minTicks on a slot change: flightTicks(pos, to) = ceil(|to - pos| / (0.5 · vMax) / DT)              # the authoring speed
+```
+
+On adoption the anchored segment lasts the movement's whole paced span, so the drones that adopt together (the group that joins when a partition heals) move in step, as a normal transition does, and arrive after `holdStart`. Measured on S5, seeds 1–5 (medians, #123):
+- Encore collisions fall from 103 to 51.
+- Adoption is unchanged: `adoptP50` 0.8 s, `adoptMax` 15.4 s, `tVersion` 0.4 s, `unadopted` 0.
+- **The cost:**
+  - the late group lands up to about 9 s after `holdStart`;
+  - meanwhile settled neighbours that cannot hear its far-away holders sense those slots empty and claim them; the claims revert when the holders arrive;
+  - so `slotChanges` rises from 6 to 24, `dupSlotSec` from 0 to 7.5 and `npwcDeficitSec` from 0 to 4.1 s (`dupSlotsEnd` stays 0).
+
+Ends that arrive in time were measured and barely help, because the late group then crosses the formed formation fast:
+
+| End of the segment | Collisions | Costs |
+|---|---:|---|
+| per-drone distance floor | 99 | |
+| `holdStart − PACE_SETTLE_TICKS` | 96 | |
+| `holdStart` | 88 | deficit 0.1 s, no extra slot changes |
+
+The choice of `minTicks` on adoption is that trade-off. The anchor is brain-local state (`EncoreState.pace`, absent otherwise). It ends, and the brain returns to `pacedSlotPos`, when its point reaches the slot (`tick ≥ end`) or the movement changes. If the slot changes (a heal) while it is active, the brain re-anchors from its position at that tick with the same formula and `minTicks = flightTicks`, so a heal is not slowed to a whole transition. A brain that adopts before the movement starts, or in its hold, keeps `pacedSlotPos` exactly. As above, the anchored point is used only for steering. The static brain never adopts a score, so it is unaffected. In S0–S3 no score is adopted, so their runs are unchanged.
+
 SHOULD (`transitLanes`): `steer` takes no id, so the lane offset is a separate function, `steerTarget(id, pos, target, params)`, which returns the point to aim at (the target itself when `transitLanes` is off). While more than 3 m from the target, aim at `target + [0, 0, ((id % 3) - 1) * 2]` so crossing traffic is spread over three depth layers, then go straight in. With paced targets, the lane is judged against the **real slot** (the drone trails its paced point by less than 3 m) and the offset is added to the paced point. Measured in #80, it does not reduce collisions; it stays off.
 
 Collisions (`d < dCollide`) and near-misses (`d < dNear`) are **counted from true positions by the world and have no physical effect**. A pair is counted once each time it enters the distance. At `vMax` two drones can close 0.8 m in one tick, so end-of-tick sampling can miss a fast pass: counts are lower bounds unless the world uses the closest approach within the tick (SHOULD). We never claim collision-freedom; we report the counts. This is a simulated proof of concept, not flight-control software.

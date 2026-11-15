@@ -72,7 +72,7 @@ A pure builder in `src/cli/scenarios.ts` (the world may not import `src/score`, 
 | S2 regional kill | `KILL` 400: the 20 ids whose slots are nearest slot `c`, `c` uniform in `[0, n0)` |
 | S3 radio cut, no kills | `PARTITION_ON` 400 `P`; `PARTITION_OFF` 1000; `JAM_ON` 1300 centre `[0, 30, 0]` radius 12; `JAM_OFF` 1600 |
 | S4 partition plus failures | `PARTITION_ON` 300 `P`; `KILL` 400 as S2, `c` drawn from slots within 5 m of `P`; `PARTITION_OFF` 700 |
-| S5 inject, split, reconnect | `PARTITION_ON` 300 `P`; `INJECT_SCORE` 400 into `d` (lowest id whose slot has `x < −10`) with `composeNext(EVAL, 400, text BRAVO, d, n0, params)`, so the new movement starts at `400 + scoreLead`; `PARTITION_OFF` 700 |
+| S5 inject, split, reconnect | `PARTITION_ON` 300 `P`; `INJECT_SCORE` 400 into `d` (lowest id whose slot has `x < −10`) with `composeNext(EVAL, 400, text BRAVO, d, n0, params)`, so the new movement starts at `400 + scoreLead`; `PARTITION_OFF` 700. The group that adopts after `PARTITION_OFF` does so mid-transition and flies with adoption pacing (contract §10, #123); S5 records made before #123 (`results/` at 571c8e4) predate it |
 
 Win rule on `npwcEnd`, paired by seed: win if Δ (Encore − static) `> +0.02`, loss if `< −0.02`, else tie. nPWC cannot see *where* holes are, so the claim about regional kills is carried by `sfMaxEndA` (paired Δ in metres), not by nPWC.
 
