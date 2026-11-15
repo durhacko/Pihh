@@ -235,7 +235,7 @@ Everything above this line is the unedited output of `npm run eval -- --report r
 
 - **Commit:** `0b2f8f3c7c57f1f3d34adf99a1748ab20baae973` (`main`, CI green), the evidence freeze. Like the previous freeze at `571c8e4`, it includes #96 (paced targets), #105 (score gossip), #107 (Encore brain in the app), #116 (Encore arm in the CLI), #118, #119 and #120. Since `571c8e4` the simulation core has gained:
   - #82 (sensed drones passed in geometric order, issue #64);
-  - #115 (a faster Encore step and observer; its PR reports identical behaviour, but see Superseded);
+  - #115 (a faster Encore step and observer; its PR reports identical behaviour);
   - #156 and #163 (SpatialGrid fixes).
 
   The CLI has gained #153 (seed checks).
@@ -251,7 +251,7 @@ Everything above this line is the unedited output of `npm run eval -- --report r
   - 9 of the 50 records are identical apart from `git`.
   - 14 differ in `stateHash`. Most likely #82 caused this, by changing the order in which sensed drones are passed. Its PR says seeded runs then differ in the last bits, and #156 and #163 report no `stateHash` change.
   - 38 differ in the last float digits of `series[].sfMean` or `sfMax`; the largest relative difference is 3e-14.
-    - 11 of the 38 also differ in `stateHash`. The other 27 have an unchanged `stateHash`, so their world is the same and the noise comes from the observer, which #115 rewrote.
+    - 11 of the 38 also differ in `stateHash`. The other 27 keep their `stateHash`, which hashes only the final state: #82's last-bit trajectory changes settle back to an identical end state (checked on S0 static seed 1 in the review of #190: with #82 reverted, the run reproduces the `571c8e4` record bit for bit).
     - The noise reaches `summary.sfMeanEnd` in 3 S5 Encore records.
   - No other field differs, and the generated tables above are identical to the old ones apart from the Records/git line.
 

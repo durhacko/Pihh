@@ -137,8 +137,9 @@ Drafted by a one-off script (`notes.cjs`, not committed) from 80 records (git 0b
 
 ### 2. Collisions in both arms
 
+- Not run at n0 = 100: S0, S3, S4, S5. There is no null run, so the collision floor at this n0 is not measured (n0 200's 14 does not transfer); counts are lower bounds sampled at 20 Hz (§8).
 - S1, n0 100: collisions median 7 static vs 8 Encore (range 7–10); Encore higher on 12/20 seeds. Source: `summary.collisions`, `S1_n100_static_s{1..20}.json` / encore.
-- S2, n0 100: collisions median 7 static vs 8 Encore (range 7–12); Encore higher on 16/20 seeds. Source: `summary.collisions`, `S2_n100_static_s{1..20}.json` / encore.
+- S2, n0 100: collisions median 7 static vs 8 Encore (range 7–12); Encore higher on 16/20 seeds (18 distinct kill sets). Source: `summary.collisions`, `S2_n100_static_s{1..20}.json` / encore.
 
 ### 3. Worst recoveries
 
@@ -146,7 +147,7 @@ Drafted by a one-off script (`notes.cjs`, not committed) from 80 records (git 0b
 
 ### 4. Regional kills: quote `sfMaxEndA`, not nPWC alone
 
-- S2, n0 100: the largest gap during the kill's hold (`sfMaxEndA`) has median 6.12 m for static against 2.12 m for Encore (median paired Δ -3.58 m; Encore smaller on 20/20 seeds; the smallest improvement is 2.27 m). This is the geometric evidence for the regional claim. Source: `summary.sfMaxEndA` in `S2_n100_static_s{1..20}.json` / encore.
+- S2, n0 100: the largest gap during the kill's hold (`sfMaxEndA`) has median 6.12 m for static against 2.12 m for Encore (median paired Δ -3.58 m; Encore smaller on 20/20 seeds, 18 distinct kill sets; the smallest improvement is 2.27 m). This is the geometric evidence for the regional claim. Source: `summary.sfMaxEndA` in `S2_n100_static_s{1..20}.json` / encore.
 - Wording: "In simulation, n0 = 100, paired seeds: during the hold in which the kill happened, the largest gap in the formation was X m for Encore against Y m for static (median). nPWC, priority-weighted by our own slot order: …". Never quote nPWC without `coverage`, `sfMean` and `sfMax` beside it.
 
 ### 5. One-off values worth stating
