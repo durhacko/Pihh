@@ -76,7 +76,7 @@ export interface X3Result {
   popsAfterHeal: number; commitsDuringPartition: number; structuralOk: boolean;
   /** Per drone: the first tick from which it stays on the winning version (null if it never does). */
   switchTick: (number | null)[];
-  /** Which side of plane P each drone was on at PARTITION_ON (0 = the BRAVO side, x < 0). */
+  /** Each drone's partitionSide at PARTITION_ON. runX3 asserts the two injection targets are on opposite sides. */
   side: (0 | 1 | null)[];
   invariants: InvariantReport | null;
 }
@@ -120,6 +120,11 @@ export function runX3(seed: number, n0: number, arm: Arm): X3Result {
       },
     },
   );
+  // Guard on the scenario design: X3 is only X3 if the two injections land on opposite sides of the partition.
+  const sa = side[x3.targets.a], sb = side[x3.targets.b];
+  if (sa === null || sb === null || sa === sb) {
+    throw new Error(`${x3.label} n0=${n0}: injection targets ${x3.targets.a} and ${x3.targets.b} are not on opposite partition sides at PARTITION_ON (${sa}, ${sb})`);
+  }
   const end = last as WorldSnapshot | null;
   const liveAtEnd = end ? end.drones.filter((d) => d.alive) : [];
   // Losing side: the group whose injected score lost (the side of the earlier injection's target).
@@ -146,11 +151,14 @@ export function runX3(seed: number, n0: number, arm: Arm): X3Result {
   };
 }
 
+/** Seconds for display: two decimals (ticks are 0.05 s), so float noise such as 0.30000000000000004 never prints. */
+const sec = (v: number | null): string => (v === null ? 'null' : v.toFixed(2));
+
 /** One table row, honest labels: exploratory X3, checked properties on this run, not proofs. */
 export function formatX3Row(r: X3Result): string {
   const conv = r.invariants?.counts['INV-CONVERGE'] ?? null;
   return [`${r.label} ${r.arm} n0=${r.n0}`, `winner ${r.winner}`, `end ${r.liveEndOnWinner}/${r.liveEnd}`,
-    `tVersion ${r.tVersion}`, `tLoserSwitch ${r.tLoserSwitch}`, `splitSec ${r.splitSec}`, `slotChanges ${r.slotChanges}`,
+    `tVersion ${sec(r.tVersion)}`, `tLoserSwitch ${sec(r.tLoserSwitch)}`, `splitSec ${sec(r.splitSec)}`, `slotChanges ${r.slotChanges}`,
     `dupOwnSec ${r.dupOwnSec.toFixed(2)}`, `oscillations ${r.oscillations} (${r.oscillationDrones} drones)`,
     `pops after heal ${r.popsAfterHeal} <= commits in partition ${r.commitsDuringPartition}: ${r.structuralOk}`,
     `collisions ${r.collisions}`, `INV-CONVERGE ${conv === null ? 'n/a' : conv === 0 ? 'holds' : `${conv} violation(s)`}`].join(' | ');
@@ -168,10 +176,13 @@ function parseSeeds(spec: string): number[] {
 export function main(argv: readonly string[]): void {
   const get = (flag: string, fallback: string) => { const i = argv.indexOf(flag); return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] as string : fallback; };
   const seeds = parseSeeds(get('--seeds', '101-105'));
-  const n0 = Number(get('--n0', '200'));
-  const arms = get('--arm', 'encore,static').split(',') as Arm[];
+  const n0Text = get('--n0', '200');
+  if (!/^[1-9][0-9]{0,3}$/.test(n0Text)) throw new Error('--n0 takes an integer 1..9999');
+  const n0 = Number(n0Text);
+  const arms = get('--arm', 'encore,static').split(',');
+  for (const arm of arms) if (arm !== 'encore' && arm !== 'static') throw new Error(`--arm takes encore, static or both comma-separated, not ${JSON.stringify(arm)}`);
   console.log('X3 (P2-WP-10), EXPLORATORY: checked properties on these runs, not proofs. X3 is S5-shaped: state its collision cost.');
-  for (const seed of seeds) for (const arm of arms) console.log(formatX3Row(runX3(seed, n0, arm)));
+  for (const seed of seeds) for (const arm of arms as Arm[]) console.log(formatX3Row(runX3(seed, n0, arm)));
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv.slice(2));

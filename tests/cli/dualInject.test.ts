@@ -12,7 +12,7 @@ describe('X3 event builder (§6.1)', () => {
   for (const n0 of [40, 200]) {
     it(`n0 ${n0}: targets on opposite sides of plane P, ticks ordered, two distinct versions, the later one wins`, () => {
       const params = makeParams(n0);
-      const x3 = buildX3(1, params);
+      const x3 = buildX3(101, params);
       const slots = expandRecipe(RECIPE_A, n0, params).slots.map((s) => s.pos);
       // The lowest id with A-slot x < -10, and the lowest with x > +10 (plane P is x = 0, normal +x).
       expect(slots[x3.targets.a]![0]).toBeLessThan(-X3_X_SPLIT);
@@ -56,20 +56,22 @@ describe('X3 event builder (§6.1)', () => {
   });
 });
 
-describe.runIf(WIDE)('P2_WIDE: P2-T14 on X3, n0 40, one seed, Encore (and static for the capability row)', () => {
-  it('every live drone ends on the later issuedTick; INV-CONVERGE holds; churn within the structural bound; deterministic', () => {
-    const r = runX3(1, 40, 'encore');
+// Not P2-T14: P2-T14 runs the eval seeds 1-5 against a pre-registered cap (PHASE2_EVALUATION §6.1, §11), which waits
+// for the docs PR. This run uses a DEV seed only, so the eval seeds stay untouched until then.
+describe.runIf(WIDE)('P2_WIDE: X3 integration (n0 40, dev seed 101)', () => {
+  it('Encore: every live drone ends on the later issuedTick; INV-CONVERGE holds; structural churn bound holds; deterministic; static never adopts', () => {
+    const r = runX3(101, 40, 'encore');
     console.log(formatX3Row(r));
-    expect(r.winner).toBe(`${X3_TICKS.INJECT_B}:${buildX3(1, makeParams(40)).targets.b}`);
+    expect(r.winner).toBe(`${X3_TICKS.INJECT_B}:${buildX3(101, makeParams(40)).targets.b}`);
     expect(r.liveEndOnWinner).toBe(r.liveEnd);
     expect(r.liveEnd).toBeGreaterThan(0);
     expect(r.invariants?.checked).toContain('INV-CONVERGE');
     expect(r.invariants?.counts['INV-CONVERGE']).toBe(0);
     expect(r.structuralOk).toBe(true);
     if (X3_SLOT_CHANGES_CAP !== null) expect(r.slotChanges ?? Infinity).toBeLessThanOrEqual(X3_SLOT_CHANGES_CAP);
-    expect(runX3(1, 40, 'encore').stateHash).toBe(r.stateHash);
+    expect(runX3(101, 40, 'encore').stateHash).toBe(r.stateHash);
     // Static ignores injection by design (capability row, not a win): it never adopts either version.
-    const s = runX3(1, 40, 'static');
+    const s = runX3(101, 40, 'static');
     console.log(formatX3Row(s));
     expect(s.liveEndOnWinner).toBe(0);
   }, 600_000);
