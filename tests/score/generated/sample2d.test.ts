@@ -9,7 +9,7 @@ import {
   BOUNDARY_STEP_DIVISOR, DENSE_TARGET, INTERIOR_MIN,
   type Sample2DResult, type Candidate2D,
 } from '../../../src/score/generated/sample2d';
-import { buildRegion2D, rasterise, checkConnectivity, type Mask2D, type Pt2, type Region2D } from '../../../src/score/generated/shapes2d';
+import { buildRegion2D, rasterise, checkConnectivity, cellCentre, type Mask2D, type Pt2, type Region2D } from '../../../src/score/generated/shapes2d';
 import type { SceneSpec2D, Shape2D, Geometry2D, ColourSpec } from '../../../src/score/generated/types';
 import { seededStream } from '../../../src/score/generated/prng';
 import { normaliseScene, sceneHash } from '../../../src/score/generated/hashing';
@@ -516,16 +516,34 @@ describe('lattices and dense, continued', () => {
     expect(six / pts.length).toBeGreaterThan(0.8);
   });
 
-  it('dense covers thin protected parts: every candidate is within one dense spacing (plus two cells) of dense', () => {
-    const wire = prepare(scene([disc('base', [0, 0], 0.5), part('whisker', { type: 'stroke', points: [[0.5, 0.2], [0.7, 0.3], [0.85, 0.35], [1.0, 0.45]], width: 0.01 }, 'union', 4)]));
-    for (const p of [elephant, wire]) {
+  it('dense covers thin parts: every filled cell the region contains has a dense point within one spacing', () => {
+    // Horizontal whiskers run parallel to the lattice rows, so a lattice alone can miss them entirely.
+    const whiskers = prepare(scene([disc('base', [0, 0], 0.5),
+      ...[0.2, 0.23, 0.26, 0.29, 0.32].map((y, k) => part(`w${k}`, { type: 'stroke', points: [[0.45, y], [0.6, y], [0.8, y], [1.0, y]], width: 0.008 }, 'union', 4))]));
+    for (const p of [elephant, whiskers]) {
       const r = run(p);
-      const reach = r.stats.denseSpacing + 2 * p.mask.cell;
-      for (const c of r.candidates) {
-        let best = Infinity;
-        for (const d of r.dense) best = Math.min(best, (d[0] - c.pos[0]) ** 2 + (d[1] - c.pos[1]) ** 2);
-        expect(Math.sqrt(best)).toBeLessThanOrEqual(reach);
+      const s = r.stats.denseSpacing + 1e-9;
+      const n = p.mask.size;
+      const covered = new Uint8Array(n * n);
+      const reach = Math.ceil(s / p.mask.cell) + 1;
+      for (const d of r.dense) {   // stamp the cells within s of each dense point
+        const ci = Math.floor((d[0] - p.mask.origin[0]) / p.mask.cell);
+        const cj = Math.floor((d[1] - p.mask.origin[1]) / p.mask.cell);
+        for (let j = Math.max(0, cj - reach); j <= Math.min(n - 1, cj + reach); j++) {
+          for (let i = Math.max(0, ci - reach); i <= Math.min(n - 1, ci + reach); i++) {
+            const c = cellCentre(p.mask, i, j);
+            if ((d[0] - c[0]) ** 2 + (d[1] - c[1]) ** 2 <= s * s) covered[j * n + i] = 1;
+          }
+        }
       }
+      let missed = 0;
+      for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+          if (p.mask.bits[j * n + i] && !covered[j * n + i] && p.region.contains(cellCentre(p.mask, i, j))) missed++;
+        }
+      }
+      expect(missed).toBe(0);
+      expect(r.dense.length).toBeLessThanOrEqual(2500);
     }
   });
 
