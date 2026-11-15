@@ -7,6 +7,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeParams, type Params, type Recipe } from '../../src/contracts';
+/** GF-CC-01: a generated recipe has no palette; the recipes here are text, sphere and helix. */
+const paletteOf = (r: Recipe) => (r.kind === 'generated' ? undefined : r.palette);
 import { expandRecipe } from '../../src/score';
 import { canonicalJson } from '../../src/score/canonical';
 import { FONT } from '../../src/score/font';
@@ -85,8 +87,8 @@ describe('MDB-T01 round trip and contentHash', () => {
       expect(again.ok, c.id).toBe(true);
       if (!again.ok) continue;
       expect(again.composition, c.id).toStrictEqual(first.composition);
-      first.composition.movements.forEach((m, i) => m.recipe.palette?.flat().forEach((x, j) =>
-        expect(Object.is(x, again.composition.movements[i]!.recipe.palette!.flat()[j]), `${c.id} channel ${j}`).toBe(true)));
+      first.composition.movements.forEach((m, i) => paletteOf(m.recipe)?.flat().forEach((x, j) =>
+        expect(Object.is(x, paletteOf(again.composition.movements[i]!.recipe)!.flat()[j]), `${c.id} channel ${j}`).toBe(true)));
       expect(contentHash(again.composition)).toBe(contentHash(first.composition));
     }
   });
@@ -169,7 +171,7 @@ describe('MDB-T04/T05 values JSON cannot carry', () => {
       expect(r.ok ? 'accepted' : pairs(r.errors)).toEqual(['movements[0].holdTicks INVALID_TIMING']);
     }
     const zero = validateComposition(one({ kind: 'sphere', palette: [[-0, 0, 0], [0, 0, 0]] }, -0), params);
-    expect(zero.ok && Object.is(zero.composition.movements[0]!.holdTicks, 0) && Object.is(zero.composition.movements[0]!.recipe.palette![0][0], 0)).toBe(true);
+    expect(zero.ok && Object.is(zero.composition.movements[0]!.holdTicks, 0) && Object.is(paletteOf(zero.composition.movements[0]!.recipe)![0][0], 0)).toBe(true);
   });
 });
 
@@ -229,7 +231,7 @@ describe('MDB-T07 safety: total over unknown, shape-directed', () => {
     // [[Get]] answers 7 for every index, the descriptor answers the real 0.5: only the descriptor value may be used.
     const lying = (t: number[]) => new Proxy(t, { get: (target, key, receiver) => (typeof key === 'string' && /^\d+$/.test(key) ? 7 : Reflect.get(target, key, receiver)) });
     const r = validateComposition(one({ kind: 'sphere', palette: [lying([0.5, 0.5, 0.5]), [0, 0, 0]] }), params);
-    expect(r.ok && r.composition.movements[0]!.recipe.palette).toEqual([[0.5, 0.5, 0.5], [0, 0, 0]]);
+    expect(r.ok && paletteOf(r.composition.movements[0]!.recipe)).toEqual([[0.5, 0.5, 0.5], [0, 0, 0]]);
 
     // Every container of FX-SHOW wrapped in a counting Proxy: no [[Get]] at all, and at most one descriptor read per key.
     const gets: string[] = [];

@@ -61,6 +61,8 @@ AS-01 to AS-04 are the assumptions the contract cites in its §12. Limits that f
 | AS-08 | Preloaded data (`n0`, own id, launch slot, first score, parameters) is not live state (I4) | Any drone could carry it before take-off | "The roster is central" | "No central controller during the show; the score and roster are authored and loaded beforehand" |
 | AS-09 | Slot order equals visual importance | Farthest-point order makes any prefix an even thinning | A thinned word may look worse than a holed one | "Priority is a geometric rule, not a perception study" |
 | AS-10 | Failures come in bursts during a hold and then stop | The settling argument and `canHeal` both need it | Kills during a transition are noticed late; continuous churn is untested | "Repair is tested for failures during a hold" |
+| AS-11 (proposed, GF-CC-01) | Radio payload size is not modelled: a `SCORE` with a generated scene (canonical at most 16 KB) is delivered like any message | The medium models loss, latency, jam and partition, not bandwidth | Real radios would fragment a 16 KB score and lose it more often | "Generated scores up to 16 KB are delivered like any message. Real radios would fragment them" |
+| AS-12 (proposed, GF-CC-02) | Per-drone scene compilation is not modelled: one process shares the compile through a memo, so it is free in simulated time | Each drone compiles at adoption in principle; one process does it once | Late adopters on real hardware would need up to about 200 ms to compile | "Each drone could compile the scene itself; the simulation shares one compile" (never "each drone compiles in real time") |
 
 ## 3. Open questions
 

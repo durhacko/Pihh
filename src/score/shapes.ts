@@ -5,6 +5,17 @@ import type { Recipe, RGB, Vec3 } from '../contracts';
 import { GLYPH_COLS, GLYPH_ROWS, litCells } from './font';
 import type { Cell } from './font';
 
+
+/** Exhaustiveness: a new recipe kind that reaches a switch here fails to typecheck (GF-T23). */
+/** A `generated` recipe is compiled from its scene (expand.ts) and has no default palette; it never reaches here. */
+function notDrawn(): never {
+  throw new Error('a generated recipe is compiled from its scene, not drawn by shapes.ts');
+}
+
+function assertNever(value: never): never {
+  throw new Error(`unhandled recipe kind ${JSON.stringify(value)}`);
+}
+
 /** Helix proportions, in radii. Squat on purpose: the scaled formation must stay above y = 2. */
 export const HELIX_TURNS = 2;
 export const HELIX_HEIGHT = 2.5;
@@ -92,6 +103,8 @@ export function selectionCloud(recipe: Recipe, n0: number, count: number): Vec3[
     }
     case 'sphere': return sphere(count);
     case 'helix': return helix(count);
+    case 'generated': return notDrawn();
+    default: return assertNever(recipe);
   }
 }
 
@@ -106,14 +119,19 @@ export function denseCloud(recipe: Recipe, n0: number, count: number): Vec3[] {
     }
     case 'sphere': return sphere(count);
     case 'helix': return helix(count);
+    case 'generated': return notDrawn();
+    default: return assertNever(recipe);
   }
 }
 
-/** Default two-colour gradient per kind (left to right). None is pure blue, which reads as dark on screen. */
+/** Default two-colour gradient per kind (left to right). None is pure blue, which reads as dark on screen.
+ *  A generated recipe has no palette: its colours come from the scene (spec §7.7). */
 export function defaultPalette(kind: Recipe['kind']): [RGB, RGB] {
   switch (kind) {
     case 'text': return [[1, 0.72, 0.2], [1, 0.32, 0.5]];          // amber to rose
     case 'sphere': return [[0.25, 0.95, 0.8], [0.7, 0.45, 1]];     // aqua to violet
     case 'helix': return [[0.4, 1, 0.5], [1, 0.9, 0.3]];           // spring green to gold
+    case 'generated': return notDrawn();
+    default: return assertNever(kind);
   }
 }
