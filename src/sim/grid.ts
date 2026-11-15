@@ -11,13 +11,29 @@ const FLAT_MAX_CELLS = 1 << 20;
 const MIN_CELL_FRACTION = 2 ** -32;
 
 /**
+ * Boundary slack for a query's cell range: s = BOUNDARY_SLACK × (max |p| + radius) + BOUNDARY_FLOOR, in metres.
+ *
+ * The distance test is rounded: (px - qx)**2 + ... <= radius * radius can admit a drone whose true offset on an axis
+ * is slightly more than the radius (for example q = -1e-17, p = 1, radius 1: 1 - (-1e-17) rounds to 1). Its cell can
+ * then lie just outside floor((p ± radius) / cell). From the rounding of the subtraction, the squares, the sum and
+ * radius², an admitted drone has |px - qx| <= radius·(1 + 2.0001ε) + 2^-537 (the last term covers squares that
+ * underflow); the range's own arithmetic adds about ε·(|p| + 4·radius). 8ε·(|p| + radius) + 2^-500 covers both, so
+ * every admitted drone's cell is visited. One extra cell is not enough in general: with a small cell and a query far
+ * away, that rounding spans many cells. For real params the slack is about 1e-13 m, so it changes which cells are
+ * visited only when a range ends within that of a cell edge.
+ */
+const BOUNDARY_SLACK = 8 * Number.EPSILON;
+const BOUNDARY_FLOOR = 2 ** -500;
+
+/**
  * Rebuilt from pre-decision bodies once per tick. Results always follow id order.
  *
  * Performance: the cells are a flat array over the bounding box of the live positions (no hashing, no string keys),
  * and a query only visits cells inside that box. If the box would need more than FLAT_MAX_CELLS cells (drones very
  * far apart) the grid falls back to a Map keyed by "x,y,z", as before. Either way within() returns exactly the ids
  * the simple version returned: the same candidate test as math.ts distanceSquared(pos, q), in the same order, over a
- * superset of the qualifying ids, then sorted. Cell size changes speed only, never the result.
+ * superset of the qualifying ids (the range is widened by BOUNDARY_SLACK for rounding at the radius), then sorted.
+ * Cell size changes speed only, never the result.
  *
  * Guards (#140). None of them changes a result; they only make every query terminate quickly:
  * - A cell size that is not a positive finite number (e.g. a contact radius of 0 from dCollide = dNear = 0) is
@@ -100,8 +116,13 @@ export class SpatialGrid {
     // overflows to Infinity (radius above ~1.3e154), the distance test admits every drone at a finite squared
     // distance, even outside the radius, so the whole box is visited to give exactly what brute force gives.
     const all = r2 === Infinity;
-    const lx = all ? ox : Math.max(Math.floor((px - radius) / cs), ox), ly = all ? oy : Math.max(Math.floor((py - radius) / cs), oy), lz = all ? oz : Math.max(Math.floor((pz - radius) / cs), oz);
-    const hx = all ? ux : Math.min(Math.floor((px + radius) / cs), ux), hy = all ? uy : Math.min(Math.floor((py + radius) / cs), uy), hz = all ? uz : Math.min(Math.floor((pz + radius) / cs), uz);
+    // The rounded test can admit a drone slightly beyond the radius on an axis, so the range is widened by a bound on
+    // that rounding before the cells are chosen (see BOUNDARY_SLACK); without it a drone just across a cell edge is
+    // missed and the result depends on the cell size.
+    const s = BOUNDARY_SLACK * (Math.max(Math.abs(px), Math.abs(py), Math.abs(pz)) + radius) + BOUNDARY_FLOOR;
+    const rs = radius + s;
+    const lx = all ? ox : Math.max(Math.floor((px - rs) / cs), ox), ly = all ? oy : Math.max(Math.floor((py - rs) / cs), oy), lz = all ? oz : Math.max(Math.floor((pz - rs) / cs), oz);
+    const hx = all ? ux : Math.min(Math.floor((px + rs) / cs), ux), hy = all ? uy : Math.min(Math.floor((py + rs) / cs), uy), hz = all ? uz : Math.min(Math.floor((pz + rs) / cs), uz);
     // An empty range on any axis means nobody. Written so that NaN bounds (a NaN query coordinate, which brute force
     // never matches either) also return here: otherwise an outer loop could walk a huge range around an empty inner one.
     if (!(lx <= hx && ly <= hy && lz <= hz)) return ids;

@@ -133,6 +133,49 @@ describe('SpatialGrid guards (#140): adversarial cell sizes, radii and query poi
   });
 });
 
+describe('SpatialGrid at the radius boundary: a drone the rounded test admits is found whatever the cell size', () => {
+  it('repro: q = -1e-17 is admitted from p = 1 at radius 1 (1 - (-1e-17) rounds to 1), and found at cell size 1', () => {
+    const positions: Vec3[] = [[-1e-17, 0, 0], [1, 0, 0]];
+    expect(reference(positions, [0, 1], [1, 0, 0], 1)).toEqual([0, 1]);
+    for (const cellSize of [1, 0.5, 0.3, 2, 1e-9, 1e-20]) {
+      expect(new SpatialGrid(positions, [0, 1], cellSize).within([1, 0, 0], 1), `cell ${cellSize}`).toEqual([0, 1]);
+    }
+  });
+
+  it('a far query with a small cell: the rounding spans several cells, so one extra cell would not be enough', () => {
+    // dx = 1e10 - (1 - 2^-30) rounds to 9999999999 = radius, so brute force admits drone 0; its cell is 4 cells below
+    // floor((1e10 - radius) / 2^-32).
+    const positions: Vec3[] = [[1 - 2 ** -30, 0, 0], [0, 0, 0]];
+    const query: Vec3 = [1e10, 0, 0];
+    expect(reference(positions, [0, 1], query, 9999999999)).toEqual([0]);
+    expect(new SpatialGrid(positions, [0, 1], 2 ** -32).within(query, 9999999999)).toEqual([0]);
+  });
+
+  it('fuzz: drones on cell edges, radius within a few ulps of a drone\'s computed distance, both layouts', () => {
+    const rng = createRandom(140);
+    const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)];
+    const CELLS = [2 ** -32, 1e-9, 0.37, 1, 2.5, 15, 1e6];
+    const MAGS = [1e-17, 1e-9, 1e-3, 1, 30, 100, 1e4, 1e10];
+    let compared = 0;
+    for (let n = 0; n < 4000; n++) {
+      const cellSize = pick(CELLS);
+      // Drones sit on or a few ulps off cell edges, so a rounding slip at the range end lands in the next cell.
+      const edge = () => Math.round((rng() - 0.5) * pick([4, 100, 1e4])) * cellSize * (1 + (Math.floor(rng() * 7) - 3) * Number.EPSILON);
+      const positions: Vec3[] = Array.from({ length: 8 }, () => [edge(), edge(), edge()] as Vec3);
+      const live = positions.map((_, id) => id);
+      const target = positions[Math.floor(rng() * positions.length)];
+      const query = [0, 1, 2].map((a) => (rng() < 0.5 ? target[a] + (rng() - 0.5) * pick(MAGS) : (rng() - 0.5) * pick(MAGS))) as Vec3;
+      const radius = Math.sqrt(distanceSquared(query, target)) * (1 + (Math.floor(rng() * 7) - 3) * Number.EPSILON);
+      if (!Number.isFinite(radius * radius)) continue;
+      const grid = new SpatialGrid(positions, live, cellSize);
+      expect(grid.within(query, radius), `n ${n} cell ${cellSize} r ${radius} q ${JSON.stringify(query)} drones ${JSON.stringify(positions)}`)
+        .toEqual(reference(positions, live, query, radius));
+      compared++;
+    }
+    expect(compared).toBeGreaterThan(3500);
+  });
+});
+
 describe('the world with dCollide = dNear = 0 (contact grid cell size 0; #115 review)', () => {
   // The run must terminate and reproduce a pinned state. With d < 0 never true, there are no collisions and no
   // near-misses. The hashes were first computed on origin/main 571c8e4 (static 0f12949fd481e213, encore
