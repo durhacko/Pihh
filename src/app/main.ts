@@ -27,7 +27,8 @@ import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend, drawnTethers } from './ui/Legend';
 import { createDisrupt, createHelp, createLenses, createMetrics, createSelectionArm, jamKeyRun, killKeyRun, stageClick, type DisruptRun, type PopoverContext } from './ui/popovers';
-import { appPhaseTracker, createReadout, TRANSITION_TITLE, type ArmPhase } from './ui/Readout';
+import { createReadout, TRANSITION_TITLE } from './ui/Readout';
+import { readArmPhases, type ArmPhase } from './armPhase';
 import { defaultUIState, initialShellState, paneLabels, Store, type PaneLabel, type ViewMode } from './ui/store';
 import { handleEscape, stageLayout, Surfaces } from './ui/surfaces';
 import { connectTimeline } from './ui/Timeline';
@@ -537,12 +538,8 @@ function ghostCounts(arm: Arm): { vacant: number; inTransit: number; contested: 
   return { vacant: count('vacant'), inTransit: count('inTransit'), contested: count('contested'), inHold: reading.slots.inHold };
 }
 // Per arm, from the observer (throttled slot feed), not the preloaded score's plan: after an injection the arms differ.
-// The feed's reading (inHold) and the movement name describe ONE observer moment: the reading's own tick.
-function armPhases(): Pair<ArmPhase | null> {
-  const s = worlds.samples(), snaps = snapshots();
-  const at = (arm: Arm) => { slotFeeds[arm].read(snaps[arm]); const r = slotFeeds[arm].latest(); return appPhaseTracker(arm, worlds.observers[arm], r && { tick: r.tick, inHold: r.slots.inHold }, s[arm], worlds.scores()); };
-  return { encore: at('encore'), static: at('static') };
-}
+// Hold and the movement's name come from ONE observer reading: its inHold, and the movement its formation is.
+function armPhases(): Pair<ArmPhase | null> { return readArmPhases(worlds, snapshots(), slotFeeds); }
 function feedHud(): void { const p = armPhases(); hudModel.update(hudPayload(worlds, { fps: lastFps, layout: store.state.view, inHold: { encore: p.encore?.inHold ?? null, static: p.static?.inHold ?? null } })); }
 function refreshChrome(): void {
   const samples = worlds.samples();
