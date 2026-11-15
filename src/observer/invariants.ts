@@ -4,6 +4,7 @@
 // Results are "checked properties on these runs, not proofs". Observer-only: this file reads snapshots, recorded
 // events and registered scores, keeps its own copies, never mutates its inputs and has no World reference, so it
 // cannot affect a brain. Imports only src/contracts, src/score and ./measure (T01).
+import { DT } from '../contracts';
 import type { DroneSnap, EnvEvent, Params, Score, ScoreVersion, Vec3, WorldSnapshot } from '../contracts';
 import { currentMovement, expandRecipe, launchPos } from '../score';
 import { versionKey } from './measure';
@@ -21,6 +22,38 @@ export type InvariantThresholds = typeof INVARIANT_DEFAULTS;
 
 /** knownLimit tags, as PHASE2_EVALUATION §4 names them. */
 export const KNOWN_LIMIT_3 = '§8.5 limit 3';
+
+/** Slack added to every §8.5 limit-3 timing bound: two scan periods (vacancy scans and commits run on heartbeat
+ *  ticks only, so the scan that notices and the scan that commits can each be up to hbPeriod late) and one radio
+ *  latency. This is the slack that §8.5's "about" allows; 12 ticks at the default params. */
+const limit3Slack = (p: Pick<Params, 'hbPeriod' | 'latencyMax'>): number => 2 * p.hbPeriod + p.latencyMax;
+
+/**
+ * The longest vacancy-to-fill link of a §8.5 limit-3 wave chain, in ticks, from the commit that left a slot (or the
+ * anchor, for the chain's first commit) to the commit that fills it. §8.5 limit 3: "per hop of the chain, about 3 s
+ * to detect, 1 s to contend, then flight time". Detect is tSuspect (3 s without a heartbeat holding the slot, from
+ * the vacater's commit), overlapped by tVacant (2 s sensed empty), which starts once the vacater has flown out of
+ * rOcc from rest at aMax. Contend is claimWindow (1 s). The filler's own flight comes AFTER its commit, so it is not
+ * in the link. 92 ticks at the default params; the G1 seed 1 late chains measured 68-82.
+ */
+export const LIMIT3_FILL_TICKS = (p: Params): number =>
+  Math.max(p.tSuspect, p.tVacant + Math.ceil(Math.sqrt((2 * p.rOcc) / p.aMax) / DT)) + p.claimWindow + limit3Slack(p);
+
+/**
+ * The window for the gap between a double hop's two commits, in ticks. §8.5 limit 3: "after its own commit it must
+ * wait tStable, then tVacant (its timers were cleared while canHeal was false), then claimWindow", so the gap is at
+ * least tStable + tVacant + claimWindow (180 at the defaults) and at most that plus the slack (192). G1 seed 1
+ * measured exactly 180 (457 -> 637 and 452 -> 632).
+ */
+export const LIMIT3_REHOP_TICKS = (p: Params): { min: number; max: number } => {
+  const min = p.tStable + p.tVacant + p.claimWindow;
+  return { min, max: min + limit3Slack(p) };
+};
+
+/** The longest wave chain the limit-3 tag accepts, in links (vacancies walked back from the late commit). §8.5 and
+ *  §8.6 document four-hop chains (G1, PR #103), five links with the double hop's first commit; the bound is 8, and
+ *  a longer chain is not the documented shape. */
+export const LIMIT3_MAX_LINKS = 8;
 export const KNOWN_LIMIT_FLAPPING = 'flapping';
 
 export interface Violation {
@@ -512,33 +545,59 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
    * §8.5 limit 3 is a wave chain in which one drone hops twice: its second hop waits tStable + tVacant + claimWindow
    * after its first commit, and the commits behind it wait for its vacancy (G1 trace, g1.beyond.test.ts). So the
    * late commit is often the FIRST commit of a drone further down the chain, not the double-hopper's own.
-   * Walk the chain backward from a commit into `slot` at `c`: the latest earlier commit that LEFT `slot` (after the
-   * anchor) is the drone whose vacancy this commit filled; then the same for the slot that drone moved to, and so on.
-   * The shape matches limit 3 only if a drone IN THIS CHAIN committed twice since the anchor. A double hop elsewhere in
-   * the swarm does not count, and a chain that ends at a killed slot without one stays a counterexample.
+   *
+   * The chain is walked backward from the late commit `x`: the commit that LEFT `x.to` before `x` is the vacancy `x`
+   * filled. If that drone had moved INTO the slot it then left by an earlier commit since the anchor, and the two
+   * commits are a limit-3 re-hop apart, that pair is the double hop: its second commit is explained by the wait after
+   * its first, so the walk continues from the first. Otherwise the walk continues from the vacater's commit (its
+   * delay must be explained by the vacancy it filled). The walk ends at a commit whose target no commit vacated (a
+   * killed or never-held slot): the chain's start.
+   *
+   * The shape matches limit 3 only if ALL of these hold, so a genuine stall is never excused:
+   * - a double hop lies on this chain (a double hop elsewhere in the swarm does not count), and its two commits are
+   *   LIMIT3_REHOP_TICKS apart (at least tStable + tVacant + claimWindow, at most that plus the slack);
+   * - every vacancy-to-fill link is at most LIMIT3_FILL_TICKS: each filler's commit after its vacater's, and the
+   *   chain's first commit after the anchor;
+   * - the chain is at most LIMIT3_MAX_LINKS links long.
+   * The late commit is then explained by the chain: c - anchor is the sum of its links, each within its bound.
    */
   function doubleHopInChain(slot: number, c: number, anchor: number): { id: number; first: number; second: number } | null {
     const log = state.commitLog;
-    const inChain = new Set<number>();
-    let target = slot, before = c;
-    for (let hops = 0; hops <= n0; hops++) {
+    const fillMax = LIMIT3_FILL_TICKS(params);
+    const rehop = LIMIT3_REHOP_TICKS(params);
+    let x = { tick: c, to: slot };
+    let hop: { id: number; first: number; second: number } | null = null;
+    for (let links = 0; links < LIMIT3_MAX_LINKS; links++) {
+      // The latest commit before x (after the anchor) that left x's target.
       let vacater: { tick: number; id: number; from: number; to: number } | undefined;
       for (let k = log.length - 1; k >= 0; k--) {
-        const x = log[k]!;
-        if (x.tick >= before) continue;
-        if (x.tick <= anchor) break;
-        if (x.from === target) { vacater = x; break; }
+        const e = log[k]!;
+        if (e.tick >= x.tick) continue;
+        if (e.tick <= anchor) break;
+        if (e.from === x.to) { vacater = e; break; }
       }
-      if (vacater === undefined || inChain.has(vacater.id)) return null;
-      // Its move out of `target` was a second hop if it committed earlier since the anchor.
-      for (const x of log) {
-        if (x.tick > anchor && x.tick < vacater.tick && x.id === vacater.id) return { id: vacater.id, first: x.tick, second: vacater.tick };
+      if (vacater === undefined) {
+        // The chain's start: its first commit must follow the anchor within one link.
+        return hop !== null && x.tick - anchor <= fillMax ? hop : null;
       }
-      inChain.add(vacater.id);
-      target = vacater.to;
-      before = vacater.tick;
+      if (x.tick - vacater.tick > fillMax) return null;   // the filler waited longer than limit 3 explains
+      // Did the vacater hop INTO the slot it then left, since the anchor, a re-hop wait earlier? Then it is the double hop.
+      let first: { tick: number; id: number; from: number; to: number } | undefined;
+      for (let k = log.length - 1; k >= 0; k--) {
+        const e = log[k]!;
+        if (e.tick >= vacater.tick) continue;
+        if (e.tick <= anchor) break;
+        if (e.id === vacater.id && e.to === vacater.from) { first = e; break; }
+      }
+      const gap = first === undefined ? -1 : vacater.tick - first.tick;
+      if (first !== undefined && gap >= rehop.min && gap <= rehop.max) {
+        hop ??= { id: vacater.id, first: first.tick, second: vacater.tick };
+        x = first;
+      } else {
+        x = vacater;
+      }
     }
-    return null;
+    return null;   // longer than LIMIT3_MAX_LINKS: not the documented shape
   }
 
   function lastEventAtOrBefore(c: number): number {
