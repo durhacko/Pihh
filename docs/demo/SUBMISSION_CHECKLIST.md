@@ -2,7 +2,7 @@
 
 Owner: Arnav, reassigned from Haris at 21:45 Sat ([#8](https://github.com/durhacko/Pihh/issues/8)). **Hard deadline: Sun 15 Nov 11:00 GMT on Devpost** ([BRIEF S3](../competition/BRIEF.md#1-schedule-gmt)). Target: a minimal submission in by **10:15** (gate G6), then improve it until 10:50.
 
-Ticked means true on `main` once the submission-package PR merges. Unticked items say what is missing. The paste-ready Devpost text and its placeholder legend are in [DEVPOST.md](DEVPOST.md).
+Ticked means true on `main`. Unticked items say what is missing. The paste-ready Devpost text and its placeholder legend are in [DEVPOST.md](DEVPOST.md).
 
 ## Only a human can do these
 
@@ -31,14 +31,14 @@ An agent can't log in to Devpost, change repo visibility, record the screen or p
 
 ## README (rules R2–R4)
 - [x] What it is, how the reported theme Composition fits, and that it is a simulation with no hardware
-- [x] A 30-second run path for judges (`npm ci`, then `npm run build && npm run preview`)
-- [ ] Run path verified on a fresh clone by a second person (H6)
+- [x] A 30-second run path for judges (`npm ci`, then `npm run build`, then `npm run preview`)
+- [ ] Run path verified on a fresh clone by a second person (H6). An agent check passed on a fresh WSL clone at `9f78902` (15 Nov, about 00:00), with networking off for the preview ([log in #8](https://github.com/durhacko/Pihh/issues/8#issuecomment-6886715532)). The human run on the demo laptop is still needed.
 - [x] **"Built with"**: every public library at its exact pinned version, plus Node.js, Python and the GitHub Actions used in CI ([R3](../competition/BRIEF.md#4-submission-and-rules))
 - [x] **"AI use"**: Claude Code, OpenAI Codex and GitHub Copilot, with what each was used for ([R4](../competition/BRIEF.md#4-submission-and-rules))
 - [ ] "AI use" confirmed by a human, including any hand-written code (H9)
 - [x] Team members named (Haris's surname still to add: H13)
 - [x] "Where Encore ties or loses" section with the pre-registered cases
-- [ ] Results filled in from `results/RESULTS.md`. Waits for the Encore brain (#16), G1 (#17) and the evaluation run (#26)
+- [ ] Results filled in from `results/RESULTS.md`. S0–S3 and S5 are filled from the evaluation run (#122), with S5's collision cost (#123).
 - [ ] Status box and `[IF G1]` / `[IF G4]` lines resolved at feature freeze (08:30)
 
 ## Repo
@@ -47,7 +47,7 @@ An agent can't log in to Devpost, change repo visibility, record the screen or p
 - [ ] Final commit tagged `submission`
 
 ## Media
-- [ ] Screenshots in `assets/` (H7)
+- [ ] Screenshots in `assets/` (H7). The harness captures the states (`node scripts/perf/run.mjs --shots`, [QA.md](QA.md)); a person picks which to use.
 - [ ] Demo video (at most 2 min) uploaded and linked, if required or useful (H8)
 - [ ] Backup video available offline on two laptops (H8)
 
