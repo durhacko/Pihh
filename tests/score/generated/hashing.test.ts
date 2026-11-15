@@ -142,6 +142,42 @@ describe('normaliseScene and canonicalSceneJson (§6.7 steps 1–4)', () => {
     }
   });
 
+  it('turns -0 into +0 in the normalised scene itself, not only in the hash (JSON.stringify hides -0)', () => {
+    const disc = load('valid-2d-disc.json');
+    const zeroPaths = leaves(normaliseScene(disc), 'number').filter(([, v]) => v === 0).map(([p]) => p);
+    expect(zeroPaths.length).toBeGreaterThan(0);
+    let negative: SceneSpec = disc;
+    for (const path of zeroPaths) negative = setAt(negative, path, -0);
+    const tiny = setAt(negative, ['parts', 0, 'geometry', 'center', 0], -0.00001);   // rounds to -0 on the 1e-4 grid
+    for (const scene of [negative, tiny]) {
+      const out = normaliseScene(scene);
+      for (const [path, v] of leaves(out, 'number')) expect(Object.is(v, -0), `/${path.join('/')}`).toBe(false);
+    }
+    expect(Object.is((normaliseScene(tiny) as unknown as { parts: { geometry: { center: number[] } }[] }).parts[0].geometry.center[0], 0)).toBe(true);
+  });
+
+  it.each(['__proto__', 'constructor', 'prototype'])('rejects an own "%s" key at any depth with a RangeError, as validateScene does', (key) => {
+    const textOf = (where: 'top' | 'geometry') => {
+      const json = JSON.stringify(JSON.parse(text('valid-2d-disc.json')));
+      return where === 'top' ? json.replace('{', `{"${key}":{"title":"x"},`)
+        : json.replace('"geometry":{', `"geometry":{"${key}":{"radii":[0.5,0.5]},`);
+    };
+    for (const where of ['top', 'geometry'] as const) {
+      const scene = JSON.parse(textOf(where)) as SceneSpec;
+      expect(Object.hasOwn(where === 'top' ? scene : (scene as unknown as { parts: { geometry: object }[] }).parts[0].geometry, key)).toBe(true);
+      const path = where === 'top' ? `/${key}` : `/parts/0/geometry/${key}`;
+      expect(() => normaliseScene(scene)).toThrow(RangeError);
+      expect(() => normaliseScene(scene)).toThrow(`forbidden key "${key}" at ${path}`);
+      expect(() => sceneHash(scene)).toThrow(RangeError);
+      expect(validateScene(scene).ok).toBe(false);
+    }
+  });
+
+  it.each([null, undefined, 42, 'scene', [1, 2]])('rejects a non-object scene (%s) with a RangeError, never a TypeError', (bad) => {
+    expect(() => normaliseScene(bad as unknown as SceneSpec)).toThrow(RangeError);
+    expect(() => sceneHash(bad as unknown as SceneSpec)).toThrow(/^normaliseScene: the scene must be an object/);
+  });
+
   it('expands defaults: a missing rotationDeg or symmetry hashes as the explicit default; undefined counts as missing', () => {
     const disc = load('valid-2d-disc.json') as unknown as Json;
     const discGeometry = ((disc.parts as Json[])[0].geometry as Json);

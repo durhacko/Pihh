@@ -225,6 +225,53 @@ describe('MDB-T07 safety: total over unknown, shape-directed', () => {
     expect(r2({ ...show, source: 'gemini', generator: { model: 'm', integrationVersion: '1', $where: 'x' } }, true)).toEqual(['generator.$where UNKNOWN_KEY']);
   });
 
+  it('reads each value once, through descriptors: a Proxy cannot show the check one value and the copy another (#240 review 1)', () => {
+    // [[Get]] answers 7 for every index, the descriptor answers the real 0.5: only the descriptor value may be used.
+    const lying = (t: number[]) => new Proxy(t, { get: (target, key, receiver) => (typeof key === 'string' && /^\d+$/.test(key) ? 7 : Reflect.get(target, key, receiver)) });
+    const r = validateComposition(one({ kind: 'sphere', palette: [lying([0.5, 0.5, 0.5]), [0, 0, 0]] }), params);
+    expect(r.ok && r.composition.movements[0]!.recipe.palette).toEqual([[0.5, 0.5, 0.5], [0, 0, 0]]);
+
+    // Every container of FX-SHOW wrapped in a counting Proxy: no [[Get]] at all, and at most one descriptor read per key.
+    const gets: string[] = [];
+    const reads = new Map<string, number>();
+    const watch = (v: unknown, path: string): unknown => {
+      if (v === null || typeof v !== 'object') return v;
+      const inner = Array.isArray(v) ? v.map((x, i) => watch(x, `${path}[${i}]`)) : Object.fromEntries(Object.entries(v).map(([k, x]) => [k, watch(x, `${path}.${k}`)]));
+      return new Proxy(inner, {
+        get(target, key, receiver) { gets.push(`${path}.${String(key)}`); return Reflect.get(target, key, receiver); },
+        getOwnPropertyDescriptor(target, key) { const k = `${path}.${String(key)}`; reads.set(k, (reads.get(k) ?? 0) + 1); return Reflect.getOwnPropertyDescriptor(target, key); },
+      });
+    };
+    const show = cases.find(c => c.name === 'FX-SHOW')!;
+    const watched = validateShowRequest(watch(show.input, '$'), params);
+    expect(watched.ok).toBe(true);
+    expect(gets).toEqual([]);
+    expect([...reads].filter(([, n]) => n > 1)).toEqual([]);
+    expect(reads.size).toBeGreaterThan(20);   // the counter really saw the reads
+    expect(watched.ok && watched.request).toEqual((show.expect as { output: unknown }).output);
+  });
+
+  it('arrays must be dense: every index 0..length-1 an own data property, no extra keys (#240 review 2)', () => {
+    const padded = (items: unknown[], length: number) => { const a = [...items]; a.length = length; Object.assign(a, { pad: 1 }); return a; };   // a hole, then one extra key
+    const show = { schemaVersion: 1, title: 'T', source: 'gemini', composition: one({ kind: 'sphere' }) };
+    const hashes = padded(['a'.repeat(64)], 2);
+    expect(Reflect.ownKeys(hashes)).toHaveLength(hashes.length + 1);   // exactly what the old length check let through
+    const r1 = validateShowRequest({ ...show, generator: { model: 'm', integrationVersion: '1', sceneHashes: hashes } }, params);
+    expect(r1.ok ? 'accepted' : pairs(r1.errors)).toEqual(['generator.sceneHashes INVALID_FIELD']);
+    const r2 = validateComposition(one({ kind: 'sphere', palette: padded([[0, 0, 0]], 2) }), params);
+    expect(r2.ok ? 'accepted' : pairs(r2.errors)).toEqual(['movements[0].recipe.palette INVALID_COLOUR']);
+    const r3 = validateComposition({ v: 1, movements: padded([{ recipe: { kind: 'sphere' }, holdTicks: 600 }], 2) }, params);
+    expect(r3.ok ? 'accepted' : pairs(r3.errors)).toEqual(['movements INVALID_FIELD']);
+    // A Proxy whose ownKeys hides index 2 and adds 'pad' (n + 1 keys) while its descriptors still answer for index 2:
+    // the key list and the descriptors disagree, so the array is rejected, not read.
+    const inconsistent = new Proxy([0, 0, 0], { ownKeys: () => ['0', '1', 'length', 'pad'] });
+    const r5 = validateComposition(one({ kind: 'sphere', palette: [inconsistent, [0, 0, 0]] }), params);
+    expect(r5.ok ? 'accepted' : pairs(r5.errors)).toEqual(['movements[0].recipe.palette[0] INVALID_COLOUR']);
+    const accessor = Object.defineProperty([0, 0, 0], 1, { get: () => 0.5, enumerable: true });
+    const r4 = validateComposition(one({ kind: 'sphere', palette: [accessor, [0, 0, 0]] }), params);
+    expect(r4.ok ? 'accepted' : pairs(r4.errors)).toEqual(['movements[0].recipe.palette[0] INVALID_COLOUR']);
+  });
+
   it('prototype keys leave Object.prototype unchanged', () => {
     for (const c of corpus.find(f => f.id === 'FX-BAD/proto')!.cases) run(c, params);
     expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false);
