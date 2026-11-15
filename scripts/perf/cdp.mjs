@@ -247,7 +247,10 @@ export async function connect(url, { timeout = 10000, WebSocketImpl = WebSocket 
   const send = (sessionId) => (method, params = {}) => new Promise((resolve, reject) => {
     if (closed) { reject(new Error('Chrome websocket closed')); return; }
     const id = nextId++;
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Timed out waiting for ${method}`)); }, timeout);
+    // Evaluations include callers' multi-second RAF measurements / tick waits. Preserve their own
+    // duration policy; disconnect/dispose still rejects them. Lifecycle and ordinary CDP requests are bounded.
+    const timer = method === 'Runtime.evaluate' ? undefined
+      : setTimeout(() => { pending.delete(id); reject(new Error(`Timed out waiting for ${method}`)); }, timeout);
     pending.set(id, { resolve, reject, method, timer });
     try { ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })); }
     catch (error) { clearTimeout(timer); pending.delete(id); reject(error); }

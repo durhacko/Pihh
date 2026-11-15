@@ -6,6 +6,7 @@ import { connect, launch } from '../../scripts/perf/cdp.mjs';
 const fileError = code => Object.assign(new Error(`filesystem ${code}`), { code });
 function fixture() {
   const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, stderr: new EventEmitter() });
+  child.unref = vi.fn(); child.stderr.destroy = vi.fn();
   const browser = { send: vi.fn(async () => ({})), dispose: vi.fn() };
   child.kill = vi.fn(() => { child.exitCode = 0; child.emit('exit', 0); return true; });
   const root = resolve('mock-temp');
@@ -103,6 +104,7 @@ describe('isolated Chrome launch lifecycle (no real filesystem, browser or netwo
     expect(child.kill.mock.calls).toEqual([[], ['SIGKILL']]);
     expect(io.rmSync).not.toHaveBeenCalled();
     expect(io.warn).toHaveBeenCalledWith(expect.stringContaining('profile retained'));
+    expect(child.unref).toHaveBeenCalledTimes(1); expect(child.stderr.destroy).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });
   it('reports persistent cleanup locks without rejecting a successfully closed browser', async () => {
@@ -155,10 +157,20 @@ describe('CDP websocket lifetime (in-memory socket)', () => {
     const first = browser.send('Runtime.enable');
     Socket.instance.onmessage({ data: JSON.stringify({ id: 1, result: { enabled: true } }) });
     await expect(first).resolves.toEqual({ enabled: true });
-    const timed = expect(browser.send('Runtime.evaluate')).rejects.toThrow('Timed out');
+    const timed = expect(browser.send('Page.enable')).rejects.toThrow('Timed out');
     await vi.advanceTimersByTimeAsync(5); await timed;
-    const last = expect(browser.send('Page.enable')).rejects.toThrow('websocket closed');
+    const last = expect(browser.send('Runtime.evaluate')).rejects.toThrow('websocket closed');
     Socket.instance.onclose(); await last;
     expect(vi.getTimerCount()).toBe(0);
+  });
+  it('preserves Runtime.evaluate measurements longer than ten seconds while lifecycle requests stay bounded', async () => {
+    vi.useFakeTimers(); const Socket = socketClass();
+    const browser = await connect('ws://mock', { WebSocketImpl: Socket, timeout: 10000 });
+    const evaluation = browser.send('Runtime.evaluate', { expression: 'long caller-owned measurement' });
+    const ordinary = expect(browser.send('Page.enable')).rejects.toThrow('Timed out');
+    await vi.advanceTimersByTimeAsync(20000); await ordinary;
+    Socket.instance.onmessage({ data: JSON.stringify({ id: 1, result: { result: { value: 42 } } }) });
+    await expect(evaluation).resolves.toEqual({ result: { value: 42 } });
+    browser.dispose(); expect(vi.getTimerCount()).toBe(0);
   });
 });
