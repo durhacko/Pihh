@@ -539,6 +539,76 @@ describe('curved paths and strokes', () => {
   });
 });
 
+// V7-maximal scribbles (8 cubic segments = 25 points, the stroke limit of spec §6.6) swinging across the whole V5
+// range: every chunk's bounding circle covers most of the mask, so only the per-segment box cull keeps them cheap
+// (#238 review). The cull must not change a single bit.
+const q4 = (v: number): number => Math.round(v * 1e4) / 1e4;
+const SCRIBBLES: Record<string, Pt2[]> = {
+  zigzag: Array.from({ length: 25 }, (_, q): Pt2 => {
+    const side = Math.floor(q / 3) % 2 ? 1.5 : -1.5;
+    return [q % 3 === 2 ? -side : side, q4(-1.5 + (3 * q) / 24)];   // each segment sweeps the full width
+  }),
+  jumble: Array.from({ length: 25 }, (_, q): Pt2 => [q4(-1.5 + (3 * ((q * 7) % 25)) / 24), q4(1.5 * Math.cos((Math.PI * 5 * q) / 24))]),
+};
+const scribble = (name: string, width: number) => buildRegion([part(name, { type: 'stroke', points: SCRIBBLES[name], width })]);
+function agreesAt(region: ReturnType<typeof buildRegion>, size: number): number {
+  const mask = rasterise(region, size);
+  let bad = 0;
+  for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+    if ((mask.bits[j * size + i] === 1) !== region.contains(cellCentre(mask, i, j))) bad++;
+  }
+  return bad;
+}
+const WIDE = Boolean(process.env.P2_WIDE);
+
+describe('stroke rasterisation: per-segment box cull (#238 review)', () => {
+  it('V7-maximal scribbles rasterise exactly as containsXY (128² default smoke)', () => {
+    expect(SCRIBBLES.zigzag).toHaveLength(25);
+    for (const name of Object.keys(SCRIBBLES)) for (const width of [0.1, 0.4]) {
+      const region = scribble(name, width);
+      expect(region.parts[0].centreline).toHaveLength(8 * 32 + 1);
+      expect(agreesAt(region, 128), `${name} ${width}`).toBe(0);
+    }
+  });
+
+  it.runIf(WIDE)('the same at 512² for widths up to the V5 maximum (P2_WIDE)', () => {
+    for (const name of Object.keys(SCRIBBLES)) for (const width of [0.1, 0.4, 1]) expect(agreesEverywhere(scribble(name, width)), `${name} ${width}`).toBe(0);
+  }, 120_000);
+
+  it.runIf(WIDE)('timing guard: a V7-maximal scribble rasterises at 512² in well under 100 ms (P2_WIDE, median of 5)', async () => {
+    const { performance } = await import('node:perf_hooks');
+    for (const name of Object.keys(SCRIBBLES)) {
+      const region = scribble(name, 0.4);
+      rasterise(region);                                      // warm-up
+      const times: number[] = [];
+      for (let k = 0; k < 5; k++) { const t0 = performance.now(); rasterise(region); times.push(performance.now() - t0); }
+      const median = [...times].sort((a, b) => a - b)[2];
+      console.log(`scribble ${name} width 0.4 at 512²: median ${median.toFixed(1)} ms (${times.map((t) => t.toFixed(1)).join(', ')})`);
+      // About 15-22 ms on the dev host under load; the budget catches a lost cull or a per-cell all-segment scan
+      // under load, not small changes.
+      expect(median).toBeLessThan(100);
+    }
+  }, 120_000);
+});
+
+describe('V10 thickening is not re-normalised (#238 review)', () => {
+  it('a thickened hair at the edge pushes the union box beyond ±1.1 by at most 0.01', () => {
+    const region = buildRegion([
+      disc('body', [0, 0], 1),
+      part('hair', { type: 'stroke', points: [[0.5, 0], [0.8, 0], [1.2, 0], [1.5, 0]], width: 0.001 }),
+    ]);
+    expect(region.warnings.some((w) => w.code === 'thickened' && w.partId === 'hair')).toBe(true);
+    expect(region.bbox.max[0]).toBeGreaterThan(NORMALISED_HALF_EXTENT);
+    expect(region.bbox.max[0]).toBeLessThanOrEqual(NORMALISED_HALF_EXTENT + MIN_STROKE_WIDTH / 2);
+    expect(region.bbox.min[0]).toBeCloseTo(-NORMALISED_HALF_EXTENT, 12);   // the other side is untouched
+    const mask = rasterise(region);
+    const col = Math.floor((region.bbox.max[0] - mask.origin[0]) / mask.cell) - 1;   // just inside the cap's tip
+    let any = 0;
+    for (let j = 0; j < mask.size; j++) any += mask.bits[j * mask.size + col];
+    expect(any).toBeGreaterThan(0);                           // the overhang is still on the [-1.2, 1.2] mask
+  });
+});
+
 describe('connectivity details', () => {
   const handMask = (on: number[]): Mask2D => {
     const bits = new Uint8Array(16);
