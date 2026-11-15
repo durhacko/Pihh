@@ -15,6 +15,8 @@ export interface Layer {
   /** Optional: the world was rebuilt (reset); drop every retained piece of evidence. */
   reset?(): void;
   setVisible(visible: boolean): void;
+  /** Optional: the render quality level changed (render/quality.ts). Rendering only, never what is measured. */
+  setQuality?(level: number): void;
   dispose(): void;
 }
 export type LayerFactory = () => Layer;
