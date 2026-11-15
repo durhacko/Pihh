@@ -253,12 +253,17 @@ function pointAt(x: number, y: number): Vec3 | null {
 function pickCentre(purpose: 'killRegion' | 'jam', radius: number): void {
   if (!shown.encore) { toaster.toast('Switch to Encore or Split to pick a point in the Encore stage.', 'err'); return; }
   store.state.pick?.resolve(null);
+  // A jam pick means start a jam. If it became active before the pick began, lift it instead.
+  if (purpose === 'jam' && live().jam) { run({ type: 'jam' }); return; }
   store.set({ pick: {
     purpose, radius,
     prompt: purpose === 'killRegion' ? `Click the centre of a ${radius} m region to destroy` : `Click where to centre a ${radius} m radio jam`,
     resolve: result => {
       store.set({ pick: null, pickPoint: null });
-      if (result) run(purpose === 'killRegion' ? { type: 'kill-region', radius, centre: result.point } : { type: 'jam', radius, centre: result.point });
+      if (!result) return;
+      // A pending start-jam pick must never turn into a lift when the live state changes.
+      if (purpose === 'jam' && live().jam) { toaster.toast('Jam state changed; pick cancelled.', 'info'); return; }
+      run(purpose === 'killRegion' ? { type: 'kill-region', radius, centre: result.point } : { type: 'jam', radius, centre: result.point });
     },
   } });
 }
@@ -569,6 +574,7 @@ function refreshChrome(): void {
   const labels = paneLabels(view);
   vpTop.replaceChildren(...label(labels.top));
   if (labels.bottom) vpBottom.replaceChildren(...label(labels.bottom));
+  if (surfaces.isOpen('disrupt')) disrupt.refresh();
   if (surfaces.isOpen('metrics')) metrics.render();
   if (surfaces.isOpen('timeline')) timeline.update();
   if (surfaces.isOpen('composer')) composer.render();
