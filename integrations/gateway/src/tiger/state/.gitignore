@@ -1,0 +1,3 @@
+# Import manifests and the ledger (RFC §5, TIG-D5): local state, never committed.
+*
+!.gitignore
