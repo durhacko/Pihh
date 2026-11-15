@@ -1,0 +1,703 @@
+{
+  "id": "FX-VALID",
+  "description": "Accepted inputs. FX-SHOW is the manually authored valid saved show (spec section 7.2 as a POST body); output is the normalised value, contentHash = sha256(canonicalJson(composition)).",
+  "cases": [
+    {
+      "name": "FX-SHOW",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "  HELLO to Helix ",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "HELLO",
+                "palette": [
+                  [
+                    1,
+                    0.6,
+                    0.1
+                  ],
+                  [
+                    0.2,
+                    0.5,
+                    1
+                  ]
+                ]
+              },
+              "holdTicks": 600
+            },
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            },
+            {
+              "recipe": {
+                "kind": "helix"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "operationId": "3f1c9a2e-7b4d-4e8a-9c1f-2a6b8d0e4f71"
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "schemaVersion": 1,
+          "title": "HELLO to Helix",
+          "composition": {
+            "v": 1,
+            "movements": [
+              {
+                "recipe": {
+                  "kind": "text",
+                  "text": "HELLO",
+                  "palette": [
+                    [
+                      1,
+                      0.6,
+                      0.1
+                    ],
+                    [
+                      0.2,
+                      0.5,
+                      1
+                    ]
+                  ]
+                },
+                "holdTicks": 600
+              },
+              {
+                "recipe": {
+                  "kind": "sphere"
+                },
+                "holdTicks": 600
+              },
+              {
+                "recipe": {
+                  "kind": "helix"
+                },
+                "holdTicks": 600
+              }
+            ]
+          },
+          "source": "manual"
+        },
+        "contentHash": "d75f3232fc3806491d68a17aacbd0aad302860cc53d82fbb1d373ff55cc5154d"
+      }
+    },
+    {
+      "name": "FX-SHOW composition",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "HELLO",
+              "palette": [
+                [
+                  1,
+                  0.6,
+                  0.1
+                ],
+                [
+                  0.2,
+                  0.5,
+                  1
+                ]
+              ]
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "helix"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "HELLO",
+                "palette": [
+                  [
+                    1,
+                    0.6,
+                    0.1
+                  ],
+                  [
+                    0.2,
+                    0.5,
+                    1
+                  ]
+                ]
+              },
+              "holdTicks": 600
+            },
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            },
+            {
+              "recipe": {
+                "kind": "helix"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "contentHash": "d75f3232fc3806491d68a17aacbd0aad302860cc53d82fbb1d373ff55cc5154d"
+      }
+    },
+    {
+      "name": "FX-ONE",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "contentHash": "054f45a3dececf9b3dcba49fe93473eb06951f22f458cac535333e488b557dee"
+      }
+    },
+    {
+      "name": "lower-case text is upper-cased (R12)",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "hello world"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "HELLO WORLD"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "contentHash": "ce10271a3b86235abd5a7a6f1eb5859b5acbb81720731e8b39b556610f812ec3"
+      }
+    },
+    {
+      "name": "exactly 20 characters",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "ABCDEFGHIJ0123456789"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "ABCDEFGHIJ0123456789"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "contentHash": "4ab4d7b39d921bfed857a924ffc4bf57d8afdb9a2846a0335c9bddc7928b6ca7"
+      }
+    },
+    {
+      "name": "palette at the bounds [0,0,0] and [1,1,1]",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "helix",
+              "palette": [
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  1,
+                  1
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "helix",
+                "palette": [
+                  [
+                    0,
+                    0,
+                    0
+                  ],
+                  [
+                    1,
+                    1,
+                    1
+                  ]
+                ]
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "contentHash": "ec90ac1fe8f02d69b2fa8726461eaa429d28eb4ec10c2f5cddea691ce860728e"
+      }
+    },
+    {
+      "name": "holdTicks 0",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 0
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 0
+            }
+          ]
+        },
+        "contentHash": "e39e0457c6877570a5bc67043f27b9e2580607c194bb9d65bd78c6bc0cea807b"
+      }
+    },
+    {
+      "name": "holdTicks 6000",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 6000
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 6000
+            }
+          ]
+        },
+        "contentHash": "fbb8581afc0d7f7141267f87142cae7bd2e25f8a9a1bd0c1dad2990d1dcfa8e6"
+      }
+    },
+    {
+      "name": "16 movements",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 0
+          },
+          {
+            "recipe": {
+              "kind": "helix"
+            },
+            "holdTicks": 100
+          },
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "M2"
+            },
+            "holdTicks": 200
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 300
+          },
+          {
+            "recipe": {
+              "kind": "helix"
+            },
+            "holdTicks": 400
+          },
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "M5"
+            },
+            "holdTicks": 500
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "helix"
+            },
+            "holdTicks": 700
+          },
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "M8"
+            },
+            "holdTicks": 800
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 900
+          },
+          {
+            "recipe": {
+              "kind": "helix"
+            },
+            "holdTicks": 1000
+          },
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "M11"
+            },
+            "holdTicks": 1100
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 1200
+          },
+          {
+            "recipe": {
+              "kind": "helix"
+            },
+            "holdTicks": 1300
+          },
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "M14"
+            },
+            "holdTicks": 1400
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 1500
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 0
+            },
+            {
+              "recipe": {
+                "kind": "helix"
+              },
+              "holdTicks": 100
+            },
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "M2"
+              },
+              "holdTicks": 200
+            },
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 300
+            },
+            {
+              "recipe": {
+                "kind": "helix"
+              },
+              "holdTicks": 400
+            },
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "M5"
+              },
+              "holdTicks": 500
+            },
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            },
+            {
+              "recipe": {
+                "kind": "helix"
+              },
+              "holdTicks": 700
+            },
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "M8"
+              },
+              "holdTicks": 800
+            },
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 900
+            },
+            {
+              "recipe": {
+                "kind": "helix"
+              },
+              "holdTicks": 1000
+            },
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "M11"
+              },
+              "holdTicks": 1100
+            },
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 1200
+            },
+            {
+              "recipe": {
+                "kind": "helix"
+              },
+              "holdTicks": 1300
+            },
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "M14"
+              },
+              "holdTicks": 1400
+            },
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 1500
+            }
+          ]
+        },
+        "contentHash": "8e65bc2359795b89a5f71aa8ce1f1f52e40bd5778e78b03e511606ace9df7fa0"
+      }
+    },
+    {
+      "name": "gemini source with a bounded generator (R6)",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "G",
+        "prompt": "line one\n\tline two",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "gemini",
+        "generator": {
+          "model": "gemini-2.5-flash",
+          "integrationVersion": "1",
+          "sceneHashes": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        }
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "schemaVersion": 1,
+          "title": "G",
+          "prompt": "line one\n\tline two",
+          "composition": {
+            "v": 1,
+            "movements": [
+              {
+                "recipe": {
+                  "kind": "sphere"
+                },
+                "holdTicks": 600
+              }
+            ]
+          },
+          "source": "gemini",
+          "generator": {
+            "model": "gemini-2.5-flash",
+            "integrationVersion": "1",
+            "sceneHashes": [
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ]
+          }
+        },
+        "contentHash": "054f45a3dececf9b3dcba49fe93473eb06951f22f458cac535333e488b557dee"
+      }
+    },
+    {
+      "name": "empty prompt is kept (0-2000 code points)",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "prompt": "",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "schemaVersion": 1,
+          "title": "T",
+          "prompt": "",
+          "composition": {
+            "v": 1,
+            "movements": [
+              {
+                "recipe": {
+                  "kind": "sphere"
+                },
+                "holdTicks": 600
+              }
+            ]
+          },
+          "source": "manual"
+        },
+        "contentHash": "054f45a3dececf9b3dcba49fe93473eb06951f22f458cac535333e488b557dee"
+      }
+    }
+  ]
+}

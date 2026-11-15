@@ -6,7 +6,7 @@
 // ControlIntent steps to pass to the controller's handle(), in order. Where that API only toggles, the intent
 // also carries `when`: dispatch only if the live state matches, otherwise the command is already in effect.
 import type { EnvEvent, RGB, Recipe, WorldSnapshot } from '../../contracts';
-import { FONT } from '../../score/font';
+import { TEXT_MAX, validateText } from '../compose/validate';
 import { OPERATOR_JAM_ID, OPERATOR_PARTITION_ID, toggleOnAt, type ControlIntent, type ControlStatus } from '../actions';
 
 // ---------------------------------------------------------------------------------------------- types
@@ -115,7 +115,7 @@ const SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
 const SWATCHES = ['#FFB000', '#FF3D7F', '#00C2A8', '#B6F500', '#9B7BFF'] as const;
 export const RADIUS_MAX = 40;
 export const LOSS_MAX_PERCENT = 90;
-export const TEXT_MAX = 20;
+export { TEXT_MAX, validateText } from '../compose/validate';   // moved to the pure validator (XI-13, #230)
 export const NAME_MAX = 24;
 
 /** Lenses the production renderer has (ghost slots and tethers: #102, toggled through the layers' setVisible). */
@@ -281,21 +281,6 @@ export function parseInteger(text: string | undefined): number | null {
 export function parseColour(text: string): RGB | null {
   if (!/^#[0-9a-f]{6}$/i.test(text)) return null;
   return [0, 2, 4].map(i => parseInt(text.slice(1 + i, 3 + i), 16) / 255) as RGB;
-}
-
-/**
- * Text a text recipe can draw: 1–20 characters, not all spaces, each in the score package's font table either as
- * typed or as an ASCII lower-case letter. Checked per character as typed, so Unicode case mapping (ß -> SS,
- * ı -> I) cannot smuggle a character past the font.
- */
-export function validateText(text: string): string | null {
-  const chars = [...text];
-  if (!text.trim()) return 'form text needs a word in quotes, e.g. form text "DURHACK".';
-  if (chars.length > TEXT_MAX) return `Text is ${chars.length} characters; the most is ${TEXT_MAX}.`;
-  const drawable = (ch: string) => Object.hasOwn(FONT, ch) || (/^[a-z]$/.test(ch) && Object.hasOwn(FONT, ch.toUpperCase()));
-  const bad = [...new Set(chars.filter(ch => !drawable(ch)))];
-  if (bad.length) return `The font has no ${bad.map(ch => `"${ch}"`).join(', ')}. Use A–Z, 0–9 and spaces.`;
-  return null;
 }
 
 function droneId(text: string | undefined, ctx: ParseContext, what: string, allowDead = false): { id: number; alive: boolean } | string {
