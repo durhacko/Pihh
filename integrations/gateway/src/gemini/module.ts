@@ -54,10 +54,10 @@ export function defaultGeminiDeps(config: GeminiConfig): GeminiDeps {
 
 /** The module as this build runs it: live when the config is enabled (flag and key), offline otherwise. `onUpstream`
  *  receives each call's sanitised outcome (status, outcome kind, sanitised finish reason, latency). */
-export function liveGeminiDeps(config: GeminiConfig, transport: Transport = PLATFORM_TRANSPORT, onUpstream?: (last: LastUpstream) => void): GeminiDeps {
+export function liveGeminiDeps(config: GeminiConfig, transport: Transport = PLATFORM_TRANSPORT, onUpstream?: (last: LastUpstream) => void, sendSchema = true): GeminiDeps {
   if (!config.enabled) return defaultGeminiDeps(config);
   const provider = createGeminiProvider(config, {
-    transport, schemas: loadSceneSchemas(), now: () => performance.now(),
+    transport, schemas: sendSchema ? loadSceneSchemas() : null, now: () => performance.now(),
     observe: o => onUpstream?.({
       httpStatus: o.httpStatus, outcome: o.outcome, latencyMs: Math.round(o.latencyMs),
       ...(o.finishReason ? { finishReason: o.finishReason } : {}), ...(o.error ? { error: o.error } : {}), at: new Date().toISOString(),
@@ -85,6 +85,18 @@ export function geminiModule(deps: GeminiDeps, retry: RetryDeps = DEFAULT_RETRY_
 export const createModule: ModuleFactory = (env: Env) => {
   const problems: string[] = [];
   let last: LastUpstream | null = null;
-  const module = geminiModule(liveGeminiDeps(readGeminiConfig(env, problems), PLATFORM_TRANSPORT, l => { last = l; }), DEFAULT_RETRY_DEPS, () => last);
+  const sendSchema = responseSchemaSetting(env.GEMINI_RESPONSE_SCHEMA, problems);
+  const module = geminiModule(liveGeminiDeps(readGeminiConfig(env, problems), PLATFORM_TRANSPORT, l => { last = l; }, sendSchema), DEFAULT_RETRY_DEPS, () => last);
   return { ...module, problems: Object.freeze(problems) };
 };
+
+/** GEMINI_RESPONSE_SCHEMA: unset or "on" sends the scene schema as responseJsonSchema; "off" sends JSON mode without
+ *  it (the first live calls were refused with 400 INVALID_ARGUMENT and no field named, the shape of a schema too
+ *  complex for constrained decoding). Any other value keeps the default and is reported by name only. */
+export function responseSchemaSetting(value: string | undefined, problems: string[] = []): boolean {
+  const v = (value ?? '').trim().toLowerCase();
+  if (v === '' || v === 'on') return true;
+  if (v === 'off') return false;
+  problems.push('GEMINI_RESPONSE_SCHEMA is not "on" or "off"; sending the schema');
+  return true;
+}

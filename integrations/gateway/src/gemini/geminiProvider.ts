@@ -195,9 +195,10 @@ async function readErrorBody(stream: ReadableStream<Uint8Array> | null, max: num
 export interface GeminiProviderDeps {
   /** The HTTP call. Under D3 the wiring passes the platform fetch; there is deliberately no default. */
   readonly transport: Transport;
-  /** The committed model-facing scene schemas (src/score/generated/schema/scene2d|scene3d.schema.json), loaded by
-   *  the wiring through the module's XI-2 bridge. Sent unchanged as `responseJsonSchema`. */
-  readonly schemas: Readonly<Record<FormationMode, object>>;
+  /** The committed model-facing scene schemas (src/score/generated/schema/scene2d|scene3d.schema.json), sent as
+   *  `responseJsonSchema`. `null` sends JSON mode without a schema (GEMINI_RESPONSE_SCHEMA=off): the server-side
+   *  validateScene stays authoritative either way (spec §10.2). */
+  readonly schemas: Readonly<Record<FormationMode, object>> | null;
   /** Milliseconds, for latency only. The module passes a monotonic clock. A failing clock reads as 0. */
   readonly now: () => number;
   /** Replaces the placeholder system instructions (William's prompts, once written). */
@@ -216,7 +217,7 @@ export function buildRequestBody(request: ProviderRequest, deps: Pick<GeminiProv
   const mode = request.mode;
   const generationConfig: Record<string, unknown> = {
     responseMimeType: 'application/json',
-    responseJsonSchema: deps.schemas[mode],
+    ...(deps.schemas ? { responseJsonSchema: deps.schemas[mode] } : {}),
     maxOutputTokens: MAX_OUTPUT_TOKENS[mode],
     thinkingConfig: { thinkingLevel: THINKING_LEVEL[mode] },
   };
