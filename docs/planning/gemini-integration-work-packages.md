@@ -1,6 +1,6 @@
 # Gemini generated formations: work packages
 
-> **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing in this file exists in code. Do not open these issues or start coding until Arnav approves (see [Gating](#gating)).
+> **STATUS: PROPOSED — NOT IMPLEMENTED.** The owner has authorised **GF-WP-01 only** as an isolated, offline schema/validator task (#203 on `phase2/203-gemini-scene-validation`); it does not yet exist in production. All other GF packages remain proposed and require their listed approvals. This is not an authorisation for Gemini API calls, credentials, D2 protected-contract changes, D3 network integration or judged-demo changes. See [PHASE2_EXECUTION.md](PHASE2_EXECUTION.md).
 >
 > Source author: William Pimentel (`wpimento`), [source handoff](../handoffs/Encore_Gemini_Flash_Lite_Architecture.md). Integrator: Arnav (issue #117).
 
