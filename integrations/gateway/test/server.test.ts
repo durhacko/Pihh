@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { startGateway, startupLines, type RunningGateway } from '../src/server.ts';
 import type { ModuleEntry } from '../src/modules.ts';
+import { FatalConfigError } from '../src/errors.ts';
 
 const APP = 'http://localhost:5173';
 
@@ -150,4 +151,50 @@ test('startup lines name each module and warn about an empty allow-list, without
     assert.match(lines, /GATEWAY_ALLOWED_ORIGINS is empty/);
     assert.ok(!lines.includes('test-key-not-real'));
   });
+});
+
+test('(1) over HTTP: "//" targets are 400 BAD_TARGET and never reach /api/health', async () => {
+  await withGateway({}, async g => {
+    for (const path of ['//api/health', '//evil.example/api/health']) {
+      const r = await send(g, { path });
+      assert.deepEqual([r.status, reasonOf(r).details?.[0]?.reason], [400, 'BAD_TARGET'], path);
+    }
+  });
+});
+
+test('(4) over HTTP: /api/health survives a module whose health() throws or cannot be serialised', async () => {
+  const registry: ModuleEntry[] = [
+    { name: 'thrower', envPrefix: 'THROWER_', create: () => ({ name: 'thrower', routes: [], health: () => { throw new Error('x'); } }) },
+    { name: 'bigint', envPrefix: 'BIGINT_', create: () => ({ name: 'bigint', routes: [], health: () => ({ enabled: true, n: 1n }) as never }) },
+  ];
+  await withGateway({}, async g => {
+    const r = await send(g, {});
+    assert.equal(r.status, 200);
+    assert.deepEqual((r.body as { modules: unknown }).modules, { thrower: { enabled: false }, bigint: { enabled: false } });
+  }, registry);
+});
+
+test('(6) ignored GEMINI_* values are logged at start-up, by name and never by value', async () => {
+  await withGateway({ GEMINI_ENABLED: '1', GEMINI_API_KEY: 'test-key-not-real-0123456789', GEMINI_MODEL: 'Bad Model!', GEMINI_PROVIDER_TIMEOUT_MS: 'soon' }, async g => {
+    const lines = startupLines(g).join('\n');
+    assert.match(lines, /note: module gemini: GEMINI_MODEL is not a model id/);
+    assert.match(lines, /note: module gemini: GEMINI_PROVIDER_TIMEOUT_MS must be an integer/);
+    assert.ok(!lines.includes('Bad Model!') && !lines.includes('soon') && !lines.includes('test-key-not-real'));
+  });
+});
+
+test('a module throwing FatalConfigError makes startGateway refuse to start; nothing listens', async () => {
+  const registry: ModuleEntry[] = [{ name: 'tiger', envPrefix: 'TIGER_', create: () => { throw new FatalConfigError('TIGER_ADMIN_URL must not be set'); } }];
+  let started: RunningGateway | null = null;
+  try {
+    started = await startGateway({}, { port: 0, registry });
+  } catch (error) {
+    assert.ok(error instanceof FatalConfigError && /TIGER_ADMIN_URL/.test(error.message));
+  }
+  if (started !== null) {
+    await started.close(); // never leave a listener behind, even when the assertion fails
+    assert.fail('the gateway started although a module threw FatalConfigError');
+  }
+  const plain: ModuleEntry[] = [{ name: 'tiger', envPrefix: 'TIGER_', create: () => { throw new Error('x'); } }];
+  await withGateway({}, async g => assert.equal((await send(g, {})).status, 200), plain);
 });

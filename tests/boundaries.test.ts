@@ -9,6 +9,7 @@ const allowed: Record<string, string[]> = {
   contracts: ['contracts'], score: ['score', 'contracts'],
   agent: ['agent', 'contracts', 'score'], sim: ['sim', 'contracts'],
   observer: ['observer', 'contracts', 'score'],
+  telemetry: ['telemetry', 'contracts', 'score'],
 };
 
 function violations(source: string, filename: string): string[] {
@@ -26,6 +27,9 @@ function violations(source: string, filename: string): string[] {
       ? relative(root, resolve(root, dirname(filename), target)).replaceAll('\\', '/') : target;
     const parts = destination.split('/');
     if (parts[0] !== 'src' || !allowed[own].includes(parts[1])) errors.push(`${filename}: forbidden import ${target}`);
+    else if (own === 'telemetry' && parts[1] === 'score' && !['canonical', 'font'].includes(parts.slice(2).join('/').replace(/\.[cm]?[jt]sx?$/, ''))) {
+      errors.push(`${filename}: forbidden import ${target}`);   // telemetry may use only score/canonical and score/font (TCR-27)
+    }
   }
   function visit(node: ts.Node) {
     if (ts.isImportTypeNode(node)) check(ts.isLiteralTypeNode(node.argument) ? node.argument.literal : undefined);
@@ -107,5 +111,9 @@ describe('core import isolation', () => {
   });
   it('allows the app to assemble components', () => {
     expect(violations("import * as three from 'three';", 'src/app/main.ts')).toEqual([]);
+  });
+  it('lets telemetry import only score/canonical and score/font from src/score', () => {
+    expect(violations("import { canonicalJson } from '../score/canonical'; import { FONT } from '../score/font';", 'src/telemetry/x.ts')).toEqual([]);
+    expect(violations("import { composeNext } from '../score/compose';", 'src/telemetry/x.ts')).toHaveLength(1);
   });
 });

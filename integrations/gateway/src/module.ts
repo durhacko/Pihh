@@ -41,6 +41,9 @@ export interface GatewayModule {
   /** Routes are registered even when the module is disabled, so it can answer its own MODULE_DISABLED. */
   readonly routes: readonly ModuleRoute[];
   health(): ModuleHealth;
+  /** Optional notes about configuration the module ignored (a bad value replaced by its default). They are printed
+   *  in the start-up log, sanitised and at most 10. Name the variable, never its value. */
+  readonly problems?: readonly string[];
 }
 
 /**

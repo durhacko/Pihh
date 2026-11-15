@@ -14,17 +14,26 @@ export interface HealthBody {
   modules: Record<string, ModuleHealth>;
 }
 
+/** A module's health entry as plain JSON data, at most this many bytes when serialised. */
+export const HEALTH_ENTRY_MAX = 4096;
+
+/** One module's entry, contained (XI-1): a `health()` that throws, returns something that is not a plain object, or
+ *  cannot be serialised (a cycle, a BigInt, a throwing getter, `toJSON` that throws) reads as `{ enabled: false }`,
+ *  so `/api/health` always answers. The entry is a JSON round-trip, so it holds data only. */
+function entryOf(module: GatewayModule): ModuleHealth {
+  try {
+    const text = JSON.stringify(module.health());
+    if (typeof text !== 'string' || text.length > HEALTH_ENTRY_MAX) return { enabled: false };
+    const plain: unknown = JSON.parse(text);
+    if (typeof plain !== 'object' || plain === null || Array.isArray(plain)) return { enabled: false };
+    return { ...(plain as Record<string, unknown>), enabled: (plain as { enabled?: unknown }).enabled === true };
+  } catch {
+    return { enabled: false };
+  }
+}
+
 export function healthBody(modules: readonly GatewayModule[]): HealthBody {
   const entries: Record<string, ModuleHealth> = {};
-  for (const module of modules) {
-    let health: ModuleHealth;
-    try {
-      const reported = module.health();
-      health = { ...reported, enabled: reported.enabled === true };
-    } catch {
-      health = { enabled: false };
-    }
-    entries[module.name] = health;
-  }
+  for (const module of modules) entries[module.name] = entryOf(module);
   return { service: GATEWAY_SERVICE, version: GATEWAY_VERSION, modules: entries };
 }

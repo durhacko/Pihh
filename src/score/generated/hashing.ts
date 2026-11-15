@@ -33,13 +33,17 @@ export interface FormationSlots {
  * §6.7 steps 1–3 on a V3-valid scene: every non-integer number on the 1e-4 grid, -0 as 0, and
  * defaults expanded (a missing rotationDeg becomes 0 / [0, 0, 0] and a missing 3D symmetry 'none';
  * a hex foreground stays a string). Returns a new object and never mutates its input, which may be
- * frozen. A key whose value is undefined counts as missing. Idempotent.
- * Throws RangeError on NaN or ±Infinity anywhere (§6.7 step 3: checked again, though V3 rejects them).
+ * frozen. A key whose value is undefined counts as missing. Idempotent on every value V5 accepts.
+ * Throws RangeError, and nothing else, when the scene is not an object, on NaN or ±Infinity anywhere
+ * (§6.7 step 3: checked again, though V3 rejects them), and on an own '__proto__', 'constructor' or
+ * 'prototype' key, which validateScene also rejects: such a key would re-parent the copy and vanish
+ * from the hash, so two scenes with one hash could compile differently.
  */
 export function normaliseScene(scene: SceneSpec): SceneSpec {
+  if (!isObj(scene)) throw new RangeError(`normaliseScene: the scene must be an object, got ${scene === null ? 'null' : Array.isArray(scene) ? 'an array' : typeof scene}`);
   const out = normalise(scene, '') as Obj;
   // The same expansion as validation.ts's canonicalise on V3-valid scenes; guarded so that other
-  // input is normalised without throwing (only non-finite numbers throw).
+  // object input is normalised without a TypeError.
   for (const part of Array.isArray(out.parts) ? out.parts : []) {
     if (!isObj(part)) continue;
     if (out.mode === 'silhouette2d') {
@@ -54,6 +58,9 @@ export function normaliseScene(scene: SceneSpec): SceneSpec {
   return out as unknown as SceneSpec;
 }
 
+/** The keys validateScene rejects as "forbidden key" (validation.ts FORBIDDEN_KEYS, not exported). */
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function isObj(v: unknown): v is Obj {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -66,7 +73,10 @@ function normalise(v: unknown, path: string): unknown {
   if (Array.isArray(v)) return v.map((x, i) => normalise(x, `${path}/${i}`));
   if (v !== null && typeof v === 'object') {
     const out: Obj = {};
-    for (const [k, x] of Object.entries(v)) if (x !== undefined) out[k] = normalise(x, `${path}/${k}`);
+    for (const [k, x] of Object.entries(v)) {
+      if (FORBIDDEN_KEYS.has(k)) throw new RangeError(`normaliseScene: forbidden key "${k}" at ${path}/${k}`);
+      if (x !== undefined) out[k] = normalise(x, `${path}/${k}`);
+    }
     return out;
   }
   return v;
