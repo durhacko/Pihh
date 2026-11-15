@@ -4,8 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -233,6 +233,49 @@ test('file stores: atomic, never-overwritten manifests and an fsynced append-onl
     assert.throws(() => store.write(one));
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an unparseable manifest rejects that artifact only (MANIFEST_CORRUPT); the batch goes on (#274 review)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tig-261-corrupt-'));
+  try {
+    const s = setup({ manifests: fileManifestStore(dir) });
+    const a = byName('S0_n200_static_s3.json');
+    const b = byName('S1_n200_static_s3.json');
+    await importFiles([a], setup({ manifests: fileManifestStore(dir) }).deps);   // writes a's manifest
+    const [name] = readdirSync(join(dir, 'manifests'));
+    writeFileSync(join(dir, 'manifests', name!), '{ torn');
+    const report = await importFiles([a, b], s.deps);
+    assert.deepEqual(report.results.map(r => [r.state, r.code]), [['rejected', 'MANIFEST_CORRUPT'], ['verified', null]]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the CLI refuses bad arguments: state inside the records or results/, unknown flags, DT misuse, a bad schema (#274 review)', () => {
+  const state = mkdtempSync(join(tmpdir(), 'tig-261-args-'));
+  const run = (...extra: string[]) => spawnSync(process.execPath, [
+    '--experimental-strip-types', '--disable-warning=ExperimentalWarning', '--import', './integrations/gateway/loader/register.mjs',
+    'integrations/gateway/src/tiger/cli/import.ts', ...extra,
+  ], { cwd: REPO, encoding: 'utf8' });
+  try {
+    const cases: [string[], RegExp][] = [
+      [['--dir', 'results/full/n200', '--state-dir', 'results/x'], /inside results/],
+      [['--dir', 'results', '--state-dir', 'results/..state'], /inside --dir/],
+      [['--dir', 'results', '--state-dir', state, '--bogus', '1'], /unknown flag --bogus/],
+      [['--dir', 'results', '--state-dir', state, '--dt-commits', FREEZE], /--dt-commits needs --dt-file/],
+      [['--dir', 'results', '--state-dir', state, '--dt-file', 'README.md', '--dt-commits', FREEZE], /--dt-file has no/],
+      [['--dir', 'results', '--state-dir', state, '--schema', 'Encore'], /schema name must be/],
+    ];
+    for (const [argv, message] of cases) {
+      const result = run(...argv);
+      assert.equal(result.status, 2, argv.join(' '));
+      assert.match(result.stderr, message, argv.join(' '));
+      assert.equal(result.stdout, '', argv.join(' '));   // refused before anything is imported or written
+    }
+    assert.deepEqual(readdirSync(state), []);
+  } finally {
+    rmSync(state, { recursive: true, force: true });
   }
 });
 

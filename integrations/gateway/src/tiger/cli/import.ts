@@ -17,9 +17,12 @@ import { createFakeRepository } from '../fakeRepository.ts';
 import { importFiles, operatorDt, parseDt, type ArtifactFile } from '../importer.ts';
 import { fileLedger } from '../ledgerFile.ts';
 import { fileManifestStore } from '../manifestFile.ts';
+import { checkSchemaName } from '../schemaName.ts';
 
 const USAGE = 'usage: import.ts --dir <records dir> [--state-dir <dir>] [--dt-file <params.ts> --dt-commits <sha,...>] [--passes <1-5>] [--schema encore|tig_test_<12 hex>]';
 const IMPORTER_VERSION = 'encore-gateway 0.0.0 (tiger import CLI, dry run)';
+
+const FLAGS = new Set(['dir', 'state-dir', 'dt-file', 'dt-commits', 'passes', 'schema']);
 
 function args(argv: readonly string[]): Map<string, string> {
   const out = new Map<string, string>();
@@ -27,9 +30,20 @@ function args(argv: readonly string[]): Map<string, string> {
     const key = argv[i] ?? '';
     const value = argv[i + 1];
     if (!key.startsWith('--') || value === undefined) throw new Error(USAGE);
-    out.set(key.slice(2), value);
+    const name = key.slice(2);
+    if (!FLAGS.has(name)) throw new Error(`unknown flag --${name}\n${USAGE}`);
+    if (out.has(name)) throw new Error(`--${name} given twice`);
+    out.set(name, value);
   }
   return out;
+}
+
+/** True when `child` is `parent` or inside it, comparing whole path segments (so `results/..state` is not `..`). */
+function within(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  if (rel === '') return true;
+  if (rel === '..' || rel.startsWith('../') || rel.startsWith('..\\')) return false;
+  return !/^([A-Za-z]:|[\\/])/.test(rel);   // another drive or root: outside
 }
 
 /** Top-level `*.json` with `v`, sorted, like runReport; regular files only (lstat refuses symlinks); inside `dir`. */
@@ -50,12 +64,16 @@ async function main(argv: readonly string[], cwd: string): Promise<number> {
   const dir = opts.get('dir');
   if (!dir) throw new Error(USAGE);
   const stateDir = resolve(opts.get('state-dir') ?? 'integrations/gateway/src/tiger/state');
-  // Never write manifests or the ledger inside the records directory (TCR-22).
-  if (!relative(resolve(dir), stateDir).startsWith('..')) throw new Error('--state-dir must not be inside --dir');
+  // Never write manifests or the ledger inside the records directory or the repo's results/ (TCR-22).
+  if (within(resolve(dir), stateDir)) throw new Error('--state-dir must not be inside --dir');
+  if (within(resolve(cwd, 'results'), stateDir)) throw new Error('--state-dir must not be inside results/');
   const passes = Number(opts.get('passes') ?? '1');
   if (!Number.isSafeInteger(passes) || passes < 1 || passes > 5) throw new Error(USAGE);
+  const schema = checkSchemaName(opts.get('schema') ?? 'encore');   // `Encore` must not slip past the DEV_SEED policy
   const dtFile = opts.get('dt-file');
+  if (opts.has('dt-commits') && !dtFile) throw new Error('--dt-commits needs --dt-file');
   const dtSeconds = dtFile ? parseDt(readFileSync(dtFile, 'utf8')) : null;
+  if (dtFile && dtSeconds === null) throw new Error('--dt-file has no `export const DT = <seconds>;` line');
   const commits = (opts.get('dt-commits') ?? '').split(',').map(s => s.trim()).filter(Boolean);
   if (commits.some(c => !/^[0-9a-f]{40}$/.test(c))) throw new Error('--dt-commits takes 40-hex commit ids');
 
@@ -69,7 +87,7 @@ async function main(argv: readonly string[], cwd: string): Promise<number> {
     now,
     attemptId: () => randomUUID(),
     dtFor: operatorDt(dtSeconds, commits),
-    schema: opts.get('schema') ?? 'encore',
+    schema,
     importerVersion: IMPORTER_VERSION,
   };
   const files = scan(dir, cwd);

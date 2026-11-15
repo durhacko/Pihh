@@ -47,7 +47,7 @@ const BUILTINS: Record<string, Record<string, string[]>> = {
   'src/shows/validate.ts': { 'node:crypto': ['createHash'] },
   // TIG-04 offline (#261; orchestrator-approved shared-file edit): the manifest and ledger stores, and the import CLI.
   'src/tiger/manifestFile.ts': {
-    'node:fs': ['mkdirSync', 'readFileSync', 'renameSync', 'writeFileSync', 'existsSync'],
+    'node:fs': ['mkdirSync', 'readFileSync', 'renameSync', 'writeFileSync', 'existsSync', 'openSync', 'fsyncSync', 'closeSync'],
     'node:path': ['dirname', 'join'],
   },
   'src/tiger/ledgerFile.ts': {
