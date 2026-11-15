@@ -1,8 +1,13 @@
-// GF-WP-11 (#214), GF-T36: a saved event log replays to the same stateHash. The run is driven live through the
-// controller (an injection into one drone, a kill), its event log is saved as a ReplayLogFile, read back as JSON,
-// checked, and rebuilt from the seed alone (reset and deterministic reproduction). No model is involved.
+// GF-WP-11 (#214), GF-T36: a saved event log with a GENERATED injection replays to the same stateHash. The run is
+// driven live through the controller (a generated recipe from a committed fixture injected into one drone, then a
+// kill), its event log is saved as a ReplayLogFile, read back, checked, and rebuilt from the seed alone (reset and
+// deterministic reproduction). No model is involved.
 import { describe, expect, it } from 'vitest';
-import { makeParams, type Recipe } from '../../../src/contracts';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { makeParams, type GeneratedRecipe } from '../../../src/contracts';
+import { makeGeneratedRecipe } from '../../../src/score';
 import { encoreBrain } from '../../../src/agent/encoreBrain';
 import { createActionController } from '../../../src/app/actions';
 import { Drafts, type ComposeContext } from '../../../src/app/ui/Composer';
@@ -14,6 +19,15 @@ import { canonicalJson } from '../../../src/score/canonical';
 import { paramsHash } from '../../../src/cli/run';
 
 const SEED = 11;
+/** A real generated recipe: the first committed valid fixture scene that compiles at n0 40 (fixed by file order). */
+const GENERATED: GeneratedRecipe = (() => {
+  const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../fixtures/scenes');
+  for (const file of readdirSync(dir).filter(f => f.startsWith('valid-')).sort()) {
+    const made = makeGeneratedRecipe(JSON.parse(readFileSync(resolve(dir, file), 'utf8')) as unknown, 40, makeParams(40));
+    if (made.ok) return made.recipe;
+  }
+  throw new Error('no committed fixture compiles at n0 40');
+})();
 const N0 = 40;
 const END = 320;
 
@@ -35,7 +49,7 @@ const hashes = (w: ReturnType<typeof createWorlds>) => ({ encore: w.worlds.encor
 async function recordedRun() {
   const run = live();
   for (let i = 0; i < 40; i++) run.worlds.stepBoth();
-  expect((await injectGeneratedRecipe(run.ctx, { kind: 'helix' } as Recipe, 7, 'Helix')).status).toBe('done');
+  expect((await injectGeneratedRecipe(run.ctx, GENERATED, 7, GENERATED.scene.title)).status).toBe('done');
   for (let i = 0; i < 60; i++) run.worlds.stepBoth();
   expect(run.controller.handle({ type: 'kill-ids', ids: [12, 13] }).ok).toBe(true);
   while (run.worlds.tick < END) run.worlds.stepBoth();
@@ -46,6 +60,8 @@ describe('GF-T36: event-log replay', () => {
   it('a saved log, read back and rebuilt from the seed alone, reaches the same stateHash in both arms', async () => {
     const { log, end } = await recordedRun();
     expect(log.events.map(e => e.type)).toEqual(['INJECT_SCORE', 'KILL']);
+    const injected = log.events[0]!;
+    expect(injected.type === 'INJECT_SCORE' && injected.score.movements.at(-1)!.recipe).toMatchObject({ kind: 'generated', sceneHash: GENERATED.sceneHash });
     const stored = parseReplayLog(serializeReplayLog(log));               // THE file form: keys in their original order
     const checked = checkReplayLog(stored, makeParams(N0));
     expect(checked.ok).toBe(true);

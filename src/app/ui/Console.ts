@@ -7,9 +7,10 @@
 // Events scheduled by other paths (buttons, keys) are reported in the same stream.
 // No createPanel export: the shell mounts it with connectConsole(ctx).
 import type { EnvEvent } from '../../contracts';
+import { checkReplayLog, makeReplayLog, parseReplayLog, serializeReplayLog } from '../../cli/generated';
 import { versionKey } from '../render/colourModes/belief';
 import { readViewMode } from '../render/colourModes/viewMode';
-import { complete, parse, type Lens, type Suggestion, type UiAction } from './commands';
+import { complete, parse, type CameraPreset, type Lens, type Suggestion, type UiAction } from './commands';
 import { adoption, cancelPendingPick, dispatchInject, draftFromRecipe, parseContext, runControlPlan, setPreview, validateDraft, type ComposeContext, type PlanOutcome, type SentRecord } from './Composer';
 import { h } from './dom';
 import { icon } from './icons';
@@ -26,6 +27,34 @@ export interface ConsoleHooks {
   inspect?(id: number, arm: 'encore' | 'static'): void;
   /** The scripted demo (FE-E, #94). Returns what to print. */
   demo?(action: 'run' | 'stop'): string;
+  /** `camera PRESET`: move the camera rig, the same hook the Lenses popover uses (main.ts setCamera → rig.preset). */
+  camera?(preset: CameraPreset): void;
+  /** `replay save` (#214): write a file; false if it cannot. Default: a browser download. */
+  saveFile?(name: string, text: string): boolean;
+  /** `replay load` (#214): the chosen file's text, or null if none. Default: a browser file picker. */
+  openFile?(): Promise<string | null>;
+}
+
+/** A browser download of `text` as `name`. False where there is no DOM (headless). */
+function browserSaveFile(name: string, text: string): boolean {
+  if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return false;
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  return true;
+}
+
+/** A browser file picker for one JSON file; null when cancelled or where there is no DOM. */
+function browserOpenFile(): Promise<string | null> {
+  if (typeof document === 'undefined') return Promise.resolve(null);
+  return new Promise(resolve => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'application/json,.json';
+    input.addEventListener('change', () => { const file = input.files?.[0]; if (file) void file.text().then(resolve, () => resolve(null)); else resolve(null); });
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
 }
 export interface ConsoleContext extends ComposeContext {
   surfaces?: Surfaces;
@@ -185,7 +214,11 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
       }
       case 'inspect-off': { cancelPendingPick(ctx); const result = ctx.controller.handle({ type: 'select', id: null }); surface('inspector', 'close'); return say(result.ok ? 'info' : 'error', result.message); }
       case 'view': return view(action.lens, action.on);
-      case 'camera': ctx.store.set({ camera: null }); ctx.store.set({ camera: action.preset }); return say('info', `Camera: ${action.preset} (visual only).`);
+      case 'camera':
+        // Setting store.camera alone moved nothing (no one applies it; audit E6): the rig moves only through the hook.
+        if (!ctx.hooks?.camera) return say('error', 'Camera presets are not connected to this console yet.');
+        ctx.hooks.camera(action.preset);
+        return say('info', `Camera: ${action.preset} (visual only).`);
       case 'compare': ctx.store.set({ view: action.mode === 'on' ? 'split' : action.mode === 'off' ? 'encore' : 'static' }); return say('info', `View: ${action.mode === 'on' ? 'split, Encore above static' : action.mode === 'off' ? 'Encore' : 'static'} (visual only).`);
       case 'metrics': case 'timeline': return surface(action.type, 'toggle') ? say('info', `Toggled ${action.type}.`) : say('error', `The ${action.type} surface is not available yet (#92).`);
       case 'clear': return onClear();
@@ -208,7 +241,28 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
       }
       case 'demo-run': case 'demo-stop':
         return ctx.hooks?.demo ? say('info', ctx.hooks.demo(action.type === 'demo-run' ? 'run' : 'stop')) : say('error', 'The scripted demo is not available yet (#94).');
+      case 'replay-save': {
+        // GF-WP-11: the run's own event log, in THE file form (serializeReplayLog: original key order, #285).
+        const status = ctx.controller.status();
+        const log = makeReplayLog(status.seed, ctx.params, ctx.controller.getEventLog());
+        const name = `encore-replay-seed${status.seed}-t${tick() ?? 0}.json`;
+        const save = ctx.hooks?.saveFile ?? browserSaveFile;
+        if (!save(name, serializeReplayLog(log))) return say('error', 'Saving a file is not available here.');
+        return say('info', `Saved ${name}: seed ${log.seed}, ${log.events.length} event${log.events.length === 1 ? '' : 's'}. replay load rebuilds this run from it.`);
+      }
+      case 'replay-load': return replayLoad();
     }
+  }
+
+  async function replayLoad(): Promise<void> {
+    const open = ctx.hooks?.openFile ?? browserOpenFile;
+    const text = await open();
+    if (text === null) return say('info', 'replay load: no file chosen. Nothing changed.');
+    const checked = checkReplayLog(parseReplayLog(text), ctx.params);   // refused, never adapted: other params, bad events, a tampered scene
+    if (!checked.ok) return say('error', `replay load refused (${checked.reason}): ${checked.detail}. Nothing changed.`);
+    cancelPendingPick(ctx);
+    const result = ctx.controller.handle({ type: 'replay', seed: checked.log.seed, events: checked.log.events });
+    return say(result.ok ? 'info' : 'error', result.message);
   }
 
   async function run(raw: string): Promise<void> {
@@ -230,7 +284,9 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
         ctx.hooks.step();
         return say('info', `Stepped to tick ${tick()}.`);
       case 'draft': {
-        const draft = ctx.drafts.add(draftFromRecipe(intent.name, intent.recipe));
+        const input = draftFromRecipe(intent.name, intent.recipe);   // console forms are never generated (GF-CC-01)
+        if (!input) return say('error', 'A generated formation cannot be edited as a draft.');
+        const draft = ctx.drafts.add(input);
         const v = validateDraft(draft, ctx.params);
         if (!v.ok) return say('error', `Draft ${draft.id} “${draft.name}” was created but is not valid: ${v.errors[0]}`);
         if (ctx.store.state.preview) setPreview(ctx, true);

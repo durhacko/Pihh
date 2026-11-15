@@ -157,13 +157,35 @@ export function acceptsRecipe(recipe: Recipe, n0: number, params: Params): boole
   if (recipe.kind !== 'generated') return true;
   try {
     if (recipe.compilerVersion !== COMPILER_VERSION) return false;
-    if (typeof recipe.sceneHash !== 'string' || sceneHash(recipe.scene) !== recipe.sceneHash) return false;
+    if (!wellFormedDigest(recipe.slotsDigest)) return false;          // copyRecipe on adoption needs it; the type requires it
+    if (typeof recipe.sceneHash !== 'string') return false;
+    const hash = sceneHashOf(recipe);                                   // validator caps first, then the hash
+    if (hash === null || hash !== recipe.sceneHash) return false;
     const digest = compiledSlotsDigest(recipe, n0, params);
     if (digest === null) return false;
     const label = recipe.slotsDigest;
-    if (label && label.n0 === n0 && label.slotSpacingMin === params.slotSpacingMin && label.digest !== digest) return false;
+    if (label.n0 === n0 && label.slotSpacingMin === params.slotSpacingMin && label.digest !== digest) return false;
     return true;
   } catch {
     return false;
+  }
+}
+
+function wellFormedDigest(d: unknown): d is GeneratedRecipe['slotsDigest'] {
+  if (typeof d !== 'object' || d === null) return false;
+  const { n0, slotSpacingMin, digest } = d as Record<string, unknown>;
+  return Number.isInteger(n0) && typeof slotSpacingMin === 'number' && Number.isFinite(slotSpacingMin) && typeof digest === 'string';
+}
+
+/**
+ * The hash of a generated recipe's scene as it is, never its label: null if the scene does not pass the validator
+ * (its size caps run before any canonicalising or hashing). Brains key refusal memory on it (GF-CC-02).
+ */
+export function sceneHashOf(recipe: GeneratedRecipe): string | null {
+  try {
+    const validated = validateScene(recipe.scene);
+    return validated.ok ? sceneHash(validated.scene) : null;
+  } catch {
+    return null;
   }
 }

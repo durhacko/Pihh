@@ -92,3 +92,27 @@ describe('injectGeneratedRecipe: one drone, then gossip', () => {
     expect(injects(fx.controller.getEventLog())).toHaveLength(0);
   });
 });
+
+describe('the optional per-injection lead (GF-WP-11 step 2)', () => {
+  it('moves only the new movement’s start: tick + lead; the default stays params.scoreLead', async () => {
+    const plain = setup();
+    await injectGeneratedRecipe(plain.ctx, RECIPE, 7, 'x');
+    const e0 = injects(plain.controller.getEventLog())[0]!;
+    expect(e0.score.movements.at(-1)!.startTick).toBe(e0.tick + plain.worlds.params.scoreLead);
+    const led = setup();
+    await injectGeneratedRecipe(led.ctx, RECIPE, 7, 'x', { lead: 200 });
+    const e1 = injects(led.controller.getEventLog())[0]!;
+    expect(e1.score.movements.at(-1)!.startTick).toBe(e1.tick + 200);
+    expect(led.worlds.params.scoreLead).toBe(plain.worlds.params.scoreLead);   // no Params default changed
+  });
+
+  it('refuses a lead shorter than the default, longer than 60 s, or not whole, and sends nothing', async () => {
+    const fx = setup();
+    for (const lead of [fx.worlds.params.scoreLead - 1, 1201, 150.5]) {
+      const outcome = await injectGeneratedRecipe(fx.ctx, RECIPE, 7, 'x', { lead });
+      expect(outcome.status, String(lead)).toBe('failed');
+      expect(outcome.message).toMatch(/lead must be a whole number of ticks/);
+    }
+    expect(injects(fx.controller.getEventLog())).toHaveLength(0);
+  });
+});
