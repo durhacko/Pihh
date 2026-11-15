@@ -125,7 +125,7 @@ describe('injectPreflight (GF-WP-11 step 1)', () => {
     }
     const tampered = injectPreflight({ ...clone(c.scene), title: 'other' }, c.result.provenance, makeParams(200));
     expect(tampered.ok ? 'ok' : tampered.reason).toBe('hash-mismatch');
-  });
+  }, 60_000);   // compiles at n0 200: the repo's heavy-test budget (#165)
 });
 
 describe('src/cli/generated.ts is pure', () => {
