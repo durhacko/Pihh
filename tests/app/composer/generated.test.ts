@@ -31,7 +31,7 @@ function rig(auto = true) {
   let onMessage: ((e: MessageEvent<CompileReply>) => void) | null = null;
   const worker: WorkerLike = {
     postMessage: (m) => { posted.push(m); if (auto) queueMicrotask(() => onMessage?.({ data: handleCompileRequest(m) } as MessageEvent<CompileReply>)); },
-    addEventListener: (type: 'message' | 'error', listener: never) => { if (type === 'message') onMessage = listener; },
+    addEventListener: (type: 'message' | 'error' | 'messageerror', listener: never) => { if (type === 'message') onMessage = listener; },
     terminate: () => {},
   };
   const store = new Store();
