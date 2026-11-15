@@ -41,6 +41,19 @@ const BUILTINS: Record<string, Record<string, string[]>> = {
     'node:path': ['resolve'],
     'node:url': ['fileURLToPath'],
   },
+  // contentHash and requestHash: sha256 over canonicalJson, server-side (mongodb spec §7.3, XI-7).
+  'src/shows/validate.ts': { 'node:crypto': ['createHash'] },
+};
+
+/** XI-2 bridges: the one file per module that may import the app's pure src/ code, with the exact specifiers.
+ *  Every other gateway file stays inside integrations/gateway/src/. Each module's own imports test checks the
+ *  transitive graph of these targets. */
+const BRIDGES: Record<string, string[]> = {
+  'src/shows/validate.ts': [
+    '../../../../src/app/compose/validate.ts',
+    '../../../../src/score/canonical.ts',
+    '../../../../src/contracts/params.ts',
+  ],
 };
 
 test('the gateway source has the expected files', () => {
@@ -69,7 +82,8 @@ test('imports: relative inside src/, or an allow-listed node built-in with exact
       }
       assert.ok(specifier.startsWith('./') || specifier.startsWith('../'), `${name} imports ${specifier}`);
       const target = join(dirname(file), specifier);
-      assert.ok(relative(join(gateway, 'src'), target).split(/[\\/]/)[0] !== '..', `${name} leaves src/: ${specifier}`);
+      const leaves = relative(join(gateway, 'src'), target).split(/[\\/]/)[0] === '..';
+      if (leaves) assert.ok(BRIDGES[name]?.includes(specifier), `${name} leaves src/: ${specifier}`);
     }
     assert.ok(!/^\s*import\s*['"]/m.test(text), `${name} has a side-effect import`);
     assert.ok(!/\bimport\s*\(/.test(text), `${name} uses a dynamic import`);
@@ -129,18 +143,32 @@ test('nothing in the app, core, CLI or root tests imports integrations/', () => 
   for (const file of app) assert.ok(!/['"][^'"]*integrations\//.test(raw(file)), relative(repo, file));
 });
 
+/** Environment variable names with `prefix` that a file's code mentions (comments stripped). */
+function envNamesRead(text: string, prefix: string): Set<string> {
+  // String.raw: in a plain template literal `\b` is a backspace, and the pattern would match nothing.
+  const pattern = new RegExp(String.raw`\b(${prefix}[A-Z0-9_]+)\b`, 'g');
+  return new Set([...text.matchAll(pattern)].map(m => m[1] ?? '').filter(name => name !== `${prefix}DEFAULTS`));
+}
+
+/** [file that reads the variables, its .env.example, prefix, must it read at least one?] */
+const ENV_PAIRS: [string, string, string, boolean][] = [
+  ['src/config.ts', '.env.example', 'GATEWAY_', true],
+  ['src/gemini/config.ts', 'src/gemini/.env.example', 'GEMINI_', true],
+  ['src/shows/module.ts', 'src/shows/.env.example', 'MONGODB_', false],
+  ['src/tiger/module.ts', 'src/tiger/.env.example', 'TIGER_', false],
+];
+
+test('the env-name scan is not vacuous', () => {
+  assert.deepEqual([...envNamesRead("read('GATEWAY_PORT') and GATEWAY_BIND, not XGATEWAY_NO or GATEWAY_DEFAULTS", 'GATEWAY_')], ['GATEWAY_PORT', 'GATEWAY_BIND']);
+});
+
 test('every variable the code reads is listed in the matching .env.example', () => {
   const listed = (file: string) => new Set([...raw(file).matchAll(/^([A-Z][A-Z0-9_]*)=/gm)].map(m => m[1]));
-  const read = (file: string, prefix: string) => new Set([...code(file).matchAll(new RegExp(`\b(${prefix}[A-Z0-9_]+)\b`, 'g'))].map(m => m[1]));
-  const pairs: [string, string, string][] = [
-    ['src/config.ts', '.env.example', 'GATEWAY_'],
-    ['src/gemini/config.ts', 'src/gemini/.env.example', 'GEMINI_'],
-  ];
-  for (const [source, example, prefix] of pairs) {
+  for (const [source, example, prefix, required] of ENV_PAIRS) {
+    const read = envNamesRead(code(join(gateway, source)), prefix);
+    if (required) assert.ok(read.size > 0, `${source} reads no ${prefix}* variable`);
+    if (read.size === 0) continue;
     const names = listed(join(gateway, example));
-    for (const name of read(join(gateway, source), prefix)) {
-      if (name === prefix.slice(0, -1) || name === `${prefix}DEFAULTS`) continue;
-      assert.ok(names.has(name), `${name} (read in ${source}) is missing from ${example}`);
-    }
+    for (const name of read) assert.ok(names.has(name), `${name} (read in ${source}) is missing from ${example}`);
   }
 });
