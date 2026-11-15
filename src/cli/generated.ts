@@ -128,7 +128,7 @@ export function makeReplayLog(seed: number, params: Params, events: readonly Env
   return { format: 1, n0: params.n0, paramsHash: replayParamsHash(params), seed, events: copy.map((e, i) => [e, i] as const).sort((a, b) => a[0].tick - b[0].tick || a[1] - b[1]).map(([e]) => e) };
 }
 
-export type ReplayLogCheck = { ok: true; log: ReplayLogFile } | { ok: false; reason: 'format' | 'params' | 'event'; detail: string };
+export type ReplayLogCheck = { ok: true; log: ReplayLogFile } | { ok: false; reason: 'format' | 'params' | 'event' | 'scene'; detail: string };
 const EVENT_TYPES = new Set(['KILL', 'JAM_ON', 'JAM_OFF', 'PARTITION_ON', 'PARTITION_OFF', 'INJECT_SCORE', 'SET_LOSS']);
 
 /**
@@ -150,7 +150,66 @@ export function checkReplayLog(input: unknown, params: Params): ReplayLogCheck {
     if (!ev || typeof ev !== 'object' || typeof ev.type !== 'string' || !EVENT_TYPES.has(ev.type)) return { ok: false, reason: 'event', detail: `events[${i}]: unknown event` };
     if (!Number.isSafeInteger(ev.tick) || (ev.tick as number) < 0 || (ev.tick as number) < last) return { ok: false, reason: 'event', detail: `events[${i}]: tick must be a non-negative integer, in order` };
     if (ev.type === 'INJECT_SCORE' && (!Number.isSafeInteger(ev.droneId) || (ev.droneId as number) < 0 || (ev.droneId as number) >= params.n0)) return { ok: false, reason: 'event', detail: `events[${i}]: droneId out of range` };
+    if (ev.type === 'INJECT_SCORE') {
+      const movements = (ev.score as { movements?: unknown } | null)?.movements;
+      if (!Array.isArray(movements)) return { ok: false, reason: 'event', detail: `events[${i}]: score has no movements` };
+      for (const [k, m] of movements.entries()) {
+        const problem = generatedRecipeProblem((m as { recipe?: unknown } | null)?.recipe);
+        if (problem) return { ok: false, reason: 'scene', detail: `events[${i}].score.movements[${k}]: ${problem}` };   // refused before scheduling
+      }
+    }
     last = ev.tick as number;
   }
   return { ok: true, log: input as unknown as ReplayLogFile };
+}
+
+// ----------------------------------------------------------------------------------- provenance from a run
+
+/** One generated injection of a run, for reports (GF-WP-11 step 4). Derived only from INJECT_SCORE events. */
+export interface InjectedProvenance {
+  tick: number; droneId: number; sceneHash: string; compilerVersion: number; slotsDigest: string; n0: number; slotSpacingMin: number; title: string;
+}
+
+/** The generated-recipe fields read here (GF-CC-01, src/contracts/score.ts GeneratedRecipe), checked structurally. */
+interface GeneratedFields { kind: 'generated'; compilerVersion: number; sceneHash: string; slotsDigest: { n0: number; slotSpacingMin: number; digest: string }; scene: { title?: unknown } }
+function asGenerated(recipe: unknown): GeneratedFields | null {
+  if (recipe === null || typeof recipe !== 'object') return null;
+  const r = recipe as Record<string, unknown>;
+  if (r.kind !== 'generated') return null;
+  const d = r.slotsDigest as Record<string, unknown> | null;
+  if (!Number.isInteger(r.compilerVersion) || typeof r.sceneHash !== 'string' || !d || typeof d !== 'object'
+    || !Number.isInteger(d.n0) || typeof d.slotSpacingMin !== 'number' || typeof d.digest !== 'string' || r.scene === null || typeof r.scene !== 'object') return null;
+  return r as unknown as GeneratedFields;
+}
+
+/**
+ * Every generated injection in a run's events: the movement each INJECT_SCORE adds (its last). RunRecord is a
+ * contract type and is not changed; this reads `record.events` only. Non-generated injections are skipped.
+ */
+export function generatedProvenance(record: { events: readonly EnvEvent[] }): InjectedProvenance[] {
+  const rows: InjectedProvenance[] = [];
+  for (const e of record.events) {
+    if (e.type !== 'INJECT_SCORE') continue;
+    const g = asGenerated(e.score.movements.at(-1)?.recipe);
+    if (!g) continue;
+    rows.push({ tick: e.tick, droneId: e.droneId, sceneHash: g.sceneHash, compilerVersion: g.compilerVersion, slotsDigest: g.slotsDigest.digest,
+      n0: g.slotsDigest.n0, slotSpacingMin: g.slotsDigest.slotSpacingMin, title: typeof g.scene.title === 'string' ? g.scene.title : '' });
+  }
+  return rows;
+}
+
+/**
+ * The scene check for one generated recipe found in a loaded log or a scheduled injection (GF-WP-11 step 1 and
+ * acceptance "a tampered scene in a loaded file is refused before scheduling"): the scene must validate, hash to its
+ * sceneHash label, and carry this build's compiler version. Non-generated recipes pass. Null means accepted.
+ */
+export function generatedRecipeProblem(recipe: unknown): string | null {
+  if (recipe === null || typeof recipe !== 'object' || (recipe as { kind?: unknown }).kind !== 'generated') return null;
+  const g = asGenerated(recipe);
+  if (!g) return 'malformed generated recipe';
+  const valid = validateScene(g.scene);
+  if (!valid.ok) return `scene-invalid: ${valid.errors[0]?.code ?? 'invalid'}`;
+  if (sceneHash(valid.scene) !== g.sceneHash) return 'hash-mismatch: the scene does not hash to its sceneHash label';
+  if (g.compilerVersion !== COMPILER_VERSION) return `compiler-mismatch: v${g.compilerVersion}, this build is v${COMPILER_VERSION}`;
+  return null;
 }

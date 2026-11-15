@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 import { makeParams } from '../../src/contracts';
-import { compileWithProvenance, injectPreflight, isProvenance, provenanceFromCompile, replayFromProvenance, type GeneratedProvenance } from '../../src/cli/generated';
+import { checkReplayLog, compileWithProvenance, generatedProvenance, generatedRecipeProblem, injectPreflight, isProvenance, makeReplayLog, provenanceFromCompile, replayFromProvenance, type GeneratedProvenance } from '../../src/cli/generated';
+import type { EnvEvent } from '../../src/contracts';
 import { COMPILER_VERSION, compileGeneratedScene, type SceneSpec } from '../../src/score/generated';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -146,5 +147,49 @@ describe('src/cli/generated.ts is pure', () => {
       expect(spec.startsWith('.'), spec).toBe(true);
       expect(['src/contracts', 'src/score/generated', 'src/score/canonical'], spec).toContain(relative(root, resolve(root, dirname(file), spec)).replaceAll('\\', '/'));
     }
+  });
+});
+
+// A generated recipe in exactly the GF-CC-01 shape posted on #215 (kind, compilerVersion, sceneHash,
+// slotsDigest { n0, slotSpacingMin, digest }, scene), built from one compile.
+function generatedRecipeOf(scene: SceneSpec, n0: number) {
+  const params = makeParams(n0);
+  const r = compileWithProvenance(scene, params, 'fixture');
+  if (!r.ok) throw new Error('fixture did not compile');
+  return { kind: 'generated' as const, compilerVersion: r.provenance.compilerVersion, sceneHash: r.provenance.sceneHash,
+    slotsDigest: { n0, slotSpacingMin: params.slotSpacingMin, digest: r.provenance.slotsDigest }, scene: clone(scene) };
+}
+const injectOf = (recipe: unknown, tick: number, droneId: number): EnvEvent =>
+  ({ type: 'INJECT_SCORE', tick, droneId, score: { version: { issuedTick: tick - 60, origin: droneId }, movements: [{ startTick: 0, transitionTicks: 200, recipe: { kind: 'sphere' } }, { startTick: tick, transitionTicks: 200, recipe }] } }) as unknown as EnvEvent;
+
+describe('run provenance from INJECT_SCORE events', () => {
+  const c = compiled(40).find(x => x.result.ok)!;
+  if (!c.result.ok) throw new Error('no compiling fixture');
+  const recipe = generatedRecipeOf(c.scene, 40);
+
+  it('lists each generated injection with tick, drone, sceneHash, compiler, digest and title; skips other kinds', () => {
+    const events: EnvEvent[] = [injectOf({ kind: 'helix' }, 100, 3), injectOf(recipe, 200, 7), { type: 'KILL', tick: 250, ids: [1] }];
+    expect(generatedProvenance({ events })).toEqual([{ tick: 200, droneId: 7, sceneHash: recipe.sceneHash, compilerVersion: COMPILER_VERSION, slotsDigest: recipe.slotsDigest.digest, n0: 40, slotSpacingMin: recipe.slotsDigest.slotSpacingMin, title: c.scene.title }]);
+    expect(generatedProvenance({ events: [] })).toEqual([]);
+  });
+
+  it('a run’s provenance row replays to the formation the run flew', () => {
+    const row = generatedProvenance({ events: [injectOf(recipe, 200, 7)] })[0]!;
+    const r = replayFromProvenance(recipe.scene, { ...row, source: 'fixture' });
+    expect(r.ok && r.formation).toEqual(c.result.ok && c.result.formation);
+  });
+
+  it('a tampered scene in a loaded replay log is refused before scheduling; the honest log passes', () => {
+    const params = makeParams(40);
+    const honest = makeReplayLog(11, params, [injectOf(recipe, 200, 7)]);
+    expect(checkReplayLog(clone(honest), params).ok).toBe(true);
+    const tampered = clone(honest);
+    ((tampered.events[0] as unknown as { score: { movements: { recipe: { scene: { title: string } } }[] } }).score.movements[1]!.recipe.scene).title = 'tampered';
+    const r = checkReplayLog(tampered, params);
+    expect(r.ok ? 'ok' : [r.reason, /hash-mismatch/.test(r.detail)]).toEqual(['scene', true]);
+    expect(generatedRecipeProblem({ ...recipe, compilerVersion: COMPILER_VERSION + 1 })).toMatch(/^compiler-mismatch/);
+    expect(generatedRecipeProblem({ ...recipe, scene: invalid[0]!.scene })).toMatch(/^scene-invalid/);
+    expect(generatedRecipeProblem({ kind: 'generated' })).toBe('malformed generated recipe');
+    expect(generatedRecipeProblem({ kind: 'sphere' })).toBeNull();
   });
 });
