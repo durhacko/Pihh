@@ -31,37 +31,32 @@ Encore invents no new algorithm. It combines known ideas (gossip, local failure 
 
 ## What you can see and do
 
-<table>
-  <tr>
-    <td colspan="2"><img src="docs/assets/readme/stage-split.png" alt="The app in split view, in the hold of the ENCORE formation: the Encore brain's world at the top and the static baseline's at the bottom, with the observer comparison panel on the right."></td>
-  </tr>
-  <tr>
-    <td colspan="2"><b>Stage.</b> Two worlds in lockstep from one seed: Encore above, the static show below. Both get every event, and the panel on the right compares them on the same tick. <kbd>X</kbd> adds a radio X-ray: a sample of real deliveries from the simulator's radio log.</td>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/readme/score-beliefs.png" alt="Belief colours: drones coloured by the score version each one believes. A 15 m jam sits around a drone in the middle of ENCORE; the drones inside it are ringed because they hear nothing. Drones to the right have adopted a new score injected into drone 20; the drones in and beyond the jam still believe the old one. A legend at the top right counts each version."></td>
-    <td><img src="docs/assets/readme/stage-after-repair.png" alt="The Encore world 25 seconds after a regional kill: the first E has thinned around the hole. The observer comparison panel shows Encore's nPWC above the static baseline's with the same number of drones alive."></td>
-  </tr>
-  <tr>
-    <td><b>Score beliefs</b> (<kbd>C</kbd>). Each drone is coloured by the score version it believes. A jam (<kbd>J</kbd>, 15 m around a drone in the middle of the word) silences the drones inside it; they are ringed. A new composition injected into a drone on the right (<kbd>I</kbd>) spreads on its side, and the jam stops it reaching the rest.</td>
-    <td><b>Measure.</b> One read-only observer per world computes every number on screen from the world's snapshots: coverage, shape and collisions from true positions, slot and version counts from what each drone reports it believes. Here the Encore world has refilled its important slots after a regional kill; the static world has not.</td>
-  </tr>
-</table>
+<p><img src="docs/assets/readme/stage-split.png" width="100%" alt="The app in split view during the hold of the ENCORE formation: the Encore world on top, labelled 'decentralised, self-healing', and the static baseline below, labelled 'pre-programmed baseline, sends no radio', each with nPWC 1.000. The readout at the top right shows nPWC for both worlds, alive drones, the hold and the frame rate."></p>
 
-The full key map is in the [tour](#a-90-second-tour). Some interface pieces are built and tested but not yet on screen: the composer, command console, show timeline, drone inspector and ghost-slot rings. They are wired into the app by the new app shell in PR [#113](https://github.com/durhacko/Pihh/pull/113), which is not merged.
+**Stage.** Two worlds in lockstep from one seed: Encore above, the static show below (<kbd>B</kbd> cycles Encore, Split and Static). Both get every event. The readout at the top right compares them on the same tick.
+
+<p><img src="docs/assets/readme/score-beliefs.png" width="100%" alt="Belief colours with the drone inspector open. A jam around a drone in the middle of ENCORE has made 32 drones deaf (ringed); they still believe the preloaded score (amber). The other 168 have adopted a new score injected into drone 20 (green). The legend at the bottom left counts each version and the deaf drones. The inspector on the right shows drone 20's own knowledge (slot, target, score version, radio, recent decisions) above a separate observer box with the true state."></p>
+
+**Inspect** (<kbd>C</kbd>, click a drone). Each drone is coloured by the score version it believes. Here a jam (<kbd>J</kbd>, 12 m around a drone in the middle of the word) has made 32 drones deaf; they are ringed and still believe the preloaded score. A new composition injected into drone 20 through the Composer has reached the other 168. The inspector shows what drone 20 itself knows, with the observer's ground truth kept in a separate box.
+
+<p><img src="docs/assets/readme/stage-after-repair.png" width="100%" alt="The Encore world 25 seconds after a regional kill: the first E has thinned around the hole. The Metrics panel compares both worlds on the same tick: nPWC 97.2% for Encore against 93.1% for static, 180 of 200 alive in both, coverage 90.0% in both, and the brain each world flies."></p>
+
+**Measure** (<kbd>M</kbd>). One read-only observer per world computes every number from the world's snapshots: coverage, shape and collisions from true positions, slot and version counts from what each drone reports it believes. Here Encore has refilled its important slots after a regional kill and the static show has not; plain coverage is 90.0% in both.
+
+The dock at the bottom also opens the Composer (<kbd>F</kbd>), a command console (<kbd>/</kbd>), the show timeline (<kbd>T</kbd>) and ghost-slot rings (<kbd>G</kbd>). The full key map is in the [tour](#a-90-second-tour).
 
 ## What it does
 
 **Simulation and 3D view**
 - A deterministic 20 Hz world: 200 drones with clamped speed and acceleration, ideal short-range sensing and a radio with range, packet loss and latency ([`src/sim`](src/sim)).
 - A preloaded show: the word ENCORE, then a sphere, then a double helix, with paced flight between formations.
-- Three.js stage with orbit camera and three presets, a split view (`?split=1`), and a 90-second scripted demo (<kbd>D</kbd>).
+- Three.js stage with orbit camera and three presets, a split view (<kbd>B</kbd> or `?split=1`), a drone inspector, a composer, a command console, a show timeline and a 90-second scripted demo (<kbd>D</kbd>).
 
 **Decentralised behaviour** ([`src/agent/encoreBrain.ts`](src/agent/encoreBrain.ts))
 - One brain per drone, with private state. It sees only its own body, its inbox and anonymous neighbours.
 - **Local repair:** a drone that senses an important slot empty, and hears nobody holding it, claims it over the radio. The best bid wins, and the drone flies in. Low-priority detail around the hole is given up, so that part of the picture thins instead of keeping a hole.
 - **Score dissemination:** a new composition reaches one drone and spreads by store-and-forward gossip, rate-limited, with anti-entropy for drones that missed it.
-- **Silence is not death:** radio silence alone never makes a vacancy, and a drone that hears nothing never claims.
+- **Silence is not death:** radio silence alone never makes a vacancy. A drone that has heard no other drone for 2 s counts as deaf: it drops its claim and starts none, though a claim that completes within those first 2 s can still commit.
 
 **Disruption you can apply**
 - Kill a region, a selected drone or a random 10%; jam the radio around a drone; partition the swarm along a plane; set packet loss from 0 to 100%; inject a new composition into one drone.
@@ -259,7 +254,7 @@ npm run build
 npm run preview
 ```
 
-Open **http://127.0.0.1:4173/?seed=101&split=1**, or the address Vite prints if port 4173 is taken. On Windows PowerShell, use `npm.cmd` if the execution policy blocks `npm`.
+Open **http://127.0.0.1:4173/?seed=101&split=1**, or the address Vite prints if port 4173 is taken. On Windows PowerShell, use `npm.cmd` if the execution policy blocks `npm`. On WSL, run npm from a Linux path (`cd ~/...`), not from a `\\wsl.localhost\...` path in Windows. `npm ci` may print deprecation and `npm audit` warnings about development tools; they don't affect the build (`npm audit --omit=dev` reports none).
 
 For development with hot reload: `npm run dev`, then open the printed address (Vite's default is port 5173).
 
@@ -269,6 +264,7 @@ For development with hot reload: `npm run dev`, then open the printed address (V
 | `?split=1` | Encore on top, static below, one camera |
 | `?arm=static` | Single view of the static world |
 | `?q=low` | Lower pixel ratio for slow machines |
+| `?n0=100`, `150` or `200` | Roster size (default 200; other values are ignored) |
 
 ## A 90-second tour
 
@@ -282,27 +278,33 @@ For development with hot reload: `npm run dev`, then open the printed address (V
    | 20 s | 20 drones in the first E are killed in both worlds. In the top world, neighbours claim the vacated important slots |
    | 48 s | The swarm starts re-forming as the preloaded sphere |
    | 61 s | A jam over the sphere's cap; belief colours on |
-   | 64 s | A new composition (a helix) is injected into one drone. Playback slows to 0.5× for 3 s. It spreads by radio, stops at the jam and crosses when the jam lifts at 73 s. The static world can't adopt it |
+   | 64 s | A new composition (a helix) is injected into one drone. Playback slows to 0.5× for 3 s. It spreads by radio and reaches drones inside the jam only when the jam lifts at 73 s. The static world can't adopt it |
    | 90 s | End. Press <kbd>D</kbd> to run it again |
 
-3. **Break it yourself.** Click a drone in the Encore view (or type its id in the panel), then:
+3. **Break it yourself.** Click a drone in the Encore view to select it (the inspector opens), then:
 
    | Key | Action |
    |---|---|
-   | <kbd>K</kbd> | Kill every drone within 6 m of the selected one |
-   | <kbd>J</kbd> | Jam the radio within 15 m of it (toggle) |
-   | <kbd>P</kbd> | Partition the swarm along the plane x = 0 (toggle) |
-   | <kbd>I</kbd> | Inject the composition chosen in the panel (text, sphere or double helix) into it |
-   | <kbd>X</kbd> / <kbd>C</kbd> | Radio X-ray (a sample of real deliveries) / colour drones by the score version they believe |
+   | <kbd>K</kbd> | Kill every drone within 8 m of the selected one. With nothing selected, click where the centre should be |
+   | <kbd>J</kbd> | Jam the radio within 12 m of it, or click a centre if nothing is selected. Press <kbd>J</kbd> again to lift the jam |
+   | <kbd>P</kbd> | Partition the swarm along the plane x = 0 (press again to reconnect) |
+   | <kbd>I</kbd> or <kbd>F</kbd> | Open the Composer: choose text, sphere or double helix, pick the target drone, then press **Inject**. Nothing is sent until then |
+   | <kbd>X</kbd> / <kbd>C</kbd> | Radio X-ray: a sample of the radio messages actually sent (3 receivers of every 4th heartbeat), plus each drone's line to its flight target (the Tethers lens, which you can turn off under Lenses) / colour drones by the score version they believe |
    | <kbd>Space</kbd> / <kbd>R</kbd> | Play or pause / reset to the seed |
    | <kbd>[</kbd> <kbd>]</kbd> | Slower or faster (0.25× to 4×) |
-   | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Camera: audience, three-quarter, top |
-   | <kbd>H</kbd> | Hide or show the comparison panel |
+   | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Camera: front, ¾, top |
+   | <kbd>.</kbd> | Step one tick |
+   | <kbd>B</kbd> | Cycle Encore → Split → Static |
+   | <kbd>M</kbd> | Metrics: both worlds compared, including which brain each world flies |
+   | <kbd>G</kbd> / <kbd>T</kbd> | Ghost slots (observer view) / show timeline |
+   | <kbd>/</kbd> or <kbd>`</kbd> | Command console (for example `inspect 20`) |
+   | <kbd>D</kbd> / <kbd>?</kbd> | Scripted demo / help |
+   | <kbd>H</kbd> | Hide or show all controls (performance view); <kbd>Esc</kbd> brings them back |
 
-   The panel on the left also has *Kill random 10%* and packet loss (0, 5, 20, 50 or 100%).
-4. **Read the numbers.** The comparison panel shows nPWC, alive, collisions and messages for each world; *More measurements* adds coverage, near misses, duplicate slots, slot changes, shape fidelity, deliveries and score beliefs.
+   The **Disrupt** popover in the dock has *Destroy a region*, *Kill selected drone*, *Kill 10% at random*, jam, partition, the region and jam radii, and packet loss as a slider (0–100% in steps of 5).
+4. **Read the numbers.** The readout at the top right shows nPWC (Encore / static in split view), alive drones, the hold or transition phase and fps. Click it or press <kbd>M</kbd> for **Metrics**: alive, coverage, duplicate slots, score versions, messages, deliveries, collisions, near misses, slot changes, shape fidelity, and the brain each world flies.
 
-Try killing a region, then compare the two worlds' nPWC 15 seconds later. Then jam a region and inject a composition just outside it, with belief colours on (<kbd>C</kbd>).
+Try killing a region, then compare the two worlds' nPWC 15 seconds later. Then jam a region and inject a composition just outside it, with belief colours on (<kbd>C</kbd>). A jam holds the new score back only from drones that stay inside it: a drone that flies out of the jam can adopt it, and the rest catch up when the jam lifts.
 
 ## Tests and reproducibility
 
@@ -323,7 +325,7 @@ CI runs `scripts/check.sh` on every pull request and on pushes to `main` (Node 2
 | **The brains in detail.** Every repair gate, claim contention, duplicate resolution, physical yield, gossip rules | [`tests/agent`](tests/agent) |
 | **World, radio and faults.** Loss statistics, latency, jam, partition, injection, collision accounting | [`tests/sim`](tests/sim) |
 | **Observer, scenarios and runner.** Metric definitions, read-only observer, replayable run records, fair-pair rule | [`tests/observer`](tests/observer), [`tests/cli`](tests/cli) |
-| **App.** Controls, HUD, X-ray, belief colours, scripted demo, composer, console and timeline modules, against a fake DOM in Node | [`tests/app`](tests/app) |
+| **App.** Controls, readout and Metrics, X-ray, belief colours, inspector, composer, console, timeline and scripted demo, against a fake DOM in Node | [`tests/app`](tests/app) |
 
 To re-run the evidence, check out the evidence commit and write to a new directory (about 10 minutes for all five scenarios in one process):
 
@@ -341,7 +343,7 @@ Don't write into `results/`: it holds the committed records and hand-written not
 
 Encore was built for the **Neptune North** challenge at DurHack 2026, with the event theme **Composition**: drones compose an image, and a timed score composes images into a show. Neither the challenge brief nor the theme wording was published online. We address both as they were reported to the team, and we don't claim to meet a brief we could not read ([event notes](docs/competition/BRIEF.md)).
 
-The engineering claim it supports is narrow and checkable. Independent actors, each with local sensing, one-hop radio, a shared clock and a preloaded score, keep a recognisable shared picture through the failures and radio faults we tested. Low-priority detail is given up, so the picture thins rather than keeping a hole. Each drone reports its last 20 decisions in its belief, readable in the app with `window.encore.snapshots()`. The on-screen inspector arrives with [#113](https://github.com/durhacko/Pihh/pull/113).
+The engineering claim it supports is narrow and checkable. Independent actors, each with local sensing, one-hop radio, a shared clock and a preloaded score, keep a recognisable shared picture through the failures and radio faults we tested. Low-priority detail is given up, so the picture thins rather than keeping a hole. Each drone reports its last 20 decisions, which the inspector shows beside the observer's ground truth.
 
 **Sponsor APIs: none are used.** Encore makes no network calls at run time, by requirement ([NFR-04](docs/specification/requirements.md)). There is no Gemini, MongoDB or TigerData integration. A design for Gemini-generated formations has been proposed ([#117](https://github.com/durhacko/Pihh/issues/117)) and is not implemented.
 
@@ -355,7 +357,7 @@ The engineering claim it supports is narrow and checkable. Independent actors, e
 | [Vitest](https://vitest.dev/) | 4.0.9 | Tests |
 | [ESLint](https://eslint.org/) and [typescript-eslint](https://typescript-eslint.io/) | 9.39.1 / 8.46.4 | Lint; bans DOM, network, clock and `Math.random` in the simulation core |
 | [tsx](https://tsx.is/) | 4.23.15 | Runs the headless batch runner |
-| `@fontsource-variable/inter`, `@fontsource-variable/jetbrains-mono` | 5.2.8 | Offline fonts for the design-system stylesheet, which the new shell ([#113](https://github.com/durhacko/Pihh/pull/113)) wires in |
+| `@fontsource-variable/inter`, `@fontsource-variable/jetbrains-mono` | 5.2.8 | Offline UI fonts (Inter, JetBrains Mono) |
 
 Also: `@types/node` 24.10.1 and `@types/three` 0.181.0. Python 3 (standard library only) runs the docs link checker. GitHub Actions runs CI. The simulation core (`src/contracts`, `src/score`, `src/agent`, `src/sim`, `src/observer`) has no runtime dependencies.
 
@@ -365,7 +367,7 @@ src/score/       compositions -> priority-ordered formation slots
 src/agent/       drone brains: Encore, the static baseline, shared steering
 src/sim/         the world: physics, sensing, radio, environment events
 src/observer/    read-only metrics
-src/app/         Three.js app: stage, controls, HUD, X-ray, scripted demo
+src/app/         Three.js app: stage, dock, readout and Metrics, X-ray, inspector, composer, console, timeline, scripted demo
 src/cli/         headless scenarios, batch runner, results table
 ```
 
@@ -393,7 +395,7 @@ src/cli/         headless scenarios, batch runner, results table
 - **Drones are assumed honest.** Any drone can inject a score, and messages are not authenticated. Drones that fail vanish; a drone that fails but stays in place is not modelled.
 - **The evidence is small.** Five seeds per scenario at one swarm size and one parameter set.
 
-**Next steps.** Merge the new shell ([#113](https://github.com/durhacko/Pihh/pull/113)) so the composer, console, timeline and inspector are on screen. Fix the reconnection collisions ([#123](https://github.com/durhacko/Pihh/issues/123)). Run the full matrix: S4, seeds 6–20 and 100 drones. Add a central-controller baseline beside the static one.
+**Next steps.** Fix the reconnection collisions ([#123](https://github.com/durhacko/Pihh/issues/123)). Run the full matrix: S4, seeds 6–20 and 100 drones. Add a central-controller baseline beside the static one.
 
 ## Team and credits
 

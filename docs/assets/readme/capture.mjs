@@ -17,10 +17,10 @@
 //
 // The stills are cropped to the stage and the panel their caption refers to (crop only, no retouching):
 //   stage-split.png         ?split=1, paused at tick 380 in the ENCORE hold, before any event.
-//   score-beliefs.png       the steps of scripts/perf/run.mjs 'version-divergence': click drone 100, J (jam of
-//                           rRadio = 15 m around it), click drone 20, C (belief colours), I (inject the panel's
-//                           composition); paused 80 ticks after the injection, comparison panel hidden.
-//   stage-after-repair.png  the Encore view of the repair run, paused at tick 893, comparison panel shown.
+//   score-beliefs.png       click drone 100, J (jam of 12 m around it, app shell #113), click drone 20, C (belief
+//                           colours), I (opens the Composer) and its Inject button; paused 80 ticks after the
+//                           injection, with drone 20's inspector open.
+//   stage-after-repair.png  the Encore view of the repair run, paused at tick 893, Metrics (M) open.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,9 +38,9 @@ const KILL = { centre: [-35, 30.4, 0], radius: 6, tick: 400 };
 const FRAME_TICKS = [];
 for (let t = 388; t <= 892; t += 12) FRAME_TICKS.push(t);
 const CLIP = { x: 300, y: 340, width: 840, height: 215, scale: 1 };
-const STAGE_CLIP = { x: 300, y: 330, width: 1130, height: 470, scale: 1 };     // formation and comparison panel
-const SPLIT_CLIP = { x: 300, y: 160, width: 1130, height: 640, scale: 1 };     // both worlds and comparison panel
-const BELIEF_CLIP = { x: 300, y: 170, width: 1130, height: 400, scale: 1 };    // formation and the beliefs legend
+const STAGE_CLIP = { x: 300, y: 0, width: 1130, height: 770, scale: 1 };     // formation and the Metrics panel
+const SPLIT_CLIP = { x: 400, y: 0, width: 1040, height: 760, scale: 1 };     // both worlds and the readout
+const BELIEF_CLIP = { x: 0, y: 100, width: 1440, height: 730, scale: 1 };    // formation, inspector and beliefs legend
 
 const WAIT_FOR_APP = `new Promise((resolve, reject) => {
   const start = performance.now();
@@ -95,8 +95,12 @@ async function stills(chrome) {
   const injectAt = (await pauseAt(page, 345)) + 1;
   await selectDrone(page, 20);
   await page.key('c');
-  await page.key('i');
-  await page.key('h');
+  await page.key('i');                       // opens the Composer (app shell, #113); nothing is sent yet
+  await sleep(600);
+  const injected = await page.eval(`(() => { const b = [...document.querySelectorAll('button')].find(b => /^Inject/.test(b.textContent.trim()) && b.offsetParent !== null); if (b) b.click(); return Boolean(b); })()`);
+  if (!injected) throw new Error('Composer Inject button not found');
+  await sleep(400);
+  await page.key('Escape');
   await page.eval('window.encore.setPlaying(true)');
   const beliefTick = await pauseAt(page, injectAt + 80);
   const versions = (await page.eval('window.encore.samples()')).encore.versions;
@@ -128,7 +132,8 @@ async function run(chrome, query, frameDir, label) {
   }
   // Full-frame still at the last tick, with the comparison panel shown again.
   await pauseAt(page, FRAME_TICKS.at(-1) + 1);
-  await page.key('h');
+  await page.key('h');                       // controls back
+  await page.key('m');                       // Metrics: both worlds compared on the same tick
   await sleep(500);
   const still = await shot(page, STAGE_CLIP);
   const samples = await page.eval('window.encore.samples()');
