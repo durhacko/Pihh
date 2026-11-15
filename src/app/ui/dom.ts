@@ -29,7 +29,10 @@ const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;'
 /** HTML-escapes text. */
 export const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ESCAPES[c] as string);
 
-const TYPING = 'input:not([type=checkbox]):not([type=range]):not([type=color]),textarea,select,[contenteditable=true]';
+/** Input types that take no text: keys on them are never typing (DESIGN §2.2), and Space there is play / pause
+ *  (keys.ts spaceIsPlayPause; a checkbox is a switch there). One list, so the two rules cannot disagree (#134). */
+export const NON_TEXT_INPUT_TYPES = ['checkbox', 'range', 'color', 'radio', 'button', 'submit', 'reset', 'image', 'file'] as const;
+const TYPING = `input${NON_TEXT_INPUT_TYPES.map(type => `:not([type=${type}])`).join('')},textarea,select,[contenteditable=true]`;
 
 /** True if keystrokes on `t` are text entry, so global shortcuts must ignore them (DESIGN §2.2). */
 export const isTyping = (t: EventTarget | null): boolean =>

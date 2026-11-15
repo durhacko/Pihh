@@ -349,3 +349,5 @@ details.json[open] summary::before { transform: rotate(90deg); }
 /* Inspector (#102) inside the shell: its grid children may shrink, so long decision lines ellipsize inside the box. */
 .encore-inspector .body > *, .encore-inspector [data-agent-section] { min-width: 0; }
 .encore-inspector [data-agent-section] dl, .encore-inspector [data-agent-section] ol { max-width: 100%; min-width: 0; }
+/* Below ~1400 px the readout (with its notes) reaches the brand tagline: keep the wordmark, drop "swarm stage". */
+@media (max-width: 1399px) { .wordmark span { display: none; } }

@@ -43,6 +43,8 @@ export interface Worlds {
   series(): Pair<readonly MetricsSample[]>;
   /** Registers a score with BOTH observers. Call before any drone can believe it (INJECT_SCORE). */
   registerScore(score: Score): void;
+  /** Every score registered with the observers since the last build or reset (the preloaded one first). */
+  scores(): readonly Score[];
   /** Tells BOTH observers about an event that both worlds accepted. scheduleBoth calls this itself. */
   recordEvent(event: EnvEvent): void;
   readonly params: Params;
@@ -97,12 +99,14 @@ export function createWorlds(options: WorldsOptions): Worlds {
   let latest: Pair<WorldSnapshot> | null;
   let latestSamples: Pair<MetricsSample | null>;
   let series: Pair<MetricsSample[]>;
+  let registered: Score[] = [];
   let tick: number;
   let broken: Error | null = null;
   const refuseIfBroken = (): void => { if (broken) throw new WorldsBrokenError(broken); };
 
   function registerScore(next: Score): void {
     for (const arm of ARMS) observers[arm].registerScore(next);
+    registered.push(structuredClone(next));
   }
   function recordEvent(event: EnvEvent): void {
     for (const arm of ARMS) observers[arm].recordEvent(event);
@@ -114,6 +118,7 @@ export function createWorlds(options: WorldsOptions): Worlds {
       static: createWorld({ seed, params, score, brain: brains.static, events: scripted }),
     };
     observers = { encore: createObserver(params), static: createObserver(params) };
+    registered = [];
     registerScore(score);
     for (const event of scripted) {
       if (event.type === 'INJECT_SCORE') registerScore(event.score);
@@ -137,6 +142,7 @@ export function createWorlds(options: WorldsOptions): Worlds {
     samples: () => ({ ...latestSamples }),
     series: () => ({ encore: series.encore, static: series.static }),
     registerScore,
+    scores: () => registered,
     recordEvent,
     stepBoth() {
       refuseIfBroken();
@@ -224,11 +230,14 @@ export const viewModeDisplay: NonNullable<ControlContext['display']> = {
 
 /** What the comparison HUD (#24) is fed: both observers' latest samples plus view telemetry. After a reset the
  *  samples are null, so the HUD shows "waiting" at once instead of the old run's numbers. */
-export function hudPayload(worlds: Pick<Worlds, 'samples' | 'params' | 'worlds'>, view: { fps: number | null; layout: Arm | 'split' }) {
+/** `view.inHold`: per arm, whether the observer's reference formation is in its hold (from Observer.slotStatus), so the
+ *  HUD model (Metrics popover) can mark a mid-transition nPWC. Omitted or null: not reported. */
+export function hudPayload(worlds: Pick<Worlds, 'samples' | 'params' | 'worlds'>, view: { fps: number | null; layout: Arm | 'split'; inHold?: Pair<boolean | null> }) {
   return {
     ...worlds.samples(), rosterSize: worlds.params.n0, fps: view.fps, layout: view.layout,
     quality: sharedQuality().describe(),   // render quality ladder level (render/quality.ts)
     brainKinds: { encore: worlds.worlds.encore.config.brain.kind, static: worlds.worlds.static.config.brain.kind },
+    ...(view.inHold ? { inHold: { encore: view.inHold.encore ?? undefined, static: view.inHold.static ?? undefined } } : {}),
   };
 }
 

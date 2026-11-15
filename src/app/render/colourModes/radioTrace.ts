@@ -19,6 +19,8 @@ export class RadioTrace {
   private history: Broadcast[] = [];
   private lastTick = -1;
   private ordinal = 0;
+  /** Drone positions at the end of tick lastTick, i.e. where every drone was when tick lastTick + 1 sent its radio. */
+  private lastPositions: Map<number, Vec3> | null = null;
 
   /**
    * Per-tick evidence (#46): call once for every simulation tick, in order. Each tick's broadcasts are kept
@@ -30,7 +32,7 @@ export class RadioTrace {
   }
 
   /** Drop all retained evidence (the world was rebuilt). */
-  reset(): void { this.history = []; this.lastTick = -1; this.ordinal = 0; }
+  reset(): void { this.history = []; this.lastTick = -1; this.ordinal = 0; this.lastPositions = null; }
 
   /** Render-frame fallback for views without per-tick ingestion: sees only the frame's prev/curr snapshots. */
   update(prev: WorldSnapshot, curr: WorldSnapshot): void {
@@ -41,11 +43,20 @@ export class RadioTrace {
 
   private record(snapshot: WorldSnapshot): void {
     if (snapshot.tick <= this.lastTick) return;
+    const own = new Map(snapshot.drones.map(drone => [drone.id, [...drone.pos] as Vec3]));
     if (snapshot.radio.length > 0) {
-      const positions = new Map(snapshot.drones.map(drone => [drone.id, [...drone.pos] as Vec3]));
+      // Draw each link where the medium decided it (#149). The world picks receivers within rRadio from the bodies
+      // BEFORE they move this tick, which is where the previous snapshot left them; this snapshot's positions are
+      // after the move, and two drones can drift up to 2 · vMax · DT further apart. So the previous snapshot's
+      // positions are used when it was the tick just before; otherwise (first tick seen, a gap) this one's.
+      // Guarantee, scoped: with every tick ingested in order (the app: WorldView.ingest on every tick, #46) a link is
+      // never longer than rRadio. In the fallback (a tick with no previous one, e.g. update()-only use that skips
+      // ticks) it can be up to rRadio + 2 · vMax · DT, the drift of one tick.
+      const positions = this.lastPositions !== null && snapshot.tick === this.lastTick + 1 ? this.lastPositions : own;
       for (const event of snapshot.radio) this.history.push({ tick: snapshot.tick, event: structuredClone(event), positions, ordinal: this.ordinal++, drawn: new Set() });
     }
     this.lastTick = snapshot.tick;
+    this.lastPositions = own;
     this.history = this.history.filter(broadcast => (snapshot.tick - broadcast.tick) * DT < 1);
   }
 
