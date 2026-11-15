@@ -44,10 +44,16 @@ export function readSourceFrom(reader: TigerReader, kind: ReadSourceKind): RunRe
   async function stateOf(row: StoredRunRow, conflicts: Awaited<ReturnType<TigerReader['conflicts']>>) {
     const v = await reader.verifications(row.run_id);
     const latest = [...v].sort((a, b) => b.verificationId - a.verificationId)[0];
+    // Q17's full condition for 'ok': the latest verification row says 'verified' AND its three digests equal the
+    // run's stored digests. Any other latest row is 'mismatch'; no row at all is null ('not-checked').
+    const ok = latest !== undefined && latest.outcome === 'verified'
+      && latest.digests.seriesDigest === row.series_digest
+      && latest.digests.eventsDigest === row.events_digest
+      && latest.digests.summaryDigest === row.summary_digest;
     return {
       importedAt: row.imported_at,
       telemetryState: row.telemetry_state,
-      verification: latest === undefined ? null : latest.outcome === 'verified' ? 'ok' as const : 'mismatch' as const,
+      verification: latest === undefined ? null : ok ? 'ok' as const : 'mismatch' as const,
       contested: conflicts.some((c) => c.existingRunId === row.run_id || c.experimentKey === row.experiment_key),
     };
   }
