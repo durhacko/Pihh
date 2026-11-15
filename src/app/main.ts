@@ -7,7 +7,6 @@
 // layer's own tally or an observer MetricsSample.
 import { Plane, Raycaster, Vector2, Vector3 } from 'three';
 import { DT, type EnvEvent, type MetricsSample, type Vec3, type WorldSnapshot } from '../contracts';
-import { currentMovement } from '../score';
 import { idsInSphere } from '../sim';
 import { bindControls, type ControlIntent, type ControlResult } from './actions';
 import { CameraRig, type CameraPreset } from './render/CameraRig';
@@ -27,7 +26,7 @@ import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend } from './ui/Legend';
 import { createDisrupt, createHelp, createLenses, createMetrics, type PopoverContext } from './ui/popovers';
-import { createReadout } from './ui/Readout';
+import { armPhase, createReadout } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
 import { connectTimeline } from './ui/Timeline';
@@ -498,13 +497,9 @@ function refreshChrome(): void {
   const samples = worlds.samples();
   const view = store.state.view;
   const snaps = snapshots();
-  let phase: { inHold: boolean; name: string } | null = null;
-  try {
-    const now = currentMovement(worlds.score, worlds.tick);
-    const recipe = now.movement.recipe;
-    phase = { inHold: now.inHold, name: recipe.kind === 'text' ? `“${recipe.text}”` : recipe.kind === 'sphere' ? 'Sphere' : 'Double helix' };
-  } catch { phase = null; }
-  readout.update({ samples, view, n0: params.n0, phase, fps: lastFps, stopped: loopError });
+  // Per arm, from the observer (throttled slot feed), not the preloaded score's plan: after an injection the arms differ.
+  const phases = { encore: armPhase(slotFeeds.encore.read(snaps.encore), samples.encore, worlds.scores(), worlds.tick), static: armPhase(slotFeeds.static.read(snaps.static), samples.static, worlds.scores(), worlds.tick) };
+  readout.update({ samples, view, n0: params.n0, phases, fps: lastFps, stopped: loopError });
   readout.el.dataset.tick = String(worlds.tick);
   dock.update({ playing: transport.playing, tick: worlds.tick, speed: transport.speed, view, stopped: loopError !== null });
   const legendArm: Arm = view === 'static' ? 'static' : 'encore';
