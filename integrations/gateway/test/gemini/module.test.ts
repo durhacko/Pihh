@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readGeminiConfig } from '../../src/gemini/config.ts';
 import { createModule, defaultGeminiDeps, geminiModule, GENERATE_FORMATION_ROUTE } from '../../src/gemini/index.ts';
-import { liveGeminiDeps, loadSceneSchemas, responseSchemaSetting, type LastUpstream } from '../../src/gemini/module.ts';
+import {
+  liveGeminiDeps, loadSceneSchemas, loadSlimSceneSchemas, responseSchemaSetting, schemaAsTextPrompts, SLIM_DROPPED_KEYWORDS, slimSchema, type LastUpstream,
+} from '../../src/gemini/module.ts';
+import { PLACEHOLDER_PROMPTS } from '../../src/gemini/geminiProvider.ts';
 import { readFileSync } from 'node:fs';
 import { fakeProvider, fakeValidator } from './fakes.ts';
 
@@ -42,23 +45,88 @@ test('gemini module (D3): the live deps send the committed scene schemas through
   assert.equal(liveGeminiDeps(readGeminiConfig({})).provider, null, 'disabled: no provider is built');
 });
 
-test('GEMINI_RESPONSE_SCHEMA=off sends JSON mode without responseJsonSchema; unset or on sends it; anything else is a problem', async () => {
-  assert.equal(responseSchemaSetting(undefined), true);
-  assert.equal(responseSchemaSetting('on'), true);
-  assert.equal(responseSchemaSetting(' OFF '), false);
+test('GEMINI_RESPONSE_SCHEMA: unset/on = full, slim, off, text; anything else keeps full and is a problem (name only)', () => {
+  assert.equal(responseSchemaSetting(undefined), 'full');
+  assert.equal(responseSchemaSetting('on'), 'full');
+  assert.equal(responseSchemaSetting(' OFF '), 'off');
+  assert.equal(responseSchemaSetting('Slim'), 'slim');
+  assert.equal(responseSchemaSetting('text'), 'text');
   const problems: string[] = [];
-  assert.equal(responseSchemaSetting('maybe', problems), true);
-  assert.deepEqual(problems, ['GEMINI_RESPONSE_SCHEMA is not "on" or "off"; sending the schema']);
+  assert.equal(responseSchemaSetting('maybe', problems), 'full');
+  assert.deepEqual(problems, ['GEMINI_RESPONSE_SCHEMA is not "on", "slim", "off" or "text"; sending the full schema']);
+  assert.ok(!problems[0]!.includes('maybe'));
+});
+
+type SentBody = { systemInstruction: { parts: { text: string }[] }; generationConfig: Record<string, unknown> };
+async function sentBodies(modes: readonly ('full' | 'slim' | 'off' | 'text')[], mode: 'scene3d' | 'silhouette2d' = 'scene3d'): Promise<SentBody[]> {
   const bodies: string[] = [];
   const transport = async (_url: string, init: { body: string }) => { bodies.push(init.body); return { status: 400, body: null }; };
   const config = readGeminiConfig({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY });
-  for (const send of [true, false]) {
-    await liveGeminiDeps(config, transport, undefined, send).provider!.generate({ prompt: 'x', mode: 'scene3d', attemptTimeoutMs: 5_000 }, new AbortController().signal);
+  for (const m of modes) {
+    await liveGeminiDeps(config, transport, undefined, m).provider!.generate({ prompt: 'x', mode, attemptTimeoutMs: 5_000 }, new AbortController().signal);
   }
-  const [withSchema, without] = bodies.map(b => (JSON.parse(b) as { generationConfig: Record<string, unknown> }).generationConfig);
-  assert.ok('responseJsonSchema' in withSchema!);
-  assert.ok(!('responseJsonSchema' in without!));
-  assert.equal(without!.responseMimeType, 'application/json');
+  assert.equal(bodies.length, modes.length, 'exactly one transport call per generation');
+  return bodies.map(b => JSON.parse(b) as SentBody);
+}
+
+test('each schema mode sends what it says: full and slim as responseJsonSchema; off and text JSON mode without it; only text changes the prompt', async () => {
+  for (const mode of ['scene3d', 'silhouette2d'] as const) {
+    const [full, slim, off, text] = await sentBodies(['full', 'slim', 'off', 'text'], mode);
+    assert.deepEqual(full!.generationConfig.responseJsonSchema, loadSceneSchemas()[mode]);
+    assert.deepEqual(slim!.generationConfig.responseJsonSchema, loadSlimSceneSchemas()[mode]);
+    for (const b of [off!, text!]) {
+      assert.ok(!('responseJsonSchema' in b.generationConfig));
+      assert.equal(b.generationConfig.responseMimeType, 'application/json');
+    }
+    for (const b of [full!, slim!, off!]) assert.equal(b.systemInstruction.parts[0]!.text, PLACEHOLDER_PROMPTS[mode]);
+    const prompt = text!.systemInstruction.parts[0]!.text;
+    assert.ok(prompt.startsWith(PLACEHOLDER_PROMPTS[mode]) && prompt.includes('PLACEHOLDER line for William\'s review'));
+    assert.ok(prompt.includes('"version": 1') && prompt.includes(`"mode": "${mode}"`));
+    assert.ok(prompt.endsWith(JSON.stringify(loadSlimSceneSchemas()[mode])), 'the slim schema, as text');
+    assert.deepEqual(schemaAsTextPrompts()[mode], prompt);
+  }
+});
+
+/** Every `$ref` target and every schema position in a node, walked by keyword (as slimSchema does). */
+function walkSchemas(node: unknown, visit: (schema: Record<string, unknown>) => void): void {
+  if (Array.isArray(node)) { node.forEach(n => walkSchemas(n, visit)); return; }
+  if (node === null || typeof node !== 'object') return;
+  const schema = node as Record<string, unknown>;
+  visit(schema);
+  for (const key of ['properties', '$defs'] as const) {
+    const map = schema[key];
+    if (map && typeof map === 'object') Object.values(map).forEach(s => walkSchemas(s, visit));
+  }
+  for (const key of ['items', 'anyOf', 'additionalProperties'] as const) walkSchemas(schema[key], visit);
+}
+
+test('slim schema (E1): drops only bounds and prose, at keyword positions; keeps structure, enums, required and every $ref target', () => {
+  for (const mode of ['silhouette2d', 'scene3d'] as const) {
+    const full = loadSceneSchemas()[mode] as Record<string, unknown>;
+    const before = JSON.stringify(full);
+    const slim = loadSlimSceneSchemas()[mode] as Record<string, unknown>;
+    assert.equal(JSON.stringify(full), before, 'the committed schema is not mutated');
+    walkSchemas(slim, s => { for (const k of SLIM_DROPPED_KEYWORDS) assert.ok(!(k in s), `${mode}: ${k} left in a schema`); });
+    // Re-adding nothing, the slim schema equals the full one with exactly those keywords removed at schema positions.
+    const strip = (n: unknown): unknown => {
+      walkSchemas(n, s => { for (const k of SLIM_DROPPED_KEYWORDS) delete s[k]; });
+      return n;
+    };
+    assert.deepEqual(slim, strip(structuredClone(full)));
+    const props = slim.properties as Record<string, Record<string, unknown>>;
+    assert.deepEqual(props.version, { type: 'integer', enum: [1] });
+    assert.deepEqual(props.mode, { type: 'string', enum: [mode] });
+    assert.deepEqual(slim.required, full.required);
+    assert.equal(slim.additionalProperties, false);
+    const defs = slim.$defs as Record<string, unknown>;
+    walkSchemas(slim, s => {
+      if (typeof s.$ref === 'string') assert.ok(s.$ref.replace('#/$defs/', '') in defs, `${mode}: dangling ${s.$ref}`);
+    });
+  }
+  const props3d = (loadSlimSceneSchemas().scene3d as { properties: Record<string, unknown>; required: string[] });
+  assert.deepEqual(props3d.properties.title, { type: 'string' }, 'a PROPERTY named title stays (its description goes)');
+  assert.ok(props3d.required.includes('title'));
+  assert.deepEqual(slimSchema({ properties: { minimum: { type: 'number', minimum: 0 } } }), { properties: { minimum: { type: 'number' } } });
 });
 
 test('gemini module (D3): the sent schemas drop the document-only $id/$schema; everything else is the committed file', () => {
