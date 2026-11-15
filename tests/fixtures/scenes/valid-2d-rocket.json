@@ -1,0 +1,7 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Plain Rocket", "view": "side", "foreground": [0.9, 0.9, 0.95],
+  "parts": [
+    { "id": "body", "operation": "union", "geometry": { "type": "polygon", "points": [[-0.25, -1.2], [0.25, -1.2], [0.25, 0.9], [0, 1.5], [-0.25, 0.9]] }, "priority": 5 },
+    { "id": "fin-left", "operation": "union", "geometry": { "type": "polygon", "points": [[-0.25, -0.6], [-0.25, -1.2], [-0.6, -1.4]] }, "priority": 4 },
+    { "id": "fin-right", "operation": "union", "geometry": { "type": "polygon", "points": [[0.25, -0.6], [0.6, -1.4], [0.25, -1.2]] }, "priority": 4 },
+    { "id": "window", "operation": "subtract", "geometry": { "type": "ellipse", "center": [0, 0.4], "radii": [0.12, 0.12], "rotationDeg": 0 }, "priority": 3 }
+  ] }
