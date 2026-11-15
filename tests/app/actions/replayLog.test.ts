@@ -9,7 +9,8 @@ import { Drafts, type ComposeContext } from '../../../src/app/ui/Composer';
 import { injectGeneratedRecipe } from '../../../src/app/ui/generatedInject';
 import { Store } from '../../../src/app/ui/store';
 import { controlContext, createWorlds, viewModeDisplay } from '../../../src/app/worlds';
-import { checkReplayLog, makeReplayLog, replayParamsHash } from '../../../src/cli/generated';
+import { checkReplayLog, makeReplayLog, parseReplayLog, replayParamsHash, serializeReplayLog } from '../../../src/cli/generated';
+import { canonicalJson } from '../../../src/score/canonical';
 import { paramsHash } from '../../../src/cli/run';
 
 const SEED = 11;
@@ -45,7 +46,7 @@ describe('GF-T36: event-log replay', () => {
   it('a saved log, read back and rebuilt from the seed alone, reaches the same stateHash in both arms', async () => {
     const { log, end } = await recordedRun();
     expect(log.events.map(e => e.type)).toEqual(['INJECT_SCORE', 'KILL']);
-    const stored = JSON.parse(JSON.stringify(log));                       // as a file holds it
+    const stored = parseReplayLog(serializeReplayLog(log));               // THE file form: keys in their original order
     const checked = checkReplayLog(stored, makeParams(N0));
     expect(checked.ok).toBe(true);
     if (!checked.ok) return;
@@ -55,6 +56,24 @@ describe('GF-T36: event-log replay', () => {
     const again = createWorlds({ seed: checked.log.seed, n0: checked.log.n0, brains: { encore: encoreBrain }, events: checked.log.events });
     while (again.tick < END) again.stepBoth();
     expect(hashes(again)).toEqual(end);                                     // deterministic reproduction, twice
+  }, 60_000);
+
+  it('the file form keeps key order: a key-sorted (canonicalJson) file is NOT the same run (#285)', async () => {
+    const { log, end } = await recordedRun();
+    const replayFrom = (text: string) => {
+      const checked = checkReplayLog(parseReplayLog(text), makeParams(N0));
+      if (!checked.ok) throw new Error(checked.detail);
+      const w = createWorlds({ seed: checked.log.seed, n0: checked.log.n0, brains: { encore: encoreBrain }, events: checked.log.events });
+      while (w.tick < END) w.stepBoth();
+      return hashes(w);
+    };
+    expect(replayFrom(serializeReplayLog(log))).toEqual(end);                // the writer's form reproduces the run
+    const sorted = replayFrom(canonicalJson(log));                             // same events, keys sorted
+    // The world's stateHash depends on key order, so a sorted file is a different replay. This pins why
+    // serializeReplayLog must never switch to canonicalJson.
+    expect(sorted.encore).not.toBe(end.encore);
+    expect(serializeReplayLog(log)).toBe(`${JSON.stringify(log, null, 2)}
+`);
   }, 60_000);
 
   it('the log matters: without its events the run diverges', async () => {

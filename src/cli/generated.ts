@@ -213,3 +213,15 @@ export function generatedRecipeProblem(recipe: unknown): string | null {
   if (g.compilerVersion !== COMPILER_VERSION) return `compiler-mismatch: v${g.compilerVersion}, this build is v${COMPILER_VERSION}`;
   return null;
 }
+
+/**
+ * THE file form of a replay log: JSON.stringify of the log exactly as makeReplayLog built it, keys in their original
+ * order. Never canonicalJson (sorted keys): the world's stateHash depends on object key order (brain states hold
+ * copies of the params and score), so a key-sorted file fires the same events but replays to a different stateHash
+ * (#285; pinned by tests/app/actions/replayLog.test.ts). Save and load go through these two functions only.
+ */
+export function serializeReplayLog(log: ReplayLogFile): string { return `${JSON.stringify(log, null, 2)}\n`; }
+/** Parses a replay-log file (JSON.parse keeps key order). The result is data: pass it to checkReplayLog. */
+export function parseReplayLog(text: string): unknown {
+  try { return JSON.parse(text) as unknown; } catch { return null; }
+}
