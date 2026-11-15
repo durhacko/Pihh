@@ -23,6 +23,8 @@ export default tseslint.config(
         { object: 'globalThis', property: 'XMLHttpRequest', message: 'src/telemetry makes no network call.' },
         { object: 'globalThis', property: 'EventSource', message: 'src/telemetry makes no network call.' },
         { object: 'globalThis', property: 'navigator', message: 'src/telemetry makes no network call (sendBeacon).' },
+        { object: 'globalThis', property: 'self', message: 'src/telemetry is pure: no host globals.' },
+        { object: 'globalThis', property: 'window', message: 'src/telemetry is pure: no host globals.' },
       ],
     },
   },
