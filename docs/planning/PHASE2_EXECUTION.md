@@ -10,6 +10,7 @@ Until AGENTS.md and [WORKFLOW](../development/WORKFLOW.md) are reconciled after 
 - **Labels:** each issue carries exactly one `status:*` label. The worker id goes in the claim comment, because one human assignee may run several sessions.
 - **Task packets** carry: TASK, ISSUE, WORK PACKAGE, PR BASE, BASE SHA, OWNER/WORKER, ALLOWED FILES, SHARED FILES EXCLUDED, DEPENDENCIES, EXACT SPEC SECTIONS, CONTRACT REFERENCES, ACCEPTANCE TESTS, SUCCESS CONDITION, NEXT HANDOFF.
 - **Test time:** all Track H packages together add at most 15 s to the default suite ([work packages §2.3 item 7](../development/PHASE2_WORK_PACKAGES.md)). Heavy tests go behind `P2_WIDE=1`.
+- **Commands relative to `origin/main`** read against `origin/phase2/development` in Phase 2. That covers the AGENTS.md L31 contract check, the L83 self-review diff (`git diff origin/phase2/development...`) and work packages §2.3 item 4.
 
 ## Immutable baseline and active branches
 
@@ -28,18 +29,26 @@ Phase 1 engineering G0–G5 is complete and browser-smoke tested; G6 (Devpost su
 
 - **One issue, one branch, one worktree, one PR into `phase2/development`.** The orchestrator claims each issue and posts its allowed files before work starts. Only the orchestrator merges, and each merged branch and its worktree are retired.
 - **One writer per file.** A file belongs to exactly one open issue's allowed list. Shared modules have a named single writer, kept on #199. Nobody edits another lane's files without a written handoff on the issue.
-- **Gates:** [roadmap](PHASE2_ROADMAP.md) D1 (the Track H rule, including the P2-WP-09 two-hook exception), D2 (the `[contract]` changes, one by one) and D3 (live networked modules, decided per integration) are human decisions. Silence is not approval.
+- **Gates:** [roadmap](PHASE2_ROADMAP.md) D1 (the Track H rule, including the P2-WP-09 two-hook exception), D2 (the `[contract]` changes, one by one) and D3 (live networked modules, decided per integration) are human decisions. Silence is not approval. **D1 is GRANTED, for `phase2/development` only** (#217 merged under it). D2 and D3 are not granted, and G6 is not confirmed.
 - **Sponsor order (Arnav, about 08:00; this replaces "D3 sequential"):** sponsor implementation runs in parallel. Live D3 is approved separately for each provider, and none is granted yet. When merges contend, acceptance prefers Gemini → MongoDB → TigerData, but ready work that doesn't conflict merges without waiting.
 - **Evidence:** each PR quotes real test output, the `check.sh` result and its open items. Nothing claims an untested result.
 
 ## Dependency map
 
-From the issues and the canonical work packages; an arrow means "must merge before".
-- **Core:** #200 (invariants) → #229 (follow-up) → #236 (P2-T18 cost). #229 and the n0 200 P2-T02 run → #209 (legend). #201 (linter) → #208 (Composer warnings). #202 (cascade) → #232 (demo visibility). #217 (peer diff) needs D1.
-- **Shared:** #221 (`canonicalJson`) → #205 (GF-WP-02), #230 (MDB-WP-02) and #231 (TIG-02); #231 also waits for #229, because it has the same owner.
-- **Gemini (offline):** #203 (GF-WP-01) → #205 (GF-WP-02) → #206 (GF-WP-03) and #211 (GF-WP-05) → #207 (GF-WP-04, after #205 and #206) → #212 (GF-WP-06, after #205, #207 and #211).
-- **Gated on D2:** #212 → #215 (`[contract]` GF-WP-07) → #213 (GF-WP-10, which also needs GF-WP-09) → #214 (GF-WP-11). #216 (Track P choreography) waits until after G6.
-- **Gated on D3, each live module separately:** #218 (Gemini gateway), #219 (MongoDB Atlas), #220 (TigerData).
+From the issues and the canonical work packages; an arrow means "must merge before". Where an issue body and the canonical WP doc disagree, the canonical doc wins (the #213 and #214 bodies are short).
+- **Core:**
+  - #200 (invariants) → #229 (follow-up, ✓). #229, #236 (P2-T18 cost; P2-T10 needs ≤ 0.5 ms/tick) and the n0 200 P2-T02 run (after G6) → #209 (legend).
+  - #201 (linter) → #208 (Composer warnings). #202 (cascade) → #232 (demo visibility). #217 (peer diff) merged under D1.
+- **Shared:** #221 (`canonicalJson`) → #205 (GF-WP-02), #230 (MDB-WP-02) and #231 (TIG-02). #231 also waits for #229, because it has the same owner.
+- **Gemini (offline):**
+  - #203 (GF-WP-01) → #206 (GF-WP-03) and #211 (GF-WP-05). Those two take an injected PRNG stream, so they don't wait for #205 to merge. Only the consumers that seed it, #207 and #212, need #205.
+  - #205 (GF-WP-02) and #206 → #207 (GF-WP-04).
+  - #212 (GF-WP-06) comes after #205 and #207; it needs #211 only for the 3D path.
+- **Gated on D2:**
+  - #212 → #215 (`[contract]` GF-WP-07). GF-WP-08 must merge with or before GF-WP-07; it has no issue yet.
+  - #215 → #213 (GF-WP-10, which also needs GF-WP-09 and `src/app/compose/validate.ts` from #240) → #214 (GF-WP-11).
+  - #216 (Track P choreography) waits until after G6.
+- **D3:** only **live** provider calls are gated, with each provider decided separately. The offline parts proceed: #218's offline gateway skeleton (durhack-48) and the MongoDB offline module #241 (durhack-77) are in progress. Live #218 (Gemini), #219 (MongoDB Atlas) and #220 (TigerData) wait for their own D3.
 
 ## Live state on GitHub
 
@@ -75,7 +84,7 @@ These are authoritative; never create parallel competing specifications:
 
 ## Next coordinator checkpoint
 
-Report only: work package → branch → owner → current SHA → tests → PR → blockers. Stop optional work if it contends with the presenter laptop or Devpost G6. After confirmed submission, decide whether to merge clean Phase 2 PRs into `phase2/development` and start Track P contract reviews in the documented dependency order. No broad architectural redrafting is needed.
+Report only: work package → branch → owner → current SHA → tests → PR → blockers. Stop optional work if it contends with the presenter laptop or Devpost G6. Clean Phase 2 PRs merge into `phase2/development` as they pass review. The G6 gate applies to `main`, and Track P contract reviews start after confirmed submission, in the documented dependency order. No broad architectural redrafting is needed.
 
 ## Sprint 0 — readiness and clean boundaries (15 November 2026)
 
@@ -116,7 +125,7 @@ Provider-wide shared decisions and module boundary rules are in `docs/design/OPT
 
 ### Documentation status / known gaps
 
-The Phase 2 architecture, roadmap, WPs, test matrix, candidate backlog and all three sponsors' canonical architecture/WP/evaluation sets exist on `main`. Their opening status banners date from initial proposal creation and do not reflect the newly authorised *offline* issue queue; **this execution document is the current implementation-status overlay**, not an implicit rewrite of those decisions. The GF-WP-01 kickoff approval is only offline scope.
+The Phase 2 architecture, roadmap, WPs, test matrix, candidate backlog and all three sponsors' canonical architecture/WP/evaluation sets exist on `main`. Their opening status banners date from initial proposal creation and do not reflect the newly authorised *offline* issue queue; **this execution document holds the Phase 2 operating rules and dependency map, and live status is on GitHub and #199**. It is not an implicit rewrite of those decisions. The GF-WP-01 kickoff approval is only offline scope.
 
 `docs/design/frontend-ui.md`, `frontend-terminal.md` and `frontend-prototype-audit.md` from historical #87 **do not exist on main**. The accepted prototype handoff `research/ui-prototype/DESIGN.md` and the working UI do exist. #87 remains backlog to reconcile the final architecture and interaction/acceptance matrix after G6; do not assert the canonical document has been completed.
 
