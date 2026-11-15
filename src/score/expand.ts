@@ -6,8 +6,8 @@ import { defaultPalette, denseCloud, selectionCloud } from './shapes';
 
 const CANDIDATES_PER_SLOT = 4;
 const DENSE_POINTS = 2000;
-const CENTRE: Vec3 = [0, 30, 0];
-const SPACING_MARGIN = 1.001;      // so rounding cannot leave the closest pair below slotSpacingMin
+export const CENTRE: Vec3 = [0, 30, 0];
+export const SPACING_MARGIN = 1.001;      // so rounding cannot leave the closest pair below slotSpacingMin
 const CACHE_MAX = 64;
 
 // Memo cache of pure results: the only module-level mutable state in this package.
@@ -39,7 +39,7 @@ function boundsOf(groups: Vec3[][]): { min: Vec3; max: Vec3 } {
   return { min, max };
 }
 
-function closestPair(points: Vec3[]): number {
+export function closestPair(points: Vec3[]): number {
   let best = Infinity;
   for (let i = 0; i < points.length; i++) {
     for (let j = i + 1; j < points.length; j++) {
@@ -105,7 +105,7 @@ function build(recipe: Recipe, n0: number, slotSpacingMin: number): Formation {
 
 // The cached formation is shared by every caller, so it is frozen: a caller that tries to edit it
 // gets a TypeError instead of silently corrupting what every drone and the observer see.
-function freeze(f: Formation): Formation {
+export function freeze(f: Formation): Formation {
   for (const s of f.slots) { Object.freeze(s.pos); Object.freeze(s.colour); Object.freeze(s); }
   for (const p of f.dense) Object.freeze(p);
   Object.freeze(f.slots);
