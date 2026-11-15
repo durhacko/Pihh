@@ -114,6 +114,8 @@ export interface DemoHost {
   camera(preset: CameraPreset): void;
   /** Sets the stage layout (#92). Optional: a host without layouts ignores 'layout' beats. */
   layout?(view: 'encore' | 'split' | 'static'): void;
+  /** Sets the tethers lens (#134). The clean show turns it off: with X-ray on, tethers would read as radio. */
+  tethers?(on: boolean): void;
   /** Called whenever the runner's state or caption changes. */
   changed(): void;
 }
@@ -184,6 +186,7 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
     host.send({ type: 'speed', speed: 1 });
     if (!host.status()?.playing) host.send({ type: 'play' });
     setView(false, false);
+    host.tethers?.(false);   // a presenter's earlier Lenses ▸ Tethers must not draw amber lines under the show's X-ray (#134)
     host.layout?.('encore');
   }
 
@@ -232,7 +235,7 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
  * Connects a runner to a page's controls over DOM events only, exactly as the control panel talks to them: it sends
  * `encore:control` intents and reads `encore:control-status`, including the result reported right after each intent.
  */
-export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPreset): void; changed(): void; layout?(view: 'encore' | 'split' | 'static'): void }, beats: readonly DemoBeat[] = DEMO_BEATS) {
+export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPreset): void; changed(): void; layout?(view: 'encore' | 'split' | 'static'): void; tethers?(on: boolean): void }, beats: readonly DemoBeat[] = DEMO_BEATS) {
   let status: ControlStatus | undefined;
   let result: ControlResult | undefined;
   const runner = createDemoRunner({
@@ -245,6 +248,7 @@ export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPre
     view: () => readViewMode(),
     camera: hooks.camera,
     layout: hooks.layout,
+    tethers: hooks.tethers,
     changed: hooks.changed,
   }, beats);
   const onStatus = (event: Event) => {

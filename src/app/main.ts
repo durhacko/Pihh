@@ -28,7 +28,7 @@ import { bindShortcuts } from './ui/keys';
 import { createLegend, drawnTethers } from './ui/Legend';
 import { createDisrupt, createHelp, createLenses, createMetrics, createSelectionArm, jamKeyRun, killKeyRun, stageClick, type DisruptRun, type PopoverContext } from './ui/popovers';
 import { appPhaseTracker, createReadout, TRANSITION_TITLE, type ArmPhase } from './ui/Readout';
-import { defaultUIState, paneLabels, Store, type PaneLabel, type ViewMode } from './ui/store';
+import { defaultUIState, initialShellState, paneLabels, Store, type PaneLabel, type ViewMode } from './ui/store';
 import { handleEscape, stageLayout, Surfaces } from './ui/surfaces';
 import { connectTimeline } from './ui/Timeline';
 import { createToasts } from './ui/Toasts';
@@ -53,7 +53,7 @@ const initialView: ViewMode = query.get('split') === '1' ? 'split' : query.get('
 const initialState = defaultUIState({ quality: query.get('q') === 'low' ? 'low' : 'auto', reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false });
 // Tethers start off (#134): with X-ray they draw one line per drone, on both panes, and read as radio. Lenses ▸ Tethers
 // or `view tethers` turns them on, and the legend then keys them as belief.
-const store = new Store({ ...initialState, view: initialView });
+const store = new Store(initialShellState(initialState, initialView));
 resetViewMode();   // render view state is a module singleton (#25): every load and HMR reload starts from defaults
 
 // ---------- worlds ----------
@@ -422,7 +422,7 @@ const unbindKeys = bindShortcuts({
 const caption = h('div', { class: 'caption surface chrome', hidden: true, 'aria-live': 'polite' });
 // connectDemo queries the controls while connecting, so `changed` fires before `demo` is assigned: wait for it.
 let demoReady = false;
-const demo = connectDemo(root, { camera: preset => setCamera(preset), layout: view => store.set({ view }), changed: () => { if (demoReady) renderCaption(); } });
+const demo = connectDemo(root, { camera: preset => setCamera(preset), layout: view => store.set({ view }), tethers: on => store.lens('tethers', on), changed: () => { if (demoReady) renderCaption(); } });
 demoReady = true;
 /** Starts the scripted show, or says why it cannot: a roster other than DEMO_N0, or no simulation connection. */
 function startDemo(): string | null {

@@ -12,7 +12,7 @@ import { legendItems, TETHER_ROW } from '../../../src/app/ui/Legend';
 import { connectInspector, inspectorArm, type InspectorSource } from '../../../src/app/ui/Inspector';
 import { createSelectionArm, disruptActions, jamKeyAction, jamKeyRun, killKeyRun, pickAnswered, scrollByKey, stageClick, type DisruptRun } from '../../../src/app/ui/popovers';
 import { readoutItems } from '../../../src/app/ui/Readout';
-import { DEFAULT_JAM_RADIUS, DEFAULT_KILL_RADIUS, defaultUIState, paneLabels, Store } from '../../../src/app/ui/store';
+import { DEFAULT_JAM_RADIUS, DEFAULT_KILL_RADIUS, defaultUIState, initialShellState, paneLabels, Store } from '../../../src/app/ui/store';
 import { handleEscape, Surfaces, type SurfaceEnv } from '../../../src/app/ui/surfaces';
 import { ARMS, controlContext, createWorlds } from '../../../src/app/worlds';
 
@@ -336,8 +336,19 @@ describe('tether legend (#134 P0)', () => {
     expect(legendItems({ ...off, xray: true })).not.toContainEqual(TETHER_ROW);   // X-ray with the lens off draws none
     expect(legendItems({ ...off, xray: true, tethers: 3, arm: 'Encore' })[0]).toEqual(TETHER_ROW);   // covers both panes: no arm prefix
   });
-  it('tethers start off', () => {
-    expect(defaultUIState().lenses.tethers).toBe(false);
+  it('tethers start off in the state the shell actually starts from (main.ts builds it with initialShellState)', () => {
+    for (const view of ['encore', 'split', 'static'] as const) {
+      const state = initialShellState(defaultUIState(), view);
+      expect(state.lenses.tethers).toBe(false);
+      expect(state.view).toBe(view);
+    }
+  });
+  it('the scripted show starts with tethers off, whatever the presenter left on', () => {
+    const tethers: boolean[] = [];
+    const status = () => ({ available: true, playing: true, speed: 1, seed: DEMO_SEED, tick: 1, loss: 0.05, selectedId: null, selectedAlive: false, radioFaults: true, composition: true, display: true, message: '' }) as unknown as ControlStatus;
+    const runner = createDemoRunner({ send: () => ({ ok: true, message: '' }), status, view: () => ({ xray: false, beliefColours: false }), camera: () => {}, tethers: on => { tethers.push(on); }, changed: () => {} }, []);
+    expect(runner.start()).toBe(true);
+    expect(tethers).toEqual([false]);
   });
 });
 

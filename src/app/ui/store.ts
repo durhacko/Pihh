@@ -57,6 +57,14 @@ export interface UIState {
   jamRadius: number;
 }
 
+/**
+ * The state the shell starts from (main.ts): the caller's defaults with the view from the URL. No lens is
+ * overridden: tethers stay off (#134; before, main.ts switched them on and X-ray drew them as if they were radio).
+ */
+export function initialShellState(initial: UIState, view: ViewMode): UIState {
+  return { ...initial, view };
+}
+
 export type StoreListener = (state: Readonly<UIState>, changed: (keyof UIState)[]) => void;
 
 /** The prototype's start state. The caller reads the environment (URL, OS reduced-motion setting) and passes it in. */
