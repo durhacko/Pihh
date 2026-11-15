@@ -79,11 +79,28 @@ describe('observer box', () => {
   });
 
   it('says "not sampled yet" before the first slot reading, and reports death from the observer', () => {
-    const truth: ObserverTruth = { source: 'observer', id: 3, tick: 9, alive: false, diedTick: 4, believedSlot: 3, sameFormation: null, believedSlotStatus: null, slotStatusTick: null, jammedBy: [], partitionSide: null, inRadioRange: { live: 2, dead: 1 } };
-    const rows = rowsOf(truthRows(truth));
+    const alive: ObserverTruth = { source: 'observer', id: 3, tick: 9, alive: true, diedTick: null, believedSlot: 3, sameFormation: null, believedSlotStatus: null, slotStatusTick: null, jammedBy: [], partitionSide: null, inRadioRange: { live: 2, dead: 1 } };
+    expect(rowsOf(truthRows(alive))['Slot 3, per observer']).toBe('not sampled yet');
+    const rows = rowsOf(truthRows({ ...alive, alive: false, diedTick: 4 }));
     expect(rows['True state']).toBe('dead since t4');
-    expect(rows['Slot 3, per observer']).toBe('not sampled yet');
+    expect(rows['Slot 3, per observer']).toBe('dead since t4; target frozen');
     expect(rows['Partition group']).toBe('none');
+  });
+
+  it('a dead drone whose frozen target no longer matches the reference is dead, not "flying a different score"', () => {
+    const snap = makeFakeSnapshot(50, 20);
+    for (const drone of snap.drones) drone.belief.slot = drone.id;
+    snap.drones[2].alive = false; snap.drones[2].diedTick = 30;
+    const reading = readingFor(snap, 'vacant');
+    reading.slots.formation.slots[2] = { pos: [snap.drones[2].belief.target[0] + 10, 0, 0] };   // the score moved on after it died
+    const truth = observerTruth(snap, reading, { rRadio: 15, rOcc: 0.6 }, 2)!;
+    expect(truth.sameFormation).toBe(false);
+    const rows = rowsOf(truthRows(truth));
+    expect(rows['Slot 2, per observer']).toBe('dead since t30; target frozen');
+    expect(rows['Slot 2, per observer']).not.toMatch(/different score/);
+    // A live drone in the same position still gets the honest "not comparable".
+    snap.drones[2].alive = true; snap.drones[2].diedTick = null;
+    expect(rowsOf(truthRows(observerTruth(snap, reading, { rRadio: 15, rOcc: 0.6 }, 2)!))['Slot 2, per observer']).toMatch(/^not comparable/);
   });
 
   it('matches the real observer for a real drone', () => {

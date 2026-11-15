@@ -7,15 +7,16 @@
 // drone's state or ground truth. Imports only the contracts, the score package, ./steer and ./state.
 // No clock, no Math.random, no module-level mutable state. Arrays are iterated in index order.
 //
-// Score adoption and gossip (section 9) belong to issue #21. Every place where they plug in is marked "#21".
+// Score adoption and gossip (section 9) are issue #21: handleScoreMessage, scheduleScoreSend, the anti-entropy line in
+// handleHeartbeat, and the SCORE send in step 5.
 import { OPERATOR } from '../contracts';
 import type {
   AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Heartbeat, Message, ScoreMsg, ScoreVersion, Sensed, Slot, Vec3,
 } from '../contracts';
-import { currentMovement, expandRecipe } from '../score';
-import { NEVER_HEARD } from './state';
+import { currentMovement, expandRecipe, newerVersion } from '../score';
+import { NEVER_HEARD, nextRandom } from './state';
 import type { EncoreState } from './state';
-import { steer, steerTarget } from './steer';
+import { pacedSlotPos, steer, steerTarget } from './steer';
 
 /** "Slow" for being settled at a slot, in m/s (section 8.2, condition 3). */
 const SETTLED_SPEED = 0.5;
@@ -106,14 +107,39 @@ function dropClaim(s: EncoreState, now: number, why: string): void {
 
 // ---------- 1. inbox ----------
 
+// ---------- score gossip (section 9; issue #21) ----------
+
 /**
- * #21 STUB (issue #21, WP-6a: score adoption and gossip, contract section 9).
- * Until then a SCORE message has no effect at all: the brain keeps flying its preloaded score.
- * To be filled in by #21: if newerVersion(m.score.version, s.score.version), adopt it
- * (s.score = copy, recompute s.mvIndex, targetChanged, scheduleScoreSend); ignore an equal or older score.
+ * Section 9: if no SCORE send is pending, schedule one at max(now + 1 + (rng % scoreJitter), lastScoreSent + scoreResendMin).
+ * A scheduled send always fires: it is never cancelled, not even by hearing my own version from someone else
+ * (with A in range of B, B in range of C and A out of range of C, only B can reach C). The rate limit bounds the
+ * traffic instead: at most one SCORE per drone per scoreResendMin. lastScoreSent starts at -scoreResendMin.
+ */
+function scheduleScoreSend(s: EncoreState, now: number): void {
+  if (s.scoreSendAt !== null) return;
+  const jitter = s.params.scoreJitter > 0 ? nextRandom(s) % s.params.scoreJitter : 0;
+  s.scoreSendAt = Math.max(now + 1 + jitter, s.lastScoreSent + s.params.scoreResendMin);
+}
+
+/**
+ * Section 9, "Adopt": a SCORE (from a drone, or the operator uplink: both count the same) is adopted only if its
+ * version is strictly newer than mine; an equal or older one is ignored. Adopting recomputes the current movement
+ * by the clock, so a late adopter joins whatever movement is current, and spreads the score on.
  */
 function handleScoreMessage(s: EncoreState, m: ScoreMsg, now: number): void {
-  void s; void m; void now;
+  // A score with no version or no movements cannot be ordered or flown (newerVersion and currentMovement would
+  // throw). Honest senders never send one (section 12: no adversarial senders); it is ignored.
+  const v = m.score?.version;
+  if (!v || !Number.isFinite(v.issuedTick) || !Number.isFinite(v.origin)) return;
+  if (!Array.isArray(m.score.movements) || m.score.movements.length === 0) return;
+  if (!newerVersion(m.score.version, s.score.version)) return;
+  const was = s.score.version;
+  s.score = copyJson(m.score);
+  s.mvIndex = currentMovement(s.score, now).index;
+  targetChanged(s, now);
+  scheduleScoreSend(s, now);
+  const from = m.from === OPERATOR ? 'operator' : `drone ${m.from}`;
+  note(s, now, `adopt score {${s.score.version.issuedTick}, ${s.score.version.origin}} from ${from} (was {${was.issuedTick}, ${was.origin}})`);
 }
 
 function handleHeartbeat(s: EncoreState, m: Heartbeat, now: number): void {
@@ -130,7 +156,9 @@ function handleHeartbeat(s: EncoreState, m: Heartbeat, now: number): void {
   };
   s.slotHeard[m.slot] = now;
 
-  // #21: if newerVersion(s.score.version, m.version) the sender is stale: scheduleScoreSend().
+  // Anti-entropy (section 9): the sender flies an older score, so send it mine. A newer one: do nothing;
+  // that drone will hear my heartbeat and send.
+  if (newerVersion(s.score.version, m.version)) scheduleScoreSend(s, now);
 
   // Duplicate: the earlier holder keeps the slot. (heldSince, id) compared lexicographically.
   if (m.slot === s.slot && (m.heldSince < s.heldSince || (m.heldSince === s.heldSince && m.from < s.id))) {
@@ -311,11 +339,24 @@ export const encoreBrain: AgentBrain<EncoreState> = {
       s.seq += 1;
       outbox.push(hb);
     }
-    // #21: if s.scoreSendAt !== null && now >= s.scoreSendAt: send SCORE; s.lastScoreSent = now; s.scoreSendAt = null.
+    // Score gossip (section 9): a scheduled send always fires.
+    if (s.scoreSendAt !== null && now >= s.scoreSendAt) {
+      const msg: ScoreMsg = { type: 'SCORE', from: s.id, seq: s.seq, sentTick: now, score: copyJson(s.score) };
+      s.seq += 1;
+      outbox.push(msg);
+      s.lastScoreSent = now;
+      s.scoreSendAt = null;
+    }
 
     // 6. Move and light (section 10). The slot may have changed in steps 3 and 4: fly to the one I hold now.
     const mine = slots[s.slot];
-    const accel = steer(input.pos, input.vel, steerTarget(s.id, input.pos, mine.pos, p), input.sensed, p);
+    const paced = pacedSlotPos(s.score, now, s.slot, s.n0, p);
+    let aim = paced;
+    if (p.transitLanes) {
+      const lane = steerTarget(s.id, input.pos, mine.pos, p);
+      aim = [paced[0] + lane[0] - mine.pos[0], paced[1] + lane[1] - mine.pos[1], paced[2] + lane[2] - mine.pos[2]];
+    }
+    const accel = steer(input.pos, input.vel, aim, input.sensed, p);
     return { accel, colour: [mine.colour[0], mine.colour[1], mine.colour[2]], outbox };
   },
 

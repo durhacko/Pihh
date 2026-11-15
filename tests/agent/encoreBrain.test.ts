@@ -18,7 +18,7 @@ import { composeNext, currentMovement, expandRecipe, newerVersion } from '../../
 import { encoreBrain } from '../../src/agent/encoreBrain';
 import { NEVER_HEARD, nextRandom } from '../../src/agent/state';
 import type { EncoreState } from '../../src/agent/state';
-import { steer, steerTarget } from '../../src/agent/steer';
+import { pacedSlotPos, steer, steerTarget } from '../../src/agent/steer';
 
 // ---------- the show ----------
 
@@ -424,14 +424,15 @@ describe('encoreBrain: heartbeats (section 8.3, step 5)', () => {
     expect(encoreBrain.step(s, inputAt({}, 8)).outbox[0]).toMatchObject({ version: { issuedTick: 0, origin: OPERATOR }, seq: 1 });
   });
 
-  it('accel is steer towards my slot, and the colour is my slot colour', () => {
+  it('accel is steer towards the paced point of my slot (#80); belief.target and the colour stay my real slot', () => {
     const pos: Vec3 = [3, 12, -4];
     const vel: Vec3 = [1, 2, -1];
     const p = play({ pos: () => pos, vel: () => vel }, 6);
     for (const f of p.frames) {
       const slot = expandRecipe(TEXT, N, P).slots[ME];
-      expect(f.out.accel).toEqual(steer(pos, vel, steerTarget(ME, pos, slot.pos, P), f.input.sensed, P));
+      expect(f.out.accel).toEqual(steer(pos, vel, pacedSlotPos(SCORE, f.tick, ME, N, P), f.input.sensed, P));
       expect(f.out.colour).toEqual(slot.colour);
+      expect(f.belief.target).toEqual(slot.pos);
     }
   });
 });
@@ -1094,7 +1095,9 @@ describe('encoreBrain: physical yield (section 8.3, step 3)', () => {
   });
 });
 
-describe('encoreBrain: SCORE messages are ignored until issue #21 (stub)', () => {
+// Score adoption and gossip (issue #21) are tested in tests/agent/scoreGossip.test.ts and tests/g4/. What stays
+// here is how a SCORE counts as radio heard (lastRx, deafness), which section 8.2 relies on.
+describe('encoreBrain: SCORE messages and lastRx', () => {
   const NEXT = composeNext(SCORE, 150, SPHERE, 5, N, P);
   const scoreMsg = (from: number, tick: number): ScoreMsg => ({ type: 'SCORE', from, seq: 7000 + tick, sentTick: tick - 1, score: jsonCopy(NEXT) });
 
@@ -1104,32 +1107,18 @@ describe('encoreBrain: SCORE messages are ignored until issue #21 (stub)', () =>
     expect(dist(slotPos(ME, 400, NEXT), slotPos(ME, 400))).toBeGreaterThan(P.rOcc);
   });
 
-  it('a SCORE from the operator has no effect at all', () => {
-    const quiet = reference(COMMIT + 20);
-    const injected = reference(COMMIT + 20, { extra: tick => (tick === 150 || tick === 260 ? [scoreMsg(OPERATOR, tick)] : []) });
-    expect(frameAt(injected, 150).input.inbox.some(m => m.type === 'SCORE')).toBe(true);
-    for (const f of injected.frames) {
-      const q = frameAt(quiet, f.tick);
-      expect(f.out, `tick ${f.tick}`).toStrictEqual(q.out);
-      expect(f.state, `tick ${f.tick}`).toStrictEqual(q.state);
-      expect(f.belief, `tick ${f.tick}`).toStrictEqual(q.belief);
-    }
-    expect(injected.state.score).toEqual(SCORE);
-    expect(injected.frames.every(f => f.out.outbox.every(m => m.type === 'HB'))).toBe(true);
+  it('a SCORE from the operator is adopted but is not radio heard from another drone: lastRx is unchanged', () => {
+    // No heartbeats at all, so the uplink is the only message this drone ever gets.
+    const injected = play({ heartbeat: () => null, extra: tick => (tick === 150 ? [scoreMsg(OPERATOR, tick)] : []) }, 200);
+    expect(frameAt(injected, 150).input.inbox.map(m => m.type)).toEqual(['SCORE']);
+    expect(frameAt(injected, 150).state.score.version).toEqual(NEXT.version);
+    for (const f of injected.frames) expect(f.state.lastRx, `tick ${f.tick}`).toBe(NEVER_HEARD);
+    expect(frameAt(injected, 200).belief.deaf).toBe(true);
   });
 
-  it('a SCORE from another drone only counts as a radio message heard (lastRx)', () => {
-    const quiet = reference(COMMIT + 20);
+  it('a SCORE from another drone counts as a radio message heard (lastRx)', () => {
     const gossip = reference(COMMIT + 20, { extra: tick => (tick % 7 === 0 ? [scoreMsg(5, tick)] : []) });
-    for (const f of gossip.frames) {
-      const q = frameAt(quiet, f.tick);
-      expect(f.out, `tick ${f.tick}`).toStrictEqual(q.out);
-      expect({ ...f.state, lastRx: 0 }, `tick ${f.tick}`).toStrictEqual({ ...q.state, lastRx: 0 });
-      expect(f.belief.version).toEqual({ issuedTick: 0, origin: OPERATOR });
-      if (f.tick % 7 === 0) expect(f.state.lastRx).toBe(f.tick);
-    }
-    expect(gossip.state).toMatchObject({ scoreSendAt: null, lastScoreSent: -P.scoreResendMin, mvIndex: 0 });
-    expect(gossip.state.rng).toBe(quiet.state.rng);
+    for (const f of gossip.frames) if (f.tick % 7 === 0) expect(f.state.lastRx).toBe(f.tick);
     // Alone, with no heartbeat ever heard, such a message is what keeps the drone from being deaf.
     const alone = play({ heartbeat: () => null, extra: tick => (tick === 30 ? [scoreMsg(5, tick)] : []) }, 30 + P.tDeaf + 1);
     expect(frameAt(alone, 29).belief.deaf).toBe(true);

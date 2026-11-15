@@ -70,7 +70,93 @@ function reach(entry: string, allowed: readonly string[] = []): { modules: Set<s
   return { modules, forbidden, snapshot };
 }
 
+/**
+ * The Inspector may use only these names from src/contracts, anywhere in its local import graph. Name checks alone let
+ * a structural bypass through (`ReturnType<World['step']>`, or `DroneSnap`, which is a slice of a snapshot), so the
+ * allowlist is what the code really needs, and anything else fails.
+ */
+const INSPECTOR_CONTRACT_NAMES: ReadonlySet<string> = new Set([
+  'OPERATOR', 'AgentInput', 'AgentOutput', 'Belief', 'SlotStatus',   // Inspector.ts
+  'RGB', 'ScoreVersion',                                             // render/colourModes/belief.ts (version colours)
+]);
+
+/**
+ * Every name a source file takes from src/contracts: named imports (by their exported name, so aliases do not hide
+ * them), re-exports, `import('…contracts').Name` types, and '*' for anything that takes the whole module (a namespace
+ * or default import, `export *`, a bare import type, or a dynamic import or require of the contracts).
+ */
+function contractNames(source: string, filename: string): string[] {
+  const names: string[] = [];
+  const ast = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true);
+  const isContracts = (node: ts.Node | undefined) => {
+    if (!node || !ts.isStringLiteralLike(node) || !node.text.startsWith('.')) return false;
+    const target = relative(root, resolve(root, dirname(filename), node.text)).replaceAll('\\', '/');
+    return target === CONTRACTS || target.startsWith(`${CONTRACTS}/`);
+  };
+  function visit(node: ts.Node) {
+    if (ts.isImportDeclaration(node) && isContracts(node.moduleSpecifier)) {
+      const clause = node.importClause;
+      if (clause?.name) names.push('*');
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) names.push('*');
+      if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) names.push((element.propertyName ?? element.name).text);
+    }
+    if (ts.isExportDeclaration(node) && isContracts(node.moduleSpecifier)) {
+      if (node.exportClause && ts.isNamedExports(node.exportClause)) for (const element of node.exportClause.elements) names.push((element.propertyName ?? element.name).text);
+      else names.push('*');
+    }
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && isContracts(node.argument.literal)) {
+      const qualifier = node.qualifier;
+      names.push(!qualifier ? '*' : ts.isIdentifier(qualifier) ? qualifier.text : qualifier.getText().split('.')[0]);
+    }
+    if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === 'require')) && isContracts(node.arguments[0])) names.push('*');
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  return names;
+}
+
+/** Contract names used outside the allowlist by any module the Inspector reaches (the contracts themselves excluded). */
+function inspectorContractLeaks(overrides: Record<string, string> = {}): string[] {
+  const leaks: string[] = [];
+  for (const file of reach('src/app/ui/Inspector.ts').modules) {
+    if (file.startsWith(`${CONTRACTS}/`)) continue;
+    const source = overrides[file] ?? readFileSync(resolve(root, file), 'utf8');
+    for (const name of contractNames(source, file)) if (!INSPECTOR_CONTRACT_NAMES.has(name)) leaks.push(`${file}: ${name}`);
+  }
+  return leaks;
+}
+
 describe('inspector and selection isolation (UI-07)', () => {
+  it('the Inspector and everything it imports take only allowlisted names from the contracts', () => {
+    expect(inspectorContractLeaks()).toEqual([]);
+    // Every allowlisted name is really used, so the list cannot quietly grow past what the Inspector needs.
+    const used = new Set([...reach('src/app/ui/Inspector.ts').modules].filter(file => !file.startsWith(`${CONTRACTS}/`))
+      .flatMap(file => contractNames(readFileSync(resolve(root, file), 'utf8'), file)));
+    expect([...INSPECTOR_CONTRACT_NAMES].filter(name => !used.has(name))).toEqual([]);
+  });
+
+  it('the allowlist catches structural bypasses that the WorldSnapshot name check misses', () => {
+    const inspector = readFileSync(resolve(root, 'src/app/ui/Inspector.ts'), 'utf8');
+    for (const plant of [
+      "import type { World } from '../../contracts';\ntype Step = ReturnType<World['step']>;",   // the review's bypass
+      "import type { DroneSnap } from '../../contracts';",
+      "import type { DroneSnap as Peer } from '../../contracts';",
+      "type Peer = import('../../contracts').DroneSnap;",
+      "import * as C from '../../contracts';",
+      "export type { DroneSnap } from '../../contracts';",
+      "const contracts = await import('../../contracts');",
+    ]) {
+      const planted = `${plant}\n${inspector}`;
+      expect(scan(planted, 'src/app/ui/Inspector.ts').worldSnapshot).toEqual([]);   // the old check alone passes it
+      expect(inspectorContractLeaks({ 'src/app/ui/Inspector.ts': planted }).length).toBeGreaterThan(0);
+    }
+    // Through the graph as well: a helper the Inspector imports cannot smuggle a contract type in for it.
+    const belief = readFileSync(resolve(root, 'src/app/render/colourModes/belief.ts'), 'utf8');
+    expect(inspectorContractLeaks({ 'src/app/render/colourModes/belief.ts': `import type { World } from '../../../contracts';\n${belief}` }))
+      .toEqual(['src/app/render/colourModes/belief.ts: World']);
+  });
+
   it.each(GUARDED)('%s never names WorldSnapshot, directly or through its imports', (file, allowed) => {
     expect(scan(readFileSync(resolve(root, file), 'utf8'), file).worldSnapshot).toEqual([]);
     expect(reach(file, allowed).snapshot).toEqual([]);
