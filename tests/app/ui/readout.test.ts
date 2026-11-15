@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { composeNext } from '../../../src/score';
 import { createSlotStatusFeed } from '../../../src/app/render/layers/GhostSlotLayer';
-import { armPhase, NOT_COMPARABLE_LABEL, readoutItems, TRANSITION_LABEL, TRANSITION_VALUE, type ArmPhase } from '../../../src/app/ui/Readout';
+import { armPhase, NOT_COMPARABLE_LABEL, readoutItems, TRANSITION_LABEL, TRANSITION_TITLE, TRANSITION_VALUE, type ArmPhase } from '../../../src/app/ui/Readout';
 import { formatPercent, HudModel } from '../../../src/app/ui/Hud';
 import { ARMS, createWorlds, hudPayload, type Pair, type Worlds } from '../../../src/app/worlds';
 import { fmt } from '../../../src/app/ui/dom';
@@ -39,8 +39,9 @@ describe('readout phase and transition, per arm, from the observer', () => {
     // The displayed values ARE the observer samples; only the Encore one is greyed.
     expect(npwc.parts).toEqual([{ value: fmt(samples.encore!.npwc, 3), muted: true }, { value: fmt(samples.static!.npwc, 3), muted: false }]);
     expect(npwc.value).toBe(`${fmt(samples.encore!.npwc, 3)} / ${fmt(samples.static!.npwc, 3)}`);
-    expect(split.find(item => item.key === 'transition')).toMatchObject({ label: TRANSITION_LABEL, value: `E · ${TRANSITION_VALUE}` });
-    expect(split.find(item => item.key === 'phase')!.value).toBe('E Transition · Double helix / S Hold · “ENCORE”');
+    expect(split.find(item => item.key === 'transition')).toMatchObject({ label: TRANSITION_LABEL, value: 'E · new formation', title: TRANSITION_TITLE });
+    expect(split.find(item => item.key === 'phase')).toMatchObject({ label: '', value: 'E Transition Double helix / S Hold “ENCORE”' });
+    expect(split.find(item => item.key === 'phase')!.title).toContain('Encore Transition · Double helix; static Hold · “ENCORE”');
 
     const single = readoutItems({ samples, view: 'encore', n0: 40, phases: p, fps: 30, stopped: null });
     expect(single.find(item => item.key === 'npwc')).toMatchObject({ value: fmt(samples.encore!.npwc, 3), muted: true });
@@ -52,7 +53,10 @@ describe('readout phase and transition, per arm, from the observer', () => {
     expect(staticView.some(item => item.key === 'transition')).toBe(false);
 
     // Judge red team #134: the split pair compares two arms scored on DIFFERENT formations. It must say so.
-    expect(split.find(item => item.key === 'comparable')).toMatchObject({ label: NOT_COMPARABLE_LABEL, value: 'different formations: E Double helix / S “ENCORE”' });
+    // Short on screen (PHASE already names both formations); the names are in the tooltip.
+    const comparable = split.find(item => item.key === 'comparable')!;
+    expect(comparable).toMatchObject({ label: NOT_COMPARABLE_LABEL, value: 'different formations' });
+    expect(comparable.title).toContain('Encore is measured against Double helix, static against “ENCORE”');
     // Only one arm is shown in a single view: there is no pair to compare.
     expect(single.some(item => item.key === 'comparable')).toBe(false);
 

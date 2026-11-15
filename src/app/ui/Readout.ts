@@ -35,9 +35,12 @@ export interface ReadoutItem {
   parts?: ReadoutPart[];
 }
 
+// Short on screen so the readout stays one line at 1280 px; the full wording is in each item's title (tooltip).
 export const TRANSITION_LABEL = 'in transition';
-export const TRANSITION_VALUE = 'measured against the new formation';
+export const TRANSITION_VALUE = 'new formation';
+export const TRANSITION_TITLE = 'In transition: measured against the new formation, which the arm is still flying to; it dips until the drones arrive';
 export const NOT_COMPARABLE_LABEL = 'not comparable';
+export const NOT_COMPARABLE_VALUE = 'different formations';
 
 const alive = (s: MetricsSample | null): string => (s ? String(s.alive) : '—');
 const movementName = (recipe: Score['movements'][number]['recipe']): string =>
@@ -84,23 +87,24 @@ export function readoutItems(input: ReadoutInput): ReadoutItem[] {
   const differ = both && phases.encore !== null && phases.static !== null && phases.encore.name !== phases.static.name;
   if (differ) {
     items.push({
-      key: 'comparable', label: NOT_COMPARABLE_LABEL, muted: true,
-      value: `different formations: E ${phases.encore!.name} / S ${phases.static!.name}`,
-      title: 'Each arm is measured against the formation its own drones fly; with different formations the two nPWC values do not compare',
+      key: 'comparable', label: NOT_COMPARABLE_LABEL, muted: true, value: NOT_COMPARABLE_VALUE,
+      title: `Not comparable: Encore is measured against ${phases.encore!.name}, static against ${phases.static!.name}. Each arm is measured against the formation its own drones fly, so the two nPWC values do not compare`,
     });
   }
   if (moving.length) {
     items.push({
       key: 'transition', label: TRANSITION_LABEL, muted: true,
       value: both ? `${moving.map(arm => (arm === 'encore' ? 'E' : 'S')).join(' + ')} · ${TRANSITION_VALUE}` : TRANSITION_VALUE,
-      title: 'The observer measures each arm against the formation its drones are flying to; it dips until they arrive',
+      title: TRANSITION_TITLE,
     });
   }
   items.push({ key: 'alive', label: 'Alive', value: both ? `${alive(encore)} / ${alive(baseline)}` : alive(shown), title: `of ${input.n0} launched (observer)` });
   const phaseLabel = (p: ArmPhase) => `${p.inHold ? 'Hold' : 'Transition'} · ${p.name}`;
   const e = phases.encore, s = phases.static;
   if (both && e && s && (e.inHold !== s.inHold || e.name !== s.name)) {
-    items.push({ key: 'phase', label: 'Phase', value: `E ${phaseLabel(e)} / S ${phaseLabel(s)}`, title: 'Each arm\'s reference formation (observer)' });
+    // Compact (the readout must stay one line): "E Transition “HI” / S Hold “ENCORE”"; the key label is in the title.
+    const compact = (p: ArmPhase) => `${p.inHold ? 'Hold' : 'Transition'} ${p.name}`;
+    items.push({ key: 'phase', label: '', value: `E ${compact(e)} / S ${compact(s)}`, title: `Phase, per arm (observer reference formation): Encore ${phaseLabel(e)}; static ${phaseLabel(s)}` });
   } else {
     const p = both ? e ?? s : phases[shownArm];
     if (p) items.push({ key: 'phase', label: p.inHold ? 'Hold' : 'Transition', value: p.name, title: 'Reference formation (observer)' });
