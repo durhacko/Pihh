@@ -63,7 +63,7 @@ export interface FeatureLine2D {
   featureId: string;
   /** How the line was found. */
   kind: 'centreline' | 'major-axis' | 'skeleton' | 'principal-axis';
-  /** length_f of spec §7.4 step 2, normalised units (a skeleton counts one cell per pixel). */
+  /** length_f of spec §7.4 step 2, normalised units (a skeleton is measured along its 8-connected links). */
   length: number;
   /** This part's feature candidates are `candidates[first … first + count − 1]`. */
   first: number;
@@ -119,6 +119,10 @@ export const BOUNDARY_STEP_DIVISOR = 4;
 /** A lattice is accepted within this share of its target count; otherwise its spacing is rescaled. */
 const LATTICE_TOLERANCE = 0.03;
 const LATTICE_TRIES = 8;
+/** Snap-edge buckets are this many cells wide; the 3×3 around a sample covers the one-cell snap limit. */
+const SNAP_BUCKET_CELLS = 4;
+/** A snap target must separate inside from outside at this offset (cells) along the edge normal. */
+const SNAP_SIDE_PROBE = 0.25;
 const ROW = Math.sqrt(3) / 2;
 const snap = (v: number): number => Math.round(v * 1e9) / 1e9;
 
@@ -262,9 +266,23 @@ export function traceContours(mask: Mask2D): Loop2D[] {
 
 /** Zhang–Suen thinning of a binary image (w × h, row-major, y up). Returns the skeleton in place. */
 function zhangSuen(img: Uint8Array, w: number, h: number): void {
-  let active: number[] = [];
-  for (let k = 0; k < img.length; k++) if (img[k]) active.push(k);
   const at = (x: number, y: number): number => (x < 0 || y < 0 || x >= w || y >= h ? 0 : img[y * w + x]);
+  // Only a pixel with an empty 8-neighbour can be removed (removal needs B <= 6), so each pass checks
+  // just the current border: the same result as scanning every pixel, at a cost near the area rather
+  // than area × thickness. A pixel joins the border when a neighbour is removed.
+  const inBorder = new Uint8Array(img.length);
+  let active: number[] = [];
+  const addIfBorder = (k: number): void => {
+    if (!img[k] || inBorder[k]) return;
+    const x = k % w;
+    const y = (k - x) / w;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if ((dx || dy) && !at(x + dx, y + dy)) { inBorder[k] = 1; active.push(k); return; }
+      }
+    }
+  };
+  for (let k = 0; k < img.length; k++) addIfBorder(k);
   let changed = true;
   while (changed) {
     changed = false;
@@ -288,9 +306,39 @@ function zhangSuen(img: Uint8Array, w: number, h: number): void {
       if (remove.length > 0) {
         changed = true;
         active = active.filter((k) => img[k] === 1);
+        for (const k of remove) {
+          const x = k % w;
+          const y = (k - x) / w;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const nx = x + dx;
+              const ny = y + dy;
+              if (nx >= 0 && ny >= 0 && nx < w && ny < h) addIfBorder(ny * w + nx);
+            }
+          }
+        }
       }
     }
   }
+}
+
+/** Length of an 8-connected skeleton: half a cell per orthogonal link end, half a diagonal (√2) per
+ * diagonal link end, a diagonal counted only when neither shared orthogonal cell is set (no staircase
+ * double count). Every link is seen from both ends, so each end adds half. */
+function skeletonLength(img: Uint8Array, w: number, h: number, cell: number): number {
+  const at = (x: number, y: number): number => (x < 0 || y < 0 || x >= w || y >= h ? 0 : img[y * w + x]);
+  const diag = Math.SQRT2 * cell;
+  let len = 0;
+  for (let k = 0; k < img.length; k++) {
+    if (!img[k]) continue;
+    const x = k % w;
+    const y = (k - x) / w;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (at(x + dx, y + dy)) len += cell / 2;
+    for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      if (at(x + dx, y + dy) && !at(x + dx, y) && !at(x, y + dy)) len += diag / 2;
+    }
+  }
+  return len;
 }
 
 /** Greedy subset of `pts` (in their given order) with every pair at least `step` apart. */
@@ -380,7 +428,8 @@ function featureLine(part: Part2D, mask: Mask2D, step: number): { kind: FeatureL
     if (img[k]) skeleton.push(cellCentre(mask, i0 + (k % w), j0 + Math.floor(k / w)));
   }
   if (skeleton.length > 0) {
-    return { kind: 'skeleton', points: spaced(skeleton, step), length: skeleton.length * mask.cell };
+    // A lone pixel has no links; it still stands for a feature one cell long.
+    return { kind: 'skeleton', points: spaced(skeleton, step), length: Math.max(mask.cell, skeletonLength(img, w, h, mask.cell)) };
   }
   const axis = principalAxis(part.ring ?? []);
   return { kind: 'principal-axis', points: resample(axis, step, false).map((q) => q.p), length: axis.length === 2 ? dist(axis[0], axis[1]) : 0 };
@@ -446,6 +495,35 @@ function hexLattice(mask: Mask2D, region: Region2D, area: number, target: number
   return best ?? { points: [], spacing: s };
 }
 
+/** Adds (in place, row-major) the centre of every filled, contained cell with no point within `radius`. */
+function coverFilledCells(mask: Mask2D, region: Region2D, points: Pt2[], radius: number): void {
+  if (!(radius > 0)) return;
+  const r2 = radius * radius;
+  const span = mask.size * mask.cell;
+  const nb = Math.max(1, Math.ceil(span / radius));
+  const bucketOf = (v: number, o: number): number => Math.min(nb - 1, Math.max(0, Math.floor((v - o) / radius)));
+  const grid: Pt2[][] = Array.from({ length: nb * nb }, () => []);
+  const add = (p: Pt2): void => { grid[bucketOf(p[1], mask.origin[1]) * nb + bucketOf(p[0], mask.origin[0])].push(p); };
+  for (const p of points) add(p);
+  const covered = (p: Pt2): boolean => {
+    const bi = bucketOf(p[0], mask.origin[0]);
+    const bj = bucketOf(p[1], mask.origin[1]);
+    for (let j = Math.max(0, bj - 1); j <= Math.min(nb - 1, bj + 1); j++) {
+      for (let i = Math.max(0, bi - 1); i <= Math.min(nb - 1, bi + 1); i++) {
+        for (const q of grid[j * nb + i]) if ((q[0] - p[0]) * (q[0] - p[0]) + (q[1] - p[1]) * (q[1] - p[1]) <= r2) return true;
+      }
+    }
+    return false;
+  };
+  for (let j = 0; j < mask.size; j++) {
+    for (let i = 0; i < mask.size; i++) {
+      if (!mask.bits[j * mask.size + i]) continue;
+      const c = cellCentre(mask, i, j);
+      if (!covered(c) && region.contains(c)) { points.push(c); add(c); }
+    }
+  }
+}
+
 // ---------------------------------------------------------------- sampling
 
 /** The part deciding a point (the last part containing it, any operation), or -1. */
@@ -483,13 +561,48 @@ export function sample2d(scene: SceneSpec2D, region: Region2D, mask: Mask2D, opt
       importance: owner ? owner.priority : 1, source, part, ...extra });
   };
 
-  // Original vector edges for snapping (spec §7.2 step 4): every part's outline, finer than a cell.
+  // Original vector edges for snapping (spec §7.2 step 4): every part's outline, finer than a cell,
+  // bucketed (SNAP_BUCKET_CELLS cells per bucket) so each sample scans only the edges near it.
   const edges: { a: Pt2; b: Pt2; part: number }[] = [];
   region.parts.forEach((part, k) => {
     const loop = part.outline(mask.cell / 2);
     for (let e = 0; e < loop.length; e++) edges.push({ a: loop[e], b: loop[(e + 1) % loop.length], part: k });
   });
+  const bucket = SNAP_BUCKET_CELLS * mask.cell;
+  const nb = Math.ceil(mask.size / SNAP_BUCKET_CELLS);
+  const bucketOf = (v: number, o: number): number => Math.min(nb - 1, Math.max(0, Math.floor((v - o) / bucket)));
+  const buckets: number[][] = Array.from({ length: nb * nb }, () => []);
+  edges.forEach((edge, idx) => {
+    const bi0 = bucketOf(Math.min(edge.a[0], edge.b[0]), mask.origin[0]);
+    const bi1 = bucketOf(Math.max(edge.a[0], edge.b[0]), mask.origin[0]);
+    const bj0 = bucketOf(Math.min(edge.a[1], edge.b[1]), mask.origin[1]);
+    const bj1 = bucketOf(Math.max(edge.a[1], edge.b[1]), mask.origin[1]);
+    for (let bj = bj0; bj <= bj1; bj++) for (let bi = bi0; bi <= bi1; bi++) buckets[bj * nb + bi].push(idx);
+  });
   const snapLimit2 = mask.cell * mask.cell;
+  const side = SNAP_SIDE_PROBE * mask.cell;
+  /** Edges near p, in ascending edge index (so ties still go to the first part and edge). */
+  const nearEdges = (p: Pt2): number[] => {
+    const bi = bucketOf(p[0], mask.origin[0]);
+    const bj = bucketOf(p[1], mask.origin[1]);
+    const found: number[] = [];
+    for (let j = Math.max(0, bj - 1); j <= Math.min(nb - 1, bj + 1); j++) {
+      for (let i = Math.max(0, bi - 1); i <= Math.min(nb - 1, bi + 1); i++) found.push(...buckets[j * nb + i]);
+    }
+    found.sort((x, y) => x - y);
+    return found.filter((v, k) => k === 0 || found[k - 1] !== v);
+  };
+  /** True when q on edge a–b is real region boundary: the region differs on the two sides of the edge
+   * there. An outline that lies outside the union, or inside a later hole, is not snapped to. */
+  const onBoundary = (q: Pt2, a: Pt2, b: Pt2): boolean => {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (!(len > 0)) return false;
+    const nx = (-dy / len) * side;
+    const ny = (dx / len) * side;
+    return region.contains([q[0] + nx, q[1] + ny]) !== region.contains([q[0] - nx, q[1] - ny]);
+  };
 
   // Boundary: contours from a fixed start, resampled at δ₀/4, snapped within one cell of a vector edge.
   const contours: Contour2D[] = [];
@@ -517,10 +630,13 @@ export function sample2d(scene: SceneSpec2D, region: Region2D, mask: Mask2D, opt
       let snapped: Pt2 = p;
       let snapPart = -1;
       let bestD2 = snapLimit2;
-      for (const edge of edges) {
+      for (const idx of nearEdges(p)) {
+        const edge = edges[idx];
         const q = nearestOnSegment(p, edge.a, edge.b);
         const d2 = (q[0] - p[0]) * (q[0] - p[0]) + (q[1] - p[1]) * (q[1] - p[1]);
-        if (d2 <= bestD2 && (snapPart < 0 || d2 < bestD2)) { bestD2 = d2; snapped = q; snapPart = edge.part; }
+        if (d2 <= bestD2 && (snapPart < 0 || d2 < bestD2) && onBoundary(q, edge.a, edge.b)) {
+          bestD2 = d2; snapped = q; snapPart = edge.part;
+        }
       }
       let owner = snapPart >= 0 ? snapPart : decider(region, p);
       if (owner < 0) {
@@ -566,8 +682,11 @@ export function sample2d(scene: SceneSpec2D, region: Region2D, mask: Mask2D, opt
   const interior = hexLattice(mask, region, area, interiorTarget(n0), u, v);
   for (const p of interior.points) push(p, 'interior', unionOwner(region, p));
 
-  // Dense: from the region alone (spec §7.8), a fixed-offset lattice, never from candidates or slots.
+  // Dense: from the region alone (spec §7.8), a fixed-offset lattice, never from candidates or slots,
+  // then a row-major coverage pass so a part thinner than the lattice spacing (or a kept speck) is not
+  // missed: any filled cell with no dense point within one spacing adds its centre.
   const dense = hexLattice(mask, region, area, DENSE_TARGET, 0.5, 0.5);
+  coverFilledCells(mask, region, dense.points, dense.spacing);
 
   const counts: Record<CandidateSource, number> = { boundary: 0, interior: 0, feature: 0 };
   for (const c of candidates) counts[c.source]++;
