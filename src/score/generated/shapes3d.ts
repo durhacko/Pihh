@@ -3,25 +3,20 @@
 // §6.3, §7.3 steps 1-3): ellipsoid, capsule, cylinder, cone (capped frustum) and tapered tube, with explicit transforms
 // and mirror-x. Each solid gives a signed analytic depth (> 0 inside), a fixed-resolution triangle mesh that drives
 // area weighting only, and samples projected back onto the ANALYTIC surface with analytic normals.
-// Pure and deterministic (spec §7.12): imports only src/contracts; no Math.random, Date, performance or DOM; arithmetic
-// and Math.sqrt as they are, every other Math.* result snapped to 1e-9, and no Math.hypot. Randomness is injected as
-// `next: () => number` in [0, 1) (the compiler passes the scene-seeded sfc32 stream of GF-WP-02).
-import type { Vec3 } from '../../contracts';
+// Pure and deterministic (spec §7.12): imports only ./types (the generated folder imports only itself, #203); no
+// Math.random, Date, performance or DOM; arithmetic and Math.sqrt as they are, every other Math.* result snapped to
+// 1e-9, and no Math.hypot. Randomness is injected as `next: () => number` in [0, 1) (GF-WP-02's seeded stream).
+import type { Geometry3D, Material3D, Part3D, SceneSpec3D, SceneView, Vec3 } from './types';
 
 // ---------------------------------------------------------------------------------------------------------------
-// Input types. ONE thin adapter point: these mirror spec §6.3 field for field. When GF-WP-01 (#203) merges, they are
-// replaced by `import type { SceneSpec3D, Part3D, Geometry3D } from './types'` (TODO(#203)); nothing else changes.
+// Input types: the ONE adapter point to GF-WP-01's scene types (#203, src/score/generated/types.ts). The stages read
+// only these fields, so a validated SceneSpec3D (validateScene, V1-V10 passed) is accepted as it is.
 // ---------------------------------------------------------------------------------------------------------------
-export type Geometry3DInput =
-  | { type: 'ellipsoid'; center: Vec3; radii: Vec3; rotationDeg?: Vec3 }
-  | { type: 'capsule'; center: Vec3; radius: number; length: number; rotationDeg?: Vec3 }
-  | { type: 'cylinder'; center: Vec3; radius: number; height: number; rotationDeg?: Vec3 }
-  | { type: 'cone'; center: Vec3; baseRadius: number; topRadius: number; height: number; rotationDeg?: Vec3 }
-  | { type: 'taperedTube'; points: Vec3[]; startRadius: number; endRadius: number };
-export interface Part3DInput { id: string; shape: Geometry3DInput; materialId: string; importance: number; symmetry?: 'none' | 'mirror-x' }
-export interface Material3DInput { id: string; rgb: [number, number, number] }
-export type ReferenceView = 'front' | 'side' | 'three-quarter';
-export interface Scene3DInput { referenceView: ReferenceView; materials: Material3DInput[]; parts: Part3DInput[] }
+export type Geometry3DInput = Geometry3D;
+export type Part3DInput = Part3D;
+export type Material3DInput = Material3D;
+export type ReferenceView = SceneView;
+export type Scene3DInput = Pick<SceneSpec3D, 'referenceView' | 'materials' | 'parts'>;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Compiler constants (versioned by COMPILER_VERSION, spec §7.1; never Params fields).

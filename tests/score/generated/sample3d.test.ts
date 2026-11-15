@@ -2,7 +2,10 @@
 // GF-WP-05 (#211): area-weighted sampling (GF-T11), union-aware filtering (GF-T12), visibility and the Q(p) terms
 // (GF-T14), mirror-x candidates and dense points (GF-T15 (2)), counts, colours, dense and determinism.
 import { describe, expect, it } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
 import type { Vec3 } from '../../../src/contracts';
+import type { SceneSpec3D } from '../../../src/score/generated/types';
+import { validateScene } from '../../../src/score/generated/validation';
 import { buildSolid, buildSolids, type Part3DInput, type Scene3DInput } from '../../../src/score/generated/shapes3d';
 import { apportion, candidateTotal, HIDDEN_EPSILON, rankQ, sample3d, viewDirection, type Sample3DResult } from '../../../src/score/generated/sample3d';
 
@@ -192,6 +195,35 @@ describe('GF-T15 (2): a mirror copy\'s candidates and dense points are the exact
       expect(db).toEqual(da.map(p => [-p[0], p[1], p[2]]));
     }
   });
+});
+
+describe('#203 fixtures: every valid 3D scene, validated by validateScene, samples through the adapter', () => {
+  const dir = 'tests/fixtures/scenes';
+  const files = readdirSync(dir).filter(f => /^valid-3d-.*\.json$/.test(f)).sort();
+  it('finds the 3D fixtures', () => expect(files.length).toBeGreaterThanOrEqual(5));
+  for (const file of files) {
+    it(`${file}: SceneSpec3D in, candidates and dense out (n0 40 and 200)`, () => {
+      const verdict = validateScene(JSON.parse(readFileSync(`${dir}/${file}`, 'utf8')));
+      expect(verdict.ok).toBe(true);
+      if (!verdict.ok || verdict.scene.mode !== 'scene3d') throw new Error(`${file} is not a valid 3D scene`);
+      const scene: SceneSpec3D = verdict.scene;                    // the #203 type, accepted as it is
+      const solids = buildSolids(scene);
+      const mirrored = scene.parts.filter(p => p.symmetry === 'mirror-x').length;
+      expect(solids.length).toBeGreaterThanOrEqual(scene.parts.length);
+      expect(solids.length).toBeLessThanOrEqual(scene.parts.length + mirrored);
+      for (const n0 of [40, 200]) {
+        const r = sample3d(scene, solids, { n0, referenceView: scene.referenceView, stream: testStream });
+        expect(r.candidates.length).toBeGreaterThan(4 * n0);
+        expect(r.dense.length).toBeGreaterThanOrEqual(1500);
+        expect(r.dense.length).toBeLessThanOrEqual(2500);
+        for (const c of r.candidates) {
+          expect(c.pos.every(Number.isFinite)).toBe(true);
+          expect(Math.abs(len(c.normal) - 1)).toBeLessThan(1e-12);
+          expect(c.colour).toEqual(scene.materials.find(m => m.id === scene.parts[solids[c.solid].partIndex].materialId)!.rgb);
+        }
+      }
+    });
+  }
 });
 
 describe('counts, colours, dense and determinism', () => {

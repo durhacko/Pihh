@@ -4,9 +4,12 @@
 // samples), union-aware filtering, analytic normals, visibility from the reference view, per-material colour, and the
 // dense reference drawn from the exposed surface. Selection itself (Q(p) greedy fill, the rear-side floor, the spacing
 // search) is GF-WP-06; this file supplies its inputs and the Q(p) term definitions.
-// Pure and deterministic (spec §7.12): imports only src/score and src/contracts; randomness is injected per label.
-import type { RGB, Vec3 } from '../../contracts';
+// Pure and deterministic (spec §7.12): imports only its own folder (#203's rule); randomness is injected per label.
 import { normalise, type ReferenceView, type Scene3DInput, type Solid3D, type Warning3D } from './shapes3d';
+import type { Vec3 } from './types';
+
+/** Linear-or-sRGB triple in 0..1, structurally the contract's RGB (src/contracts is not imported here, #203). */
+export type RGB = [number, number, number];
 
 /** ε of spec §7.3 step 3, as a fraction of the normalised extent (spec §7.2 step 2). */
 export const HIDDEN_EPSILON = 0.01;

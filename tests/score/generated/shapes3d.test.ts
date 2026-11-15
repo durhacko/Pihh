@@ -228,7 +228,7 @@ describe('determinism rules (spec §7.12) in the source', () => {
     for (const file of ['src/score/generated/shapes3d.ts', 'src/score/generated/sample3d.ts']) {
       const code = readFileSync(file, 'utf8').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
       expect(code).not.toMatch(/Math\.hypot|Math\.random|\bDate\b|\bperformance\b|\bfetch\b|\bcrypto\b/);
-      for (const [, spec] of code.matchAll(/from '([^']+)'/g)) expect(spec).toMatch(/^\.\/|^\.\.\/\.\.\/contracts$/);
+      for (const [, spec] of code.matchAll(/from '([^']+)'/g)) expect(spec).toMatch(/^\.\/[a-z0-9]+$/);
     }
   });
 });

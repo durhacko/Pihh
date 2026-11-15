@@ -566,7 +566,7 @@ describe('purity and import boundaries', () => {
   it('generated sources import only each other and the one canonical-JSON module', () => {
     for (const file of sources) {
       const src = readFileSync(new URL(file, sourceDir), 'utf8');
-      for (const [, spec] of src.matchAll(/(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/g)) expect(spec, file).toMatch(/^(?:\.\/[a-z]+|\.\.\/canonical)$/);
+      for (const [, spec] of src.matchAll(/(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/g)) expect(spec, file).toMatch(/^(?:\.\/[a-z0-9]+|\.\.\/canonical)$/);
       expect(src, file).not.toMatch(/\b(?:require|import)\s*\(/);
     }
   });
