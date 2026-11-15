@@ -6,9 +6,9 @@
 // invalid or collide, is replaced by a disabled module and reported in `problems`; a handler that throws answers
 // 500 INTERNAL for that request only.
 import { moduleEnv, readGatewayConfig, type Env, type GatewayConfig } from './config.ts';
-import { errorResponse, type RouteResponse } from './errors.ts';
+import { errorResponse, FatalConfigError, sanitise, type RouteResponse } from './errors.ts';
 import { healthBody, type HealthBody } from './health.ts';
-import { disabledModule, type GatewayModule, type HttpMethod, type ModuleRoute } from './module.ts';
+import { disabledModule, type GatewayModule, type HttpMethod, type ModuleHealth, type ModuleRoute } from './module.ts';
 import { MODULES, type ModuleEntry } from './modules.ts';
 
 export const HEALTH_PATH = '/api/health';
@@ -53,6 +53,27 @@ function shapeKey(method: string, segments: readonly string[]): string {
   return `${method} /${segments.map(s => (s.startsWith(':') ? ':' : s)).join('/')}`;
 }
 
+const NOTE_MAX = 10;
+
+/** The module object's shape, or why it is unusable. Reads each field once (a getter may lie on a second read). */
+function moduleShape(value: unknown, name: string): { module: GatewayModule; routes: ModuleRoute[]; notes: string[] } | string {
+  if (typeof value !== 'object' || value === null) return 'createModule did not return an object';
+  const candidate = value as Record<string, unknown>;
+  const reported = candidate.name;
+  const routes = candidate.routes;
+  const health = candidate.health;
+  const problems = candidate.problems;
+  if (reported !== name) return `reports the name ${typeof reported === 'string' ? sanitise(reported) : typeof reported}`;
+  if (!Array.isArray(routes)) return 'routes is not an array';
+  if (typeof health !== 'function') return 'health is not a function';
+  if (problems !== undefined && (!Array.isArray(problems) || !problems.every(p => typeof p === 'string'))) return 'problems is not a list of strings';
+  const list = [...routes] as unknown[];
+  if (!list.every(r => typeof r === 'object' && r !== null)) return 'a route is not an object';
+  const notes = ((problems as string[] | undefined) ?? []).slice(0, NOTE_MAX).map(p => sanitise(p));
+  const module: GatewayModule = Object.freeze({ name, routes: list as ModuleRoute[], health: () => (health as () => ModuleHealth).call(value) });
+  return { module, routes: list as ModuleRoute[], notes };
+}
+
 function checkRegistry(registry: readonly ModuleEntry[]): void {
   const names = new Set<string>();
   for (const entry of registry) {
@@ -91,30 +112,46 @@ export function buildGateway(env: Env, registry: readonly ModuleEntry[] = MODULE
   const taken = new Set<string>();
 
   for (const entry of registry) {
-    let module: GatewayModule;
+    // Everything a module hands back is checked inside one try: a factory that throws, an object of the wrong
+    // shape, a getter that throws or a bad route disables that module only (XI-1). Routes are copied, so a module
+    // cannot change them after registration.
+    let accepted: { module: GatewayModule; routes: ModuleRoute[]; own: Set<string>; notes: string[] } | null = null;
+    let problem: string;
     try {
-      module = entry.create(moduleEnv(env, entry.envPrefix));
-    } catch {
-      problems.push(`module ${entry.name} failed to start; it is disabled`);
-      modules.push(disabledModule(entry.name));
-      continue;
+      const made: unknown = entry.create(moduleEnv(env, entry.envPrefix));
+      const shape = moduleShape(made, entry.name);
+      if (typeof shape === 'string') problem = `module ${entry.name}: ${shape}`;
+      else {
+        const own = new Set<string>();
+        const copies: ModuleRoute[] = [];
+        let why: string | null = null;
+        for (const route of shape.routes) {
+          why = routeProblem(route, new Set([...taken, ...own]));
+          if (why) break;
+          copies.push(Object.freeze({ method: route.method, path: route.path, handle: route.handle }));
+          own.add(shapeKey(route.method, segmentsOf(route.path)));
+        }
+        if (why) problem = `module ${entry.name}: ${why}`;
+        else {
+          problem = '';
+          accepted = { module: shape.module, routes: copies, own, notes: shape.notes };
+        }
+      }
+    } catch (error) {
+      // A security-critical misconfiguration stops the whole gateway (errors.ts); anything else is contained.
+      if (error instanceof FatalConfigError) throw new FatalConfigError(`module ${entry.name}: ${error.message}`);
+      problem = `module ${entry.name} failed to start`;
+      accepted = null;
     }
-    const own = new Set<string>();
-    let problem = module.name === entry.name ? null : `module ${entry.name} reports the name ${String(module.name)}`;
-    for (const route of module.routes) {
-      if (problem) break;
-      const why = routeProblem(route, new Set([...taken, ...own]));
-      if (why) problem = `module ${entry.name}: ${why}`;
-      else own.add(shapeKey(route.method, segmentsOf(route.path)));
-    }
-    if (problem) {
+    if (accepted === null) {
       problems.push(`${problem}; it is disabled`);
       modules.push(disabledModule(entry.name));
       continue;
     }
-    for (const key of own) taken.add(key);
-    for (const route of module.routes) routes.push({ module: entry.name, route, segments: segmentsOf(route.path) });
-    modules.push(module);
+    for (const note of accepted.notes) problems.push(`module ${entry.name}: ${note}`);
+    for (const key of accepted.own) taken.add(key);
+    for (const route of accepted.routes) routes.push({ module: entry.name, route, segments: segmentsOf(route.path) });
+    modules.push(accepted.module);
   }
 
   const frozenModules = Object.freeze(modules);
@@ -122,9 +159,18 @@ export function buildGateway(env: Env, registry: readonly ModuleEntry[] = MODULE
 
   async function handle(request: GatewayRequest): Promise<RouteResponse<unknown>> {
     const notFound = errorResponse('NOT_FOUND', 'No such route.', { details: [{ path: '', reason: 'NO_ROUTE' }] });
-    if (typeof request.url !== 'string' || !request.url.startsWith('/')) return notFound;
-    const url = new URL(request.url, 'http://127.0.0.1');
-    const method = request.method.toUpperCase();
+    const badTarget = errorResponse('VALIDATION_FAILED', 'The request target is not a valid path.', { details: [{ path: '', reason: 'BAD_TARGET' }] });
+    // Only an origin-form target ("/path?query"). "//host/..." and "/\host/..." would otherwise parse as another
+    // authority, so the parsed URL must keep the base's host.
+    if (typeof request.url !== 'string' || !request.url.startsWith('/') || request.url.startsWith('//')) return badTarget;
+    let url: URL;
+    try {
+      url = new URL(request.url, 'http://127.0.0.1');
+    } catch {
+      return badTarget;
+    }
+    if (url.host !== '127.0.0.1') return badTarget;
+    const method = typeof request.method === 'string' ? request.method.toUpperCase() : '';
     if (url.pathname === HEALTH_PATH) return method === 'GET' ? { status: 200, body: health() } : notFound;
     if (!METHODS.has(method)) return notFound;
     const segments = segmentsOf(url.pathname);

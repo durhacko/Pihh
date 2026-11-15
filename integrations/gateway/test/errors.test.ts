@@ -66,3 +66,17 @@ test('SCHEMA_VERSION_UNSUPPORTED defaults to 500 (a stored record newer than the
   assert.equal(errorResponse('SCHEMA_VERSION_UNSUPPORTED', 'x').status, 500);
   assert.equal(errorResponse('SCHEMA_VERSION_UNSUPPORTED', 'x', { status: 400 }).status, 400);
 });
+
+test('(7) sanitise scrubs scheme://user:pass@ credentials, whatever the scheme', () => {
+  assert.equal(sanitise('cannot reach mongodb+srv://encore:s3cr3t@cluster0.example.net/encore'), 'cannot reach mongodb+srv://[redacted]@cluster0.example.net/encore');
+  assert.equal(sanitise('postgres://u:p@ss@db:5432/x and https://token@api.example'), 'postgres://[redacted]@db:5432/x and https://[redacted]@api.example');
+  assert.equal(sanitise('see http://127.0.0.1:8787/api/health'), 'see http://127.0.0.1:8787/api/health');
+  assert.equal(sanitise('email a@b.example is not a URI'), 'email a@b.example is not a URI');
+  assert.ok(!sanitise(`x ${'y'.repeat(300)} mongodb://u:pw@h`).includes('pw'), 'scrubbed before truncation');
+});
+
+test('(7) redact replaces the longest secret first, so an overlapping secret is never half-replaced', () => {
+  assert.equal(redact('key=abcdef', ['abc', 'abcdef']), 'key=[redacted]');
+  assert.equal(redact('key=abcdef', ['abcdef', 'abc']), 'key=[redacted]');
+  assert.equal(redact('a abc abcdef', ['abc', 'abcdef', '', 'abc']), 'a [redacted] [redacted]');
+});

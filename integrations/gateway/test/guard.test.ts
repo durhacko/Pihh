@@ -87,3 +87,10 @@ test('a guard rejection never echoes request values', () => {
   const r = guardRequest({ ...POST, host: 'secret-host.example:8787' }, SETTINGS);
   assert.ok(r && !JSON.stringify(r.body).includes('secret-host'));
 });
+
+test('(2) HEAD is not exempt from the Origin check: every non-GET needs an exact Origin', () => {
+  assert.deepEqual(verdict({ method: 'HEAD', origin: undefined }, {}, GET), [403, 'FORBIDDEN', 'ORIGIN_MISSING']);
+  assert.deepEqual(verdict({ method: 'HEAD', origin: 'http://evil.example' }, {}, GET), [403, 'FORBIDDEN', 'ORIGIN_NOT_ALLOWED']);
+  assert.equal(verdict({ method: 'HEAD', origin: 'http://localhost:5173' }, {}, GET), null);
+  assert.equal(verdict({ method: 'GET', origin: undefined }, {}, GET), null);
+});
