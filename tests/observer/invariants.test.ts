@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { makeParams, OPERATOR } from '../../src/contracts';
 import type { DroneSnap, EnvEvent, Params, RadioEvent, Score, ScoreVersion, Vec3, WorldSnapshot } from '../../src/contracts';
 import { expandRecipe, launchPos } from '../../src/score';
-import { createInvariantChecker, INVARIANT_DEFAULTS, KNOWN_LIMIT_3, KNOWN_LIMIT_FLAPPING, type InvariantCheckerOptions, type InvariantId } from '../../src/observer/invariants';
+import { ContactModel, createInvariantChecker, INVARIANT_DEFAULTS, KNOWN_LIMIT_3, KNOWN_LIMIT_FLAPPING, type InvariantCheckerOptions, type InvariantId } from '../../src/observer/invariants';
+import { buildScenario } from '../../src/cli/scenarios';
+import { encoreBrain } from '../../src/agent/encoreBrain';
+import { createWorld } from '../../src/sim';
 
 const V0: ScoreVersion = { issuedTick: 0, origin: OPERATOR };
 const V1: ScoreVersion = { issuedTick: 10, origin: 0 };
@@ -253,10 +256,25 @@ describe('P2-T01: INV-CONVERGE and multi-partition suppression', () => {
     for (const x of v) expect(x.knownLimit).toBe(KNOWN_LIMIT_FLAPPING);
   });
   const twoPartitions = { partitions: [{ id: 'P', point: [50, 0, 0] as Vec3, normal: [1, 0, 0] as Vec3 }, { id: 'Q', point: [0, 0, 50] as Vec3, normal: [0, 0, 1] as Vec3 }] };
-  it('without recorded events, pairs are not in contact while two or more partitions are active (suppression only)', () => {
+  it('without recorded events INV-CONVERGE is unavailable (never derived), even on a history that fires with events', () => {
     const c = checker(params, ['INV-CONVERGE'], 'encore', { eventsRecorded: false });
-    expect(feed(c, C + 20, (t) => snap(t, 3, { 0: { version: V1, side: 0 }, 1: { side: 0 }, 2: { side: 0 } }, twoPartitions))).toEqual([]);
-    expect(c.report().derived.map((d) => d.inv)).toEqual(['INV-CONVERGE']);
+    expect(feed(c, C + 20, (t) => snap(t, 3, { 0: { version: V1 } }))).toEqual([]);
+    const r = c.report();
+    expect(r.checked).toEqual([]);
+    expect(r.derived).toEqual([]);
+    expect(r.unavailable.map((u) => u.inv)).toEqual(['INV-CONVERGE']);
+  });
+  it('multi-partition suppression: the fallback contact model (no events) treats pairs as not in contact while two or more partitions are active', () => {
+    const fallback = new ContactModel(params, false);
+    const two = snap(1, 3, { 0: { side: 0 }, 1: { side: 0 }, 2: { side: 1 } }, twoPartitions);
+    expect(fallback.reachable(two, 0, 1)).toBe(false);   // same partitionSide, but two partitions: suppressed
+    const one = snap(1, 3, { 0: { side: 0 }, 1: { side: 0 }, 2: { side: 1 } }, { partitions: [twoPartitions.partitions[0]] });
+    expect(fallback.reachable(one, 0, 1)).toBe(true);
+    expect(fallback.reachable(one, 0, 2)).toBe(false);
+    const recorded = new ContactModel(params, true);
+    for (const p of twoPartitions.partitions) recorded.recordEvent({ type: 'PARTITION_ON', tick: 1, ...p });
+    recorded.beginTick(1);
+    expect(recorded.reachable(two, 0, 1)).toBe(true);   // rebuilt groups: all three on one side of both planes
   });
   it('with the recorded events the same history fires (all three drones are on one side of both planes)', () => {
     const c = checker(params, ['INV-CONVERGE']);
@@ -312,4 +330,133 @@ describe('checker rules', () => {
     c.recordEvent(deepFreeze({ type: 'SET_LOSS', tick: 2, loss: 0.1 }) as EnvEvent);
     expect(() => feed(c, 30, (t) => snap(t, 4, {}, { radio: [hb(t, 0, [1, 2])] }))).not.toThrow();
   });
+});
+
+// #229: boundary tests that kill the mutants surviving the #222 review. Each pair sits on both sides of one boundary.
+describe('#229 boundaries', () => {
+  const params = makeParams(12);   // tVacant 40, claimWindow 20, hbPeriod 5, rOcc 0.6, claimGap 2, latencyMax 2
+  const slots = expandRecipe(SCORE.movements[0].recipe, 12, params).slots.map((s) => s.pos);
+  const FAR: Vec3 = [500, 500, 500];
+  /** Drone 11 commits 11 -> v at tick c. Drone v sits at `at(t)` (its slot when undefined, FAR when null). */
+  function silence(c: number, v: number, at: (t: number) => Vec3 | null | undefined, events: EnvEvent[] = []) {
+    const k = createInvariantChecker({ params, arm: 'encore', checks: ['INV-SILENCE'] });
+    k.registerScore(SCORE);
+    for (const e of events) k.recordEvent(e);
+    return feed(k, c + 1, (t) => {
+      const specs: Record<number, Spec> = {};
+      for (let i = 0; i < 12; i++) specs[i] = { pos: slots[i] };
+      const p = at(t);
+      specs[v] = { pos: p === undefined ? slots[v] : p ?? FAR };
+      specs[11] = { pos: slots[11], slot: t >= c ? v : 11, heldSince: t >= c ? c : 0 };
+      return snap(t, 12, specs);
+    });
+  }
+  // Drone 11 scans on ticks = 1 (mod 5). For c = 101 the excuse window starts at c - tVacant - claimWindow = 41,
+  // itself a scan tick, which reads snapshot 40.
+  const onlyAt = (tick: number) => (t: number) => (t === tick ? undefined : null);
+
+  it('INV-SILENCE excuse window: the first scan tick (c - tVacant - claimWindow) counts, the scan tick before it does not', () => {
+    expect(silence(101, 3, onlyAt(40))).toHaveLength(1);   // snapshot 40 = s - 1 for s = 41
+    expect(silence(101, 3, onlyAt(35))).toEqual([]);       // s = 36 is before the window
+  });
+  it('INV-SILENCE scan phase: an occupant seen only by a non-scan tick does not count', () => {
+    expect(silence(101, 3, onlyAt(49))).toEqual([]);       // s = 50: 50 mod 5 != 11 mod 5
+  });
+  it('INV-SILENCE reads snapshot s - 1 (start-of-tick positions), not snapshot s', () => {
+    expect(silence(101, 3, onlyAt(95))).toHaveLength(1);   // s = 96 reads snapshot 95
+    expect(silence(101, 3, onlyAt(96))).toEqual([]);       // snapshot 96 is read only by s = 97, not a scan tick
+  });
+  it('INV-SILENCE occupancy is strict: a drone exactly rOcc from the slot does not occupy it', () => {
+    let pick: { v: number; exact: Vec3; inside: Vec3 } | null = null;
+    for (let v = 0; v <= 8 && !pick; v++) for (let a = 0; a < 3 && !pick; a++) {
+      const exact = [...slots[v]] as Vec3; exact[a] = slots[v][a] + params.rOcc;
+      const dist = Math.hypot(exact[0] - slots[v][0], exact[1] - slots[v][1], exact[2] - slots[v][2]);
+      if (dist === params.rOcc) { const inside = [...slots[v]] as Vec3; inside[a] = slots[v][a] + params.rOcc * 0.99; pick = { v, exact, inside }; }
+    }
+    expect(pick, 'a slot and axis where slot + rOcc is exactly rOcc away in floating point').not.toBeNull();
+    const { v, exact, inside } = pick!;
+    expect(silence(101, v, () => exact)).toEqual([]);
+    expect(silence(101, v, () => inside)).toHaveLength(1);
+  });
+  it('INV-SILENCE window end is exclusive: a commit on the KILL tick is not checked, one tick before is', () => {
+    const kill = (tick: number): EnvEvent[] => [{ type: 'KILL', tick, ids: [] }];
+    expect(silence(101, 3, () => undefined, kill(101))).toEqual([]);
+    expect(silence(101, 3, () => undefined, kill(102))).toHaveLength(1);
+  });
+  it('INV-QUIET fires only when c - anchor > Q: exactly Q after the anchor holds, Q + 1 fires', () => {
+    const quiet = (c: number) => {
+      const k = createInvariantChecker({ params, arm: 'encore', checks: ['INV-QUIET'] });
+      k.registerScore(SCORE);
+      k.recordEvent({ type: 'SET_LOSS', tick: 10, loss: 0.05 });
+      return feed(k, c + 1, (t) => snap(t, 12, { 11: { slot: t >= c ? 3 : 11 } }));
+    };
+    expect(quiet(10 + INVARIANT_DEFAULTS.Q)).toEqual([]);
+    expect(quiet(11 + INVARIANT_DEFAULTS.Q)).toHaveLength(1);
+  });
+  it('INV-MONO: a commit dropping by exactly claimGap + 1 holds, by claimGap fires', () => {
+    const mono = (to: number) => feed(createInvariantChecker({ params, arm: 'encore', checks: ['INV-MONO'] }), 3, (t) => snap(t, 12, { 11: { slot: t >= 2 ? to : 11 } }));
+    expect(mono(11 - params.claimGap - 1)).toEqual([]);
+    expect(mono(11 - params.claimGap)).toHaveLength(1);
+  });
+  it('INV-DUP tie-break on equal heldSince: the lower id is the earlier holder', () => {
+    const dup = (from: number, to: number) => feed(createInvariantChecker({ params, arm: 'encore', checks: ['INV-DUP'] }), 6,
+      (t) => snap(t, 12, { 9: { slot: 5, heldSince: 0 } }, { radio: t === 2 ? [hb(2, from, [to])] : [] }));
+    expect(dup(5, 9)).toEqual([expect.objectContaining({ inv: 'INV-DUP', tick: 5, ids: [5, 9], slot: 5 })]);
+    expect(dup(9, 5)).toEqual([]);   // 9 is not earlier than 5: drone 5 need not pop
+  });
+  it('INV-CONVERGE flapping window: an edge change exactly scoreResendMin + latencyMax ticks before is tagged, one sample earlier is not', () => {
+    const p3 = makeParams(3, { scoreResendMin: 38 });   // window 38 + 2 = 40 ticks, a whole number of samples
+    // Drone 2 is at x = +4 (edge 1-2 in range) only on snapshots [from, from + 4]; 0 at the origin keeps {0,1,2} one component.
+    const run = (from: number) => feed(createInvariantChecker({ params: p3, arm: 'encore', checks: ['INV-CONVERGE'] }), 5 + INVARIANT_DEFAULTS.C,
+      (t) => snap(t, 3, { 0: { version: V1, pos: [0, 0, 0] }, 1: { pos: [-10, 0, 0] }, 2: { pos: [t >= from && t <= from + 4 ? 4 : 10, 0, 0] } }));
+    // Violations at 605. from 555: the edge appears at sample 560 and goes at 565 = 605 - 40, inside the window.
+    const tagged = run(555);
+    expect(tagged.length).toBe(2);
+    for (const v of tagged) expect(v.knownLimit).toBe(KNOWN_LIMIT_FLAPPING);
+    // from 550: the last change is at sample 560 = 605 - 45, outside the window.
+    const untagged = run(550);
+    expect(untagged.length).toBe(2);
+    for (const v of untagged) expect(v.knownLimit).toBeNull();
+  });
+});
+
+describe('#229 missing inputs are unavailable, never counterexamples', () => {
+  const params = makeParams(12);
+  it('a commit (and its pop) in the INV-SILENCE window on an unregistered version is not judged', () => {
+    const k = createInvariantChecker({ params, arm: 'encore', checks: ['INV-SILENCE'] });
+    k.registerScore(SCORE_V1);   // a score is registered, but not the one the drones fly (V0)
+    const v = feed(k, 120, (t) => snap(t, 12, { 11: { slot: t >= 100 && t < 110 ? 3 : 11, heldSince: t >= 100 && t < 110 ? 100 : 0 } }));
+    expect(v).toEqual([]);
+    const r = k.report();
+    expect(r.counterexamples).toEqual([]);
+    expect(r.unavailable.filter((u) => u.inv === 'INV-SILENCE').map((u) => u.why)).toEqual([
+      'some changes not judged: no registered score for version 0:-1',
+      'some pops not judged: they follow a commit that could not be judged',
+    ]);
+  });
+});
+
+// P2-T18 (P2_PERF=1, printed, never in the default suite): checker ingest cost per tick per world at n0 200.
+describe.runIf(process.env.P2_PERF === '1')('P2-T18: invariant checker cost at n0 200', () => {
+  it('S2, seed 101, Encore, 600 ticks (kill at 400): mean ingest time per tick', () => {
+    const p = makeParams(200);
+    const s = buildScenario('S2', 101, p);
+    const world = createWorld({ seed: 101, params: p, brain: encoreBrain, score: s.score, events: s.events });
+    const k = createInvariantChecker({ params: p, arm: 'encore' });
+    k.registerScore(s.score);
+    for (const e of s.events) k.recordEvent(e);
+    const times: number[] = [];
+    for (let t = 0; t < 600; t++) {
+      const snapshot = world.step();
+      const t0 = performance.now();
+      k.ingest(snapshot);
+      times.push(performance.now() - t0);
+    }
+    const sorted = [...times].sort((a, b) => a - b);
+    const mean = times.reduce((a, b) => a + b, 0) / times.length;
+    const sample = times.filter((_, i) => (i + 1) % 5 === 0);
+    const sampleMean = sample.reduce((a, b) => a + b, 0) / sample.length;
+    console.log(`P2-T18 checker ingest, n0 200, 600 ticks: mean ${mean.toFixed(3)} ms/tick, p50 ${sorted[300].toFixed(3)}, p99 ${sorted[593].toFixed(3)}, max ${sorted[599].toFixed(3)}; sample ticks (components) mean ${sampleMean.toFixed(3)} ms (budget 0.5 ms/tick/world)`);
+    expect(mean).toBeGreaterThan(0);
+  }, 120_000);
 });

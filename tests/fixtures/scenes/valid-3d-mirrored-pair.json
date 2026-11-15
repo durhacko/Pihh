@@ -1,0 +1,6 @@
+{ "version": 1, "mode": "scene3d", "title": "Mirrored Pair", "referenceView": "front",
+  "materials": [ { "id": "skin", "rgb": [0.5, 0.53, 0.57] } ],
+  "parts": [
+    { "id": "core", "shape": { "type": "ellipsoid", "center": [0, 0, 0], "radii": [0.5, 0.5, 0.5] }, "materialId": "skin", "importance": 5 },
+    { "id": "ear", "shape": { "type": "ellipsoid", "center": [0.6, 0.2, 0], "radii": [0.25, 0.35, 0.08] }, "materialId": "skin", "importance": 4, "symmetry": "mirror-x" }
+  ] }
