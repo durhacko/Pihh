@@ -13,7 +13,7 @@ import { BRAINS } from '../../src/cli/brains';
 import { getObserverFactory } from '../../src/cli/observer';
 import { runOne } from '../../src/cli/run';
 import {
-  acceptsRecipe, composeNext, copyRecipe, expandRecipe, expandRecipeStrict, GeneratedSceneRejected, isFallbackFormation,
+  acceptsRecipe, composeNext, sceneHashOf, copyRecipe, expandRecipe, expandRecipeStrict, GeneratedSceneRejected, isFallbackFormation,
   makeGeneratedRecipe, makeScore,
 } from '../../src/score';
 import { isPackageFrozenScene } from '../../src/score/compose';   // internal (for GF-WP-08), not public API
@@ -185,6 +185,22 @@ describe('GF-CC-01 §7.11: strict throws, total falls back', () => {
     expect(expandRecipeStrict(otherRoster, N0, params).slots).toHaveLength(N0);
   });
 
+  it('a missing, null or malformed slotsDigest: strict throws digest-mismatch, total falls back, acceptsRecipe refuses (one rule)', () => {
+    const bad = [
+      (() => { const r: Partial<GeneratedRecipe> = { ...generated }; delete r.slotsDigest; return r; })(),
+      { ...generated, slotsDigest: null },
+      { ...generated, slotsDigest: { n0: N0, slotSpacingMin: params.slotSpacingMin, digest: 7 } },
+      { ...generated, slotsDigest: { n0: 'x', slotSpacingMin: params.slotSpacingMin, digest: generated.slotsDigest.digest } },
+    ] as unknown as GeneratedRecipe[];
+    for (const r of bad) {
+      let code = '';
+      try { expandRecipeStrict(r, N0, params); } catch (e) { code = (e as GeneratedSceneRejected).code; }
+      expect(code).toBe('digest-mismatch');
+      expect(isFallbackFormation(expandRecipe(r, N0, params))).toBe(true);
+      expect(acceptsRecipe(r, N0, params)).toBe(false);
+    }
+  });
+
   it('acceptsRecipe (GF-CC-02): refuses each mismatch, never throws, ignores a digest made for another roster', () => {
     expect(acceptsRecipe(generated, N0, params)).toBe(true);
     expect(acceptsRecipe(mutated, N0, params)).toBe(false);
@@ -194,6 +210,22 @@ describe('GF-CC-01 §7.11: strict throws, total falls back', () => {
     expect(acceptsRecipe({ ...generated, slotsDigest: { n0: 999, slotSpacingMin: 9, digest: 'f'.repeat(64) } }, N0, params)).toBe(true);
     expect(acceptsRecipe({ ...generated, scene: null } as unknown as GeneratedRecipe, N0, params)).toBe(false);
     expect(acceptsRecipe({ ...generated, sceneHash: 42 } as unknown as GeneratedRecipe, N0, params)).toBe(false);
+  });
+
+  it('the adoption memo (#289) keys on the scene JSON only: labels are compared on every hit, an edited scene is recomputed', () => {
+    const copy = (): GeneratedRecipe => JSON.parse(JSON.stringify(generated)) as GeneratedRecipe;
+    expect(acceptsRecipe(copy(), N0, params)).toBe(true);                                         // fills the memo
+    expect(acceptsRecipe({ ...copy(), sceneHash: 'a'.repeat(64) }, N0, params)).toBe(false);     // hit, wrong hash label
+    expect(acceptsRecipe({ ...copy(), slotsDigest: { ...generated.slotsDigest, digest: 'f'.repeat(64) } }, N0, params)).toBe(false);
+    expect(acceptsRecipe({ ...copy(), compilerVersion: COMPILER_VERSION + 1 }, N0, params)).toBe(false);
+    expect(acceptsRecipe(copy(), N0, params)).toBe(true);                                         // the memo was not poisoned
+    // An unfrozen scene edited after one check is checked as it is now: its JSON, and so its key, changed.
+    const editable = copy();
+    expect(acceptsRecipe(editable, N0, params)).toBe(true);
+    (editable.scene as { title: string }).title = 'Edited after the check';
+    expect(acceptsRecipe(editable, N0, params)).toBe(false);
+    expect(sceneHashOf(editable)).toMatch(/^[0-9a-f]{64}$/);
+    expect(sceneHashOf(editable)).not.toBe(generated.sceneHash);
   });
 
   it('GF-T23: an unknown recipe kind fails to typecheck', () => {

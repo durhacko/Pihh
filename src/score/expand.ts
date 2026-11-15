@@ -214,8 +214,8 @@ export function expandRecipe(recipe: Recipe, n0: number, params: Params): Format
  * The operator-side expansion (spec §7.11): the same as `expandRecipe` for text, sphere and helix; for a generated
  * recipe it throws `GeneratedSceneRejected` instead of returning the fallback, when the compiler rejects the scene
  * (its code), when `compilerVersion` is not this compiler's (`unsupported-compiler`), when the `sceneHash` label is
- * not the hash of the scene (`hash-mismatch`), or when the `slotsDigest` label was made for this n0 and
- * slotSpacingMin and does not match (`digest-mismatch`). `composeNext` and `makeScore` use it (and operator-side
+ * not the hash of the scene (`hash-mismatch`), or when the `slotsDigest` label is missing or malformed, or was made
+ * for this n0 and slotSpacingMin and does not match (`digest-mismatch`). `composeNext` and `makeScore` use it (and operator-side
  * loaders must, GF-WP-09), so the operator never schedules the fallback as if it were the scene.
  */
 export function expandRecipeStrict(recipe: Recipe, n0: number, params: Params): Formation {
@@ -239,11 +239,22 @@ function checkGenerated(recipe: GeneratedRecipe, n0: number, spacing: number, ke
   const outcome = compileRecipe(recipe, n0, spacing, key);
   if (!outcome.ok) return outcome;
   if (outcome.sceneHash !== recipe.sceneHash) return { ok: false, code: 'hash-mismatch', detail: 'the sceneHash label is not the hash of the scene' };
-  const label = recipe.slotsDigest;
-  if (label && label.n0 === n0 && label.slotSpacingMin === spacing && label.digest !== outcome.slotsDigest) {
+  const label: unknown = recipe.slotsDigest;
+  if (!wellFormedDigest(label)) {
+    // The same rule as acceptsRecipe: the type requires a digest, so a recipe without one is not usable anywhere.
+    return { ok: false, code: 'digest-mismatch', detail: 'the slotsDigest label is missing or malformed' };
+  }
+  if (label.n0 === n0 && label.slotSpacingMin === spacing && label.digest !== outcome.slotsDigest) {
     return { ok: false, code: 'digest-mismatch', detail: `the slotsDigest label does not match this compile at n0 ${n0}` };
   }
   return { ok: true, formation: outcome.formation };
+}
+
+/** Package-internal: a slotsDigest label of the right shape (integer n0, finite slotSpacingMin, string digest). */
+export function wellFormedDigest(d: unknown): d is GeneratedRecipe['slotsDigest'] {
+  if (typeof d !== 'object' || d === null) return false;
+  const { n0, slotSpacingMin, digest } = d as Record<string, unknown>;
+  return Number.isInteger(n0) && typeof slotSpacingMin === 'number' && Number.isFinite(slotSpacingMin) && typeof digest === 'string';
 }
 
 /** The slotsDigest the compile of this generated recipe produced at (n0, slotSpacingMin); null if it was rejected. */
