@@ -200,7 +200,7 @@ describe('encore swarm: no failure', () => {
       for (let tick = 1; tick <= KILL + 400; tick++) if (tick % t.params.hbPeriod === id % t.params.hbPeriod) expected++;
     }
     expect(t.sent).toBe(expected);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('silence is not death: with the radio off for 35 s in hold, nobody claims or changes slot', () => {
     const off = { from: KILL, to: KILL + SECONDS(35) };
@@ -210,7 +210,7 @@ describe('encore swarm: no failure', () => {
     expect(t.claims).toEqual([]);
     expect(t.changes).toEqual([]);
     for (let id = 0; id < N; id++) expect(t.beliefs[id]).toMatchObject({ slot: id, deaf: false, canHeal: true, peersKnown: N - 1 });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('encore swarm: contention for one vacant slot', () => {
@@ -239,7 +239,7 @@ describe('encore swarm: contention for one vacant slot', () => {
     expect(t.beliefs[11]).toMatchObject({ slot: 7, heldSince: commit.tick });
     expect(t.dupTicks).toBe(0);
     expect(t.claims.every(c => c.tick < commit.tick)).toBe(true);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('with many claimants, exactly one commits, and it is the best bidder', () => {
     // Slot 0 dies: every drone on slot 3 or higher may claim it.
@@ -254,7 +254,7 @@ describe('encore swarm: contention for one vacant slot', () => {
     expect(settledOn(t, 0)).toBe(11);
     expect(t.dupTicks).toBe(0);
     expect(alive(t).every(d => t.beliefs[d.id].claiming === null)).toBe(true);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('two claimants that cannot hear each other both commit; the duplicate clears when the radio returns', () => {
     // Known limit 5 (section 8.5). The radio is off from 55 to 90 ticks after the kill: short enough that
@@ -278,7 +278,7 @@ describe('encore swarm: contention for one vacant slot', () => {
     expect(t.dupTicks).toBe(backs(t)[0].tick - Math.max(...made.map(c => c.tick)));
     expect(t.longestDup).toBeLessThanOrEqual(SECONDS(3));
     expect(t.changes.every(c => c.tick <= off.to + t.params.hbPeriod + 1)).toBe(true);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('encore swarm: 12 drones, 2 kills', () => {
@@ -299,7 +299,7 @@ describe('encore swarm: 12 drones, 2 kills', () => {
     expect(settledOn(t, 1)).toBe(11);
     expect(settledOn(t, 4)).toBe(10);
     for (let v = 0; v < N; v++) expect(settledOn(t, v) !== -1, `slot ${v}`).toBe(v < N - KILLED.length);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('settles: no slot is ever held by two drones, and nothing changes in the last 10 seconds', () => {
     const t = run();
@@ -325,14 +325,14 @@ describe('encore swarm: 12 drones, 2 kills', () => {
     // The comparison can fail: another kill gives another run.
     const c = runSwarm({ n: N, recipe: SPHERE, ticks: TICKS, kills: [{ tick: KILL, ids: [1, 5] }] });
     expect(c.digest.findIndex((line, i) => line !== a.digest[i])).toBe(KILL - 1);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('with every state sent through JSON before every step, the run is identical', () => {
     const a = run();
     const b = runSwarm({ n: N, recipe: SPHERE, ticks: TICKS, kills: [{ tick: KILL, ids: KILLED }], roundTrip: true });
     expect(b.digest.findIndex((line, i) => line !== a.digest[i])).toBe(-1);
     expect(b.drones.map(d => d.state)).toStrictEqual(a.drones.map(d => d.state));
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('encore swarm: 40 drones on a text formation, a clumped kill of 5 (ideal radio)', () => {

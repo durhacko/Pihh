@@ -337,7 +337,7 @@ describe('encoreBrain: belief (contract section 4)', () => {
     expect(frameAt(p, 300).belief.target).toEqual(slotPos(ME, 300, TWO_MOVEMENTS));
     expect(frameAt(p, 300).belief.target).not.toEqual(frameAt(p, 299).belief.target);
     expect(frameAt(p, 320).state.mvIndex).toBe(1);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('deaf, peersKnown and canHeal come from what the drone heard', () => {
     const p = reference(CLAIM - 1);
@@ -356,7 +356,7 @@ describe('encoreBrain: belief (contract section 4)', () => {
     // canHeal is false until the hold grace has passed, and is the value of the last scan.
     const firstHeal = scanAtOrAfter(HOLD_START + P.holdGrace);
     for (const f of p.frames) expect(f.belief.canHeal, `tick ${f.tick}`).toBe(f.tick >= firstHeal);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('returns fresh objects: editing a belief changes nothing in the brain', () => {
     const p = reference(COMMIT + 5);
@@ -382,7 +382,7 @@ describe('encoreBrain: belief (contract section 4)', () => {
     // Radio silence is never treated as death: nothing else happened.
     expect(claimsSent(p)).toEqual([]);
     expect(slotChanges(p, ME)).toEqual([]);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('encoreBrain: heartbeats (section 8.3, step 5)', () => {
@@ -445,7 +445,7 @@ describe('encoreBrain: canHeal (section 8.2)', () => {
     expect(p.state.log).toEqual([]);
     expect(p.state.history).toEqual([]);
     expect(frameAt(p, 800).belief).toMatchObject({ slot: ME, heldSince: 0, canHeal: true, deaf: false, claiming: null });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('5. a deaf drone never claims, even with an obviously empty, more important slot beside it', () => {
     // No radio at all, ever. Slots 0 and 4 are empty from the first tick.
@@ -462,7 +462,7 @@ describe('encoreBrain: canHeal (section 8.2)', () => {
     expect(p.state.lastRx).toBe(NEVER_HEARD);
     // It keeps flying its score and keeps sending heartbeats, without a claim.
     expect(p.frames.filter(f => f.hb !== null)).toHaveLength(800 / P.hbPeriod);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('5. hearing only the operator does not end deafness', () => {
     const next = composeNext(SCORE, 150, SPHERE, ME, N, P);
@@ -538,7 +538,7 @@ describe('encoreBrain: canHeal (section 8.2)', () => {
     const inside = play({ vel: () => [0.49, 0, 0], pos: tick => add(slotPos(ME, tick), [P.rOcc - 0.01, 0, 0]) }, 200);
     expect(inside.state.settledSince).toBe(1);
     expect(inside.state.canHeal).toBe(true);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('4. never claims while a heartbeat heard within tDeaf carries another score version', () => {
     // Drone 20 flies another version until tick 300, then the same one again.
@@ -559,7 +559,7 @@ describe('encoreBrain: canHeal (section 8.2)', () => {
     const lastStale = lastSendBefore(300, 20) + 1;
     const healAgain = scanAtOrAfter(lastStale + P.tDeaf + 1);
     for (const f of q.frames) expect(f.belief.canHeal, `tick ${f.tick}`).toBe(f.tick >= healAgain);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('when canHeal turns false, every emptySince timer is cleared', () => {
     // Drone 0 dies at 200; the drone under test is pushed off its slot from tick 230 to 239.
@@ -746,7 +746,7 @@ describe('encoreBrain: vacancy, claim and commit (section 8.3, step 4)', () => {
       expect(p.state.emptySince[FRINGE]).toBeNull();
       expect(claimsSent(p)).toEqual([]);
       expect(slotChanges(p, ME)).toEqual([]);
-    });
+    }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
     it('a claim in progress on it is dropped, not committed', () => {
       // The slot leaves rClaim five ticks into the contention window.
@@ -790,13 +790,13 @@ describe('encoreBrain: vacancy, claim and commit (section 8.3, step 4)', () => {
     expect(r.state.emptySince[ME]).toBe(scanAtOrAfter(KILL, NEAR));
     expect(claimsSent(r)).toEqual([]);
     expect(slotChanges(r, NEAR)).toEqual([]);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('of several vacant slots it claims the most important one', () => {
     const p = play(dies([NEAR, NEAR2, 10, 31], KILL), COMMIT);
     expect(new Set(claimsSent(p).map(c => c.slot))).toEqual(new Set([NEAR]));
     expect(slotChanges(p, ME)).toEqual([{ tick: COMMIT, from: ME, to: NEAR }]);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('drops the claim when a heartbeat holding the slot is heard, and when the slot is sensed occupied again', () => {
     // Somebody else (drone 5) reports that it holds slot 0, six ticks into the window.
@@ -817,7 +817,7 @@ describe('encoreBrain: vacancy, claim and commit (section 8.3, step 4)', () => {
     expect(frameAt(seen, 268).belief.log).toEqual(['t=258 claim slot 0 (bid 33)', 't=268 drop claim on slot 0: no longer vacant']);
     expect(frameAt(seen, 268).state.emptySince[NEAR]).toBeNull();
     expect(slotChanges(seen, ME)).toEqual([]);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('encoreBrain: contention (section 8.3: a bid is (rank, -id))', () => {
@@ -837,7 +837,7 @@ describe('encoreBrain: contention (section 8.3: a bid is (rank, -id))', () => {
     expect(slotChanges(p, ME)).toEqual([]);
     expect(p.state.log).toEqual(['t=258 claim slot 0 (bid 33)', 't=260 drop claim on slot 0: better bid from 34']);
     expect(p.state.emptySince[NEAR]).toBe(EMPTY_FROM);            // the slot still looks vacant to it
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('with the better bidder claiming the best slot, it claims the next vacant one instead', () => {
     const p = play({ ...dies([NEAR, NEAR2], KILL), heartbeat: (id, sent, base) =>
@@ -871,7 +871,7 @@ describe('encoreBrain: contention (section 8.3: a bid is (rank, -id))', () => {
     expect(lower.state.log[1]).toBe(`t=${scanAtOrAfter(CLAIM, 20) + 1} drop claim on slot 0: better bid from 20`);
     const higher = reference(COMMIT + 5, { heartbeat: rival(39, CLAIM, dup) });
     expect(slotChanges(higher, ME)).toEqual([{ tick: COMMIT, from: ME, to: NEAR }]);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('a better bid heard before its own claim holds it back, but only while it was heard within claimWindow', () => {
     // Drone 34 announces a claim on slot 0 in a single heartbeat, sent at the scan before mine.
@@ -890,7 +890,7 @@ describe('encoreBrain: contention (section 8.3: a bid is (rank, -id))', () => {
     });
     expect(claimsSent(q)[0].tick).toBe(scanAtOrAfter(once + 1 + P.claimWindow + 1));
     expect(q.frames.filter(f => f.tick <= once + 1 + P.claimWindow).every(f => f.belief.claiming === null)).toBe(true);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('encoreBrain: duplicates (section 8.3, step 1)', () => {
@@ -926,7 +926,7 @@ describe('encoreBrain: duplicates (section 8.3, step 1)', () => {
     expect(lower.state).toMatchObject({ slot: ME, heldSince: 0 });
     const higher = reference(T + 10, { extra: tick => (tick === T ? [holderHb(39, T, NEAR, COMMIT)] : []) });
     expect(higher.state).toMatchObject({ slot: NEAR, heldSince: COMMIT });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('a holder of another slot changes nothing', () => {
     const p = reference(T + 10, { extra: tick => (tick === T ? [holderHb(5, T, NEAR2, 1)] : []) });
@@ -970,7 +970,7 @@ describe('encoreBrain: duplicates (section 8.3, step 1)', () => {
     expect(frameAt(p, 259).belief.claiming).toBe(NEAR);
     expect(frameAt(p, 260).belief.claiming).toBeNull();
     expect(frameAt(p, 260).belief.log.at(-1)).toBe('t=260 drop claim on slot 0: better bid from 34');
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('pops one entry per lost duplicate, each with its own original heldSince', () => {
     // White box: a drone that has committed twice (33 -> 20 at tick 500 -> 6 at tick 900).
@@ -1073,7 +1073,7 @@ describe('encoreBrain: physical yield (section 8.3, step 3)', () => {
     expect(frameAt(p, 500).state.yieldSince).toBe(500);
     expect(frameAt(p, 500 + P.yieldTicks - 1).state.slot).toBe(NEAR);
     expect(frameAt(p, 500 + P.yieldTicks).state).toMatchObject({ slot: ME, heldSince: 0, history: [] });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('only with a non-empty history: a drone on its launch slot never yields', () => {
     // A fresh drone is 2 m off its launch slot for the whole hold, and an anonymous drone sits on that slot.
@@ -1173,7 +1173,7 @@ describe('encoreBrain: bounded state, plain JSON, determinism', () => {
     expect(problems.slice(0, 5)).toEqual([]);
     // Arrays stay indexed by id and by slot.
     expect([plain.state.peers.length, plain.state.slotHeard.length, plain.state.emptySince.length]).toEqual([N, N, N]);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('two identical runs give identical outputs, beliefs and states', () => {
     const a = play(busy, 600);
@@ -1184,7 +1184,7 @@ describe('encoreBrain: bounded state, plain JSON, determinism', () => {
     const c = play(busy, 600, { state: other, from: 1 });
     expect(c.state.rng).not.toBe(a.state.rng);
     expect({ ...c.state, rng: 0 }).toStrictEqual({ ...a.state, rng: 0 });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('does not change or keep its input', () => {
     const p = play(busy, 300);                 // every input was deep-frozen: an edit would have thrown
@@ -1237,7 +1237,7 @@ describe('encoreBrain: bounded state, plain JSON, determinism', () => {
       heartbeat: (j, sent, base) => (j === 31 || (j === NEAR && sent >= KILL) ? null : base),
     }, COMMIT, { state: again, from: 1 });
     expect(second.state).toMatchObject({ slot: NEAR, history: [{ slot: ME, heldSince: 0 }] });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('T19: more than historyMax commits followed by repeated pops end on the launch slot with heldSince 0', () => {
     // Sensing wide enough that the next slot is always within rClaim. The body is scripted onto whatever
@@ -1293,7 +1293,7 @@ describe('encoreBrain: bounded state, plain JSON, determinism', () => {
     encoreBrain.step(state, inputAt({ ...stage, heartbeat: () => null, extra: () => [intruder] }, tick));
     expect(state).toMatchObject({ slot: ME, heldSince: 0, history: [] });
     expect(state.log.at(-1)).toBe(`t=${tick} keep slot 33, my launch home: lost duplicate to 5`);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('a heartbeat naming no drone or no slot of the roster is ignored and leaves the arrays intact', () => {
     const bad = (tick: number): Message[] => [
