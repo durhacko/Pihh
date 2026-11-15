@@ -73,8 +73,13 @@ test('each attempt is bounded by attemptTimeoutMs; a timeout is final, and the p
     return fake.generate(request, signal);
   } };
   const started = Date.now();
-  const outcome = await withRetries(hanging, recorder()).generate({ ...REQUEST, attemptTimeoutMs: 50 }, new AbortController().signal);
-  assert.deepEqual(outcome, { kind: 'timeout' });
+  const whole = new AbortController();
+  // A guard so a broken per-attempt timeout fails this test instead of hanging the run.
+  let guard: ReturnType<typeof setTimeout> | undefined;
+  const hung = new Promise<'hung'>(resolve => { guard = setTimeout(() => { whole.abort(); resolve('hung'); }, 2_000); });
+  const outcome = await Promise.race([withRetries(hanging, recorder()).generate({ ...REQUEST, attemptTimeoutMs: 50 }, whole.signal), hung]);
+  clearTimeout(guard);
+  assert.deepEqual(outcome, { kind: 'timeout' }, 'the attempt timed out on its own, not via the guard');
   assert.ok(Date.now() - started < 2_000);
   assert.ok(aborted);
   assert.equal(fake.calls.length, 1);
