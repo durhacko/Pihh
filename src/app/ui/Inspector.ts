@@ -94,11 +94,15 @@ const STATUS_LABEL: Record<SlotStatus, string> = { occupied: 'occupied by a live
 
 /** Observer box rows: the pre-labelled truth object only. */
 export function truthRows(truth: ObserverTruth): Row[] {
-  const status = truth.sameFormation === null || (truth.sameFormation && truth.believedSlotStatus === null)
-    ? 'not sampled yet'
-    : !truth.sameFormation || truth.believedSlotStatus === null
-      ? 'not comparable: it flies a different score than the observer reference'
-      : `${STATUS_LABEL[truth.believedSlotStatus]}${truth.slotStatusTick === null ? '' : ` (t${truth.slotStatusTick})`}`;
+  // A dead drone's belief froze at death: once the score moves on, its old target no longer matches the reference
+  // slot, which would otherwise read as "flies a different score". It flies nothing.
+  const status = !truth.alive
+    ? `dead since t${truth.diedTick ?? '?'}; target frozen`
+    : truth.sameFormation === null || (truth.sameFormation && truth.believedSlotStatus === null)
+      ? 'not sampled yet'
+      : !truth.sameFormation || truth.believedSlotStatus === null
+        ? 'not comparable: it flies a different score than the observer reference'
+        : `${STATUS_LABEL[truth.believedSlotStatus]}${truth.slotStatusTick === null ? '' : ` (t${truth.slotStatusTick})`}`;
   return [
     { label: 'True state', value: truth.alive ? 'alive' : `dead since t${truth.diedTick ?? '?'}` },
     { label: `Slot ${truth.believedSlot}, per observer`, value: status },
@@ -190,7 +194,7 @@ export function createPanel({ host }: PanelContext) {
       <p class="notice" data-notice role="status"></p>
       <section data-agent-section aria-label="Agent knowledge"><div class="sec-title"><span class="eyebrow">Agent knowledge</span><span class="src">Belief · inspect()</span></div><dl data-agent></dl><div class="label">Recent decisions</div><ol data-log aria-label="Recent decisions, newest first"></ol></section>
       <details data-tree-section><summary>Raw private state <span class="hint">· generic tree</span></summary><div class="tree" data-tree></div></details>
-      <section class="observer" data-truth-section aria-label="Observer information, not visible to this drone"><div class="sec-title"><span class="tag">Observer</span><span class="hint">not visible to this drone</span></div><dl data-truth></dl></section>
+      <section class="observer" data-truth-section aria-label="Observer information, not visible to this drone"><div class="sec-title"><span style="display:flex;gap:6px;align-items:center"><span class="tag">Observer</span><span data-truth-pills style="display:flex;gap:4px"></span></span><span class="hint">not visible to this drone</span></div><dl data-truth></dl></section>
     </div>`;
   host.append(panel);
   const q = <T extends Element>(selector: string) => panel.querySelector<T>(selector)!;
@@ -205,6 +209,7 @@ export function createPanel({ host }: PanelContext) {
   const tree = q<HTMLElement>('[data-tree]');
   const truthSection = q<HTMLElement>('[data-truth-section]');
   const truthList = q<HTMLDListElement>('[data-truth]');
+  const truthPills = q<HTMLElement>('[data-truth-pills]');
   let lastKey = '';
   let lastRender = 0;
   let renderedId: number | null = null;
@@ -232,10 +237,14 @@ export function createPanel({ host }: PanelContext) {
     if (!force && key === lastKey) return;
     lastKey = key;
 
+    // The header holds only what is not observer truth (the arm, and the drone's own deaf belief). Death is observer
+    // truth, so its pill sits inside the hatched observer box.
     const pillList = [element('span', 'pill', arm.toUpperCase())];
-    if (truth && !truth.alive) { const dead = element('span', 'pill dead', 'dead'); dead.title = `Observer: died at tick ${truth.diedTick ?? '?'}`; pillList.push(dead); }
     if (view?.belief.deaf) { const deaf = element('span', 'pill deaf', 'deaf'); deaf.title = 'Its own belief: no radio heard for tDeaf'; pillList.push(deaf); }
     pills.replaceChildren(...pillList);
+    const observerPills: HTMLElement[] = [];
+    if (truth && !truth.alive) { const dead = element('span', 'pill dead', 'dead'); dead.title = `Observer: died at tick ${truth.diedTick ?? '?'}`; observerPills.push(dead); }
+    truthPills.replaceChildren(...observerPills);
 
     setNotice(view ? '' : `No agent data for drone #${id}.`);
     showSections(!!view, !!truth);

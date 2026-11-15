@@ -8,6 +8,7 @@ import { OPERATOR } from '../contracts';
 import type { EnvEvent, Params, Recipe, Score, Vec3 } from '../contracts';
 import { composeNext, expandRecipe, launchPos, transitionTicksBetween } from '../score';
 import { agentSeed, randomIds } from '../sim';
+import { PACE_SETTLE_TICKS } from '../agent/steer';
 
 export const SCENARIO_IDS = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5'] as const;
 export type ScenarioId = (typeof SCENARIO_IDS)[number];
@@ -16,7 +17,18 @@ export const SCENARIO_TICKS = 1800;
 export const RECIPE_A: Recipe = { kind: 'text', text: 'ENCORE' };
 export const RECIPE_B: Recipe = { kind: 'sphere' };
 export const RECIPE_INJECT: Recipe = { kind: 'text', text: 'BRAVO' };
-export const A_START_TICK = -200;
+/**
+ * The LATEST start tick of movement A. A starts before launch so that its hold plus holdGrace begins by
+ * A_HOLD_READY_BY; paced targets (#80) want it as late as possible, because the launch flight runs from tick 0 to
+ * A's holdStart - PACE_SETTLE_TICKS. At n0 = 200 A starts here (hold + holdGrace = 363 <= 380); at larger n0 the
+ * transition is longer and A starts earlier (aStartTick). It was a fixed -200 until #80.
+ */
+export const A_START_TICK = -40;
+
+/** Movement A's start tick for a transition of `tA` ticks: A_START_TICK, or earlier so A's hold + holdGrace <= A_HOLD_READY_BY. */
+export function aStartTick(tA: number, params: Params): number {
+  return Math.min(A_START_TICK, A_HOLD_READY_BY - params.holdGrace - tA);
+}
 export const B_START_TICK = 900;
 /** Latest tick by which A's hold plus holdGrace must have begun (kills and partitions start at 300-400). */
 export const A_HOLD_READY_BY = 380;
@@ -52,10 +64,10 @@ export function killCount(n0: number): number {
 }
 
 /**
- * The preloaded score EVAL, version {0, OPERATOR}: movement A (text ENCORE) starts at tick -200 with its
+ * The preloaded score EVAL, version {0, OPERATOR}: movement A (text ENCORE) starts at aStartTick (-40 at n0 = 200) with its
  * transition measured from the launch grid; movement B (sphere) starts at tick 900 with its transition
- * measured from A. Both by the contract's authoring formula (transitionTicksBetween). Throws if A's hold
- * (plus holdGrace) would start after tick 380 or B's hold after tick 1300.
+ * measured from A. Both by the contract's authoring formula (transitionTicksBetween). Throws if the paced launch
+ * would need more than vMax, or B's hold would start after tick 1300.
  */
 export function buildEvalScore(params: Params): Score {
   const n0 = params.n0;
@@ -65,12 +77,18 @@ export function buildEvalScore(params: Params): Score {
   const slotsB = expandRecipe(RECIPE_B, n0, params).slots.map((s) => s.pos);
   const tA = transitionTicksBetween(launch, slotsA, params);
   const tB = transitionTicksBetween(slotsA, slotsB, params);
-  const holdA = A_START_TICK + tA;
+  const aStart = aStartTick(tA, params);
+  const holdA = aStart + tA;
   const holdB = B_START_TICK + tB;
-  if (holdA + params.holdGrace > A_HOLD_READY_BY) {
+  // Paced targets fly the launch from tick 0 to holdA - PACE_SETTLE_TICKS. The authoring formula allows
+  // (tA - PACE_SETTLE_TICKS) ticks at 0.5 vMax, so at vMax the farthest drone needs at least half of that.
+  const launchWindow = holdA - PACE_SETTLE_TICKS;
+  const needAtVMax = Math.ceil((tA - PACE_SETTLE_TICKS) / 2);
+  if (launchWindow < needAtVMax) {
     throw new Error(
-      `EVAL score at n0=${n0}: movement A's holdStart (${holdA}) + holdGrace (${params.holdGrace}) = ${holdA + params.holdGrace} ` +
-      `> ${A_HOLD_READY_BY}. Per evaluation doc §3, make A_START_TICK (${A_START_TICK}) more negative before the freeze; do not move the event ticks.`,
+      `EVAL score at n0=${n0}: movement A cannot reach its hold in time. Its hold + holdGrace must begin by ${A_HOLD_READY_BY}, ` +
+      `which leaves a paced launch flight of ${launchWindow} ticks (tick 0 to holdStart ${holdA} - ${PACE_SETTLE_TICKS}), ` +
+      `but the farthest drone needs ${needAtVMax} ticks at vMax. Move the event ticks later or use a smaller n0.`,
     );
   }
   if (holdB > B_HOLD_BY) {
@@ -79,7 +97,7 @@ export function buildEvalScore(params: Params): Score {
   return {
     version: { issuedTick: 0, origin: OPERATOR },
     movements: [
-      { startTick: A_START_TICK, transitionTicks: tA, recipe: { ...RECIPE_A } },
+      { startTick: aStart, transitionTicks: tA, recipe: { ...RECIPE_A } },
       { startTick: B_START_TICK, transitionTicks: tB, recipe: { ...RECIPE_B } },
     ],
   };
