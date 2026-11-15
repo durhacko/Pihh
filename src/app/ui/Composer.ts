@@ -124,7 +124,7 @@ export interface ComposeContext {
   snapshots(): Pair<WorldSnapshot>;
   /** Newest observer MetricsSample per world (worlds.samples()). The adoption bar reads only this. */
   samples(): Pair<MetricsSample | null>;
-  /** Where bindControls emits 'encore:control-status' (the app root). A stage click that selects a drone answers a pick. */
+  /** Where bindControls emits 'encore:control-status' (the app root). The Composer listens there to follow the selection. */
   events?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
 }
 
@@ -134,35 +134,26 @@ export function parseContext(ctx: ComposeContext): ParseContext {
 }
 
 /**
- * Asks the user to click a drone. Resolves with its id, or null when cancelled (Escape via handleEscape, or another
- * pick). Answered by whichever comes first: the stage resolving store.pick (the shell, #92), a change of store.selected,
- * or the controller reporting a newly selected drone (today's click-to-select in main.ts). Clicking the drone that is
- * already selected changes nothing, so it does not answer.
+ * Asks the user to click a drone. Resolves with its id, or null when cancelled (Escape via handleEscape, another pick,
+ * or a new command). Answered ONLY by the stage resolving store.pick from a real click on a drone (the shell, #113).
+ * A selection change (a Select button, `inspect`, the controls) never answers it: otherwise a waiting
+ * `fault kill-region --pick` would kill around whatever drone was selected next.
  */
-export function requestPick(ctx: ComposeContext, purpose: PickRequest['purpose'], prompt: string): Promise<number | null> {
+export function requestPick(ctx: Pick<ComposeContext, 'store'>, purpose: PickRequest['purpose'], prompt: string): Promise<number | null> {
   ctx.store.state.pick?.resolve(null);
-  const before = ctx.controller.status().selectedId;
   return new Promise(resolve => {
     let done = false;
     let unsubscribe = () => {};
     const finish = (id: number | null) => {
       if (done) return;
       done = true;
-      ctx.events?.removeEventListener('encore:control-status', onStatus);
       unsubscribe();
       if (ctx.store.state.pick === request) ctx.store.set({ pick: null, pickPoint: null });
       resolve(id);
     };
-    const onStatus = (event: Event) => {
-      const id = (event as CustomEvent<Partial<ControlStatus>>).detail?.selectedId;
-      if (typeof id === 'number' && id !== before) finish(id);
-    };
     const request: PickRequest = { purpose, prompt, resolve: result => finish(result?.droneId ?? null) };
-    unsubscribe = ctx.store.subscribe((state, changed) => {
-      if (changed.includes('pick') && state.pick !== request) finish(null);
-      else if (changed.includes('selected') && state.selected?.arm === 'encore' && state.selected.id !== before) finish(state.selected.id);
-    });
-    ctx.events?.addEventListener('encore:control-status', onStatus);
+    // Something replaced or cleared the request without resolving it (e.g. handleEscape clears, then resolves): cancel.
+    unsubscribe = ctx.store.subscribe((state, changed) => { if (changed.includes('pick') && state.pick !== request) finish(null); });
     ctx.store.set({ pick: request, pickPoint: null });
   });
 }

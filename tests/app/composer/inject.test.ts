@@ -120,9 +120,8 @@ describe('Composer and Console: one inject path', () => {
     await cancelled;
     expect(fx.controller.getEventLog()).toEqual([]);
     const picked = fx.engine.run('inject --pick');
-    // Today's click-to-select in main.ts: the controller selects the drone and bindControls emits its status.
-    fx.controller.selectDrone(12);
-    fx.events.dispatchEvent(new CustomEvent('encore:control-status', { detail: fx.controller.status() }));
+    // A real stage click on a drone: the shell (#113) resolves store.pick with that drone.
+    fx.ctx.store.state.pick!.resolve({ droneId: 12, point: [0, 0, 0] });
     await picked;
     expect(injects(fx.controller.getEventLog()).map(e => e.droneId)).toEqual([12]);
     expect(fx.ctx.store.state.pick).toBeNull();
@@ -130,6 +129,27 @@ describe('Composer and Console: one inject path', () => {
 });
 
 describe('review fixes: picks, preconditions, resets', () => {
+  it('a selection change never answers a waiting pick: only a stage click resolving store.pick does (#112 review)', async () => {
+    const fx = setup();
+    const regional = fx.engine.run('fault kill-region --pick');
+    expect(fx.ctx.store.state.pick?.purpose).toBe('killRegion');
+    const pending = fx.ctx.store.state.pick!;
+    // Every way a selection can change without a stage click: the controller (Select button, keys), its status event,
+    // and the presentation store.
+    fx.controller.selectDrone(7);
+    fx.events.dispatchEvent(new CustomEvent('encore:control-status', { detail: fx.controller.status() }));
+    fx.ctx.store.set({ selected: { id: 7, arm: 'encore' } });
+    await Promise.resolve();
+    expect(fx.ctx.store.state.pick).toBe(pending);              // still waiting
+    expect(fx.controller.getEventLog()).toEqual([]);            // no region kill around drone 7
+    // The real click then answers it, with the clicked drone.
+    pending.resolve({ droneId: 20, point: [0, 0, 0] });
+    await regional;
+    const kill = fx.controller.getEventLog().find(e => e.type === 'KILL') as Extract<EnvEvent, { type: 'KILL' }>;
+    expect(kill.ids).toContain(20);
+    expect(fx.controller.status().selectedId).toBe(20);
+  });
+
   it('a pending pick is cancelled, never answered, by a command that selects a drone itself', async () => {
     const fx = setup();
     const regional = fx.engine.run('fault kill-region --pick');
