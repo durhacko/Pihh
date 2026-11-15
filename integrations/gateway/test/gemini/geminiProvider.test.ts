@@ -283,6 +283,18 @@ test('a 4xx error body is classified (status, reasons, field paths) and nothing 
   assert.deepEqual(seen[0]!.error, { status: 'INVALID_ARGUMENT', reasons: ['API_KEY_INVALID'], fields: ['generation_config.thinking_config.thinking_level'] });
   const text = JSON.stringify(seen);
   for (const leak of [KEY, 'free text', 'API key not valid', '<script>']) assert.ok(!text.includes(leak), leak);
+  // A JSON-payload rejection: only the quoted identifiers come out of the description, never its text.
+  const payload = JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Invalid JSON payload received.', details: [
+    { '@type': 'type.googleapis.com/google.rpc.BadRequest', fieldViolations: [
+      { field: 'generation_config', description: `Invalid JSON payload received. Unknown name "responseJsonSchema" at 'generation_config': Cannot find field. ${KEY}` },
+      { description: 'Invalid value at \'generation_config.thinking_config.thinking_level\' (type.googleapis.com/x), "LOW"' },
+    ] },
+  ] } });
+  assert.deepEqual(classifyErrorBody(payload), {
+    status: 'INVALID_ARGUMENT', fields: ['generation_config'], unknownNames: ['responseJsonSchema'],
+    paths: ['generation_config', 'generation_config.thinking_config.thinking_level'],
+  });
+  assert.ok(!JSON.stringify(classifyErrorBody(payload)).includes(KEY));
   assert.equal(classifyErrorBody('not json'), undefined);
   assert.equal(classifyErrorBody(JSON.stringify({ error: { message: 'only text' } })), undefined);
 });

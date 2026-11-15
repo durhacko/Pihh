@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import type { Env } from '../config.ts';
 import type { GatewayModule, ModuleFactory } from '../module.ts';
 import { readGeminiConfig, type GeminiConfig } from './config.ts';
-import { createGeminiProvider, type Transport } from './geminiProvider.ts';
+import { createGeminiProvider, type Transport, type UpstreamErrorClass } from './geminiProvider.ts';
 import { geminiAvailable, handleGenerateFormation, type GeminiDeps } from './handler.ts';
 import { abortableSleep, withRetries, type RetryDeps } from './provider.ts';
 import type { FormationMode } from './types.ts';
@@ -44,7 +44,7 @@ export function loadSceneSchemas(): Readonly<Record<FormationMode, object>> {
 export interface LastUpstream {
   readonly httpStatus: number; readonly outcome: string; readonly finishReason?: string; readonly latencyMs: number; readonly at: string;
   /** For a 4xx/5xx: Google's error.status, details[].reason and fieldViolations[].field, sanitised (no message). */
-  readonly error?: { readonly status?: string; readonly reasons?: readonly string[]; readonly fields?: readonly string[] };
+  readonly error?: UpstreamErrorClass;
 }
 
 /** The module offline: the real validator, no provider (tests, and any run without the flag and the key). */

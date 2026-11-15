@@ -111,11 +111,15 @@ export interface ProviderObservation {
   readonly error?: UpstreamErrorClass;
 }
 
-/** Google's error classification, each value filtered to an enum or field-path shape; nothing free-text. */
+/** Google's error classification, each value filtered to an enum or field-path shape; nothing free-text. `unknownNames`
+ *  and `paths` are the identifiers quoted in a field violation's description (`Unknown name "X"`, `at 'a.b'`): the
+ *  description itself is never kept. */
 export interface UpstreamErrorClass {
   readonly status?: string;
   readonly reasons?: readonly string[];
   readonly fields?: readonly string[];
+  readonly unknownNames?: readonly string[];
+  readonly paths?: readonly string[];
 }
 
 /** An error body is read up to this many bytes and this long, only to classify it. */
@@ -123,6 +127,7 @@ const ERROR_BODY_MAX = 16 * 1024;
 const ERROR_BODY_MS = 2_000;
 const ENUM_SHAPE = /^[A-Z_]{1,64}$/;
 const FIELD_SHAPE = /^[A-Za-z0-9_.[\]]{1,128}$/;
+const IDENT_SHAPE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
 /** The classification of a Google error body: error.status, details[].reason, details[].fieldViolations[].field. */
 export function classifyErrorBody(body: string): UpstreamErrorClass | undefined {
@@ -133,17 +138,29 @@ export function classifyErrorBody(body: string): UpstreamErrorClass | undefined 
   const status = typeof error.status === 'string' && ENUM_SHAPE.test(error.status) ? error.status : undefined;
   const reasons: string[] = [];
   const fields: string[] = [];
+  const unknownNames: string[] = [];
+  const paths: string[] = [];
+  const add = (list: string[], value: string, shape: RegExp) => { if (shape.test(value) && list.length < 8 && !list.includes(value)) list.push(value); };
   const details: unknown = error.details;
   for (const detail of Array.isArray(details) ? details.map(record) : []) {
     if (!detail) continue;
-    if (typeof detail.reason === 'string' && ENUM_SHAPE.test(detail.reason) && reasons.length < 8) reasons.push(detail.reason);
+    if (typeof detail.reason === 'string') add(reasons, detail.reason, ENUM_SHAPE);
     const violations: unknown = detail.fieldViolations;
     for (const v of Array.isArray(violations) ? violations.map(record) : []) {
-      if (v && typeof v.field === 'string' && FIELD_SHAPE.test(v.field) && fields.length < 8) fields.push(v.field);
+      if (!v) continue;
+      if (typeof v.field === 'string') add(fields, v.field, FIELD_SHAPE);
+      if (typeof v.description === 'string') {
+        // Only the identifiers the description quotes; the description text is never kept.
+        for (const m of v.description.matchAll(/Unknown name "([A-Za-z_][A-Za-z0-9_]{0,63})"/g)) add(unknownNames, m[1]!, IDENT_SHAPE);
+        for (const m of v.description.matchAll(/at '([A-Za-z_][A-Za-z0-9_.[\]]{0,127})'/g)) add(paths, m[1]!, FIELD_SHAPE);
+      }
     }
   }
-  if (!status && reasons.length === 0 && fields.length === 0) return undefined;
-  return { ...(status ? { status } : {}), ...(reasons.length ? { reasons } : {}), ...(fields.length ? { fields } : {}) };
+  if (!status && reasons.length + fields.length + unknownNames.length + paths.length === 0) return undefined;
+  return {
+    ...(status ? { status } : {}), ...(reasons.length ? { reasons } : {}), ...(fields.length ? { fields } : {}),
+    ...(unknownNames.length ? { unknownNames } : {}), ...(paths.length ? { paths } : {}),
+  };
 }
 
 /** Reads at most `max` bytes of a body stream within `ms`; whatever arrived (or '' on failure). Cancels the rest. */
