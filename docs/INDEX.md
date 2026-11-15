@@ -53,6 +53,12 @@ William's sponsor designs, kept as received under `handoffs/`, and the canonical
 | [planning/mongodb-integration-work-packages.md](planning/mongodb-integration-work-packages.md) | MongoDB work packages MDB-WP-01–09 (not to be opened without approval) |
 | [validation/mongodb-show-library-evaluation.md](validation/mongodb-show-library-evaluation.md) | MongoDB tests MDB-T01–T41, failure scenarios, live Atlas end-to-end plan |
 | [handoffs/Encore_MongoDB_Atlas_Implementation_Spec.md](handoffs/Encore_MongoDB_Atlas_Implementation_Spec.md) | William's MongoDB Atlas spec, preserved unmodified |
+| [integrations/tiger-data-analytics.md](integrations/tiger-data-analytics.md) | Tiger Data experiment analytics (#142): canonical overview, invariants, identity and hashes, recovery semantics, decisions |
+| [design/TIGER_TELEMETRY_AND_INGESTION_RFC.md](design/TIGER_TELEMETRY_AND_INGESTION_RFC.md) | Tiger schema, import manifest, ledger, idempotency, conflicts, verification |
+| [design/TIGER_ANALYTICS_AND_DASHBOARD_RFC.md](design/TIGER_ANALYTICS_AND_DASHBOARD_RFC.md) | Tiger read API, fair pairing, multi-seed reports through `report.ts`, dashboard provenance |
+| [planning/tiger-data-integration-work-packages.md](planning/tiger-data-integration-work-packages.md) | Tiger work packages TIG-01–11 and MVI-0 (not to be opened without approval) |
+| [validation/tiger-data-evaluation.md](validation/tiger-data-evaluation.md) | Tiger tests TIG-T01–T45, fixtures, gates, 12-step end-to-end plan |
+| [handoffs/Encore_Tiger_Data_Technical_Plan.md](handoffs/Encore_Tiger_Data_Technical_Plan.md) | William's Tiger Data plan, preserved unmodified |
 
 ## Context
 
