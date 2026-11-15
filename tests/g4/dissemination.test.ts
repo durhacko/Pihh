@@ -1,12 +1,12 @@
 // tests/g4/dissemination.test.ts
 // Gate G4 (issue #21, contract section 9) on the real world with the real Encore brain flying its real formation:
 // a connected swarm adopts everywhere; a jam stops adoption inside the jam until JAM_OFF; a group partition stops it
-// in the other group until PARTITION_OFF; and with scores injected on both sides of a partition the later
-// issuedTick (tie: higher origin) wins everywhere after reconnection (T16). Every run also checks the rate limit
+// in the other group until PARTITION_OFF. T16 (scores injected on both sides of a partition) is in
+// versionOrder.test.ts. Every run also checks the rate limit
 // (at most one SCORE per drone per scoreResendMin) and reports adoption times and slot churn (section 8.5, limit 7).
 import { describe, expect, it } from 'vitest';
 import { makeParams } from '../../src/contracts';
-import type { EnvEvent, Score, ScoreVersion, Vec3, WorldSnapshot } from '../../src/contracts';
+import type { EnvEvent, Score, Vec3, WorldSnapshot } from '../../src/contracts';
 import { composeNext, makeScore } from '../../src/score';
 import { encoreBrain } from '../../src/agent/encoreBrain';
 import { checkRateLimit, dist, minSendGap, run, sameVersion, secs } from './harness';
@@ -144,54 +144,5 @@ describe('G4: a group partition stops adoption in the other group until PARTITIO
     console.log(`G4 partition n0=40: group 0 (${g0.length}) all adopted by ${maxDelay(adoptedAt, INJECT, g0)} ticks after injection; ` +
       `group 1 (${g1.length}) 0 before PARTITION_OFF, all by ${maxDelay(adoptedAt, OFF, g1)} ticks after; ` +
       `limit-7 churn: ${churn} slot changes, ${r.dupTicks} duplicate-slot ticks`);
-  }, 30_000);
-});
-
-describe('T16: scores injected on both sides of a partition; the later issuedTick wins everywhere after reconnection', () => {
-  const ON = 250, OFF = 800;
-  function twoSides(tickA: number, tickB: number, seed: number) {
-    const { params, pre } = preloaded(N);
-    let groups: (0 | 1)[] = [];
-    let a = -1, b = -1;
-    let sA: Score | null = null, sB: Score | null = null;
-    let beforeOff: ScoreVersion[] = [];
-    const r = run({
-      seed, params, score: pre, brain: encoreBrain, ticks: OFF + RECOVERY, watch: { issuedTick: -1, origin: -2 },
-      onTick: (snap, schedule) => {
-        if (snap.tick === OFF - 1) beforeOff = snap.drones.map((d) => ({ ...d.belief.version }));
-        if (snap.tick !== ON - 1) return;
-        groups = snap.drones.map((d) => side(d.pos));
-        a = groups.indexOf(0);
-        b = groups.lastIndexOf(1);
-        sA = composeNext(pre, tickA, { kind: 'text', text: 'A' }, a, N, params);
-        sB = composeNext(pre, tickB, { kind: 'helix' }, b, N, params);
-        schedule({ type: 'PARTITION_ON', tick: ON, id: 'P', point: [...SPLIT.point], normal: [...SPLIT.normal] });
-        schedule({ type: 'PARTITION_OFF', tick: OFF, id: 'P' });
-        schedule({ type: 'INJECT_SCORE', tick: tickA, droneId: a, score: sA });
-        schedule({ type: 'INJECT_SCORE', tick: tickB, droneId: b, score: sB });
-      },
-    });
-    // Just before reconnection each group must hold ITS OWN score: otherwise "the later one wins" proves nothing.
-    for (let id = 0; id < N; id++) {
-      const own = groups[id] === 0 ? (sA as unknown as Score).version : (sB as unknown as Score).version;
-      expect(beforeOff[id], `seed ${seed} drone ${id} (group ${groups[id]}) at PARTITION_OFF - 1`).toEqual(own);
-    }
-    return { r, a, b, sA: sA as unknown as Score, sB: sB as unknown as Score, params };
-  }
-
-  it('later issuedTick: group 1 injected at 350 beats group 0 injected at 300, on every drone', () => {
-    for (const seed of [1, 2]) {
-      const { r, sB, params } = twoSides(300, 350, seed);
-      for (const v of r.finalVersions) expect(v, `seed ${seed}`).toEqual(sB.version);
-      checkRateLimit([minSendGap(r.sends)], params.scoreResendMin);
-    }
-  }, 30_000);
-
-  it('the same issuedTick on both sides: the higher origin wins on every drone', () => {
-    const { r, a, b, sA, sB } = twoSides(300, 300, 1);
-    const winner = a > b ? sA : sB;
-    expect(sA.version.issuedTick).toBe(sB.version.issuedTick);
-    expect(a).not.toBe(b);
-    for (const v of r.finalVersions) expect(v).toEqual(winner.version);
   }, 30_000);
 });
