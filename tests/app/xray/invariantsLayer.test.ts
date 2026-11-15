@@ -4,6 +4,7 @@
 // INV-MONO results equal the CLI's runCustom report on the same run (the snapshot-checkable subset), including on a
 // deliberately faulty brain that makes both fire. Results are "checked on this run, not proofs".
 import { readFileSync } from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Group, PerspectiveCamera, Scene } from 'three';
 import { makeParams } from '../../../src/contracts';
@@ -53,7 +54,18 @@ function stubDocument() {
   return body;
 }
 /** The app's stage: one pane per arm (data-arm), each holding the airspace canvas its WorldView appended. */
+/** MutationObserver as the layer uses it: observe(target), disconnect(); `mutate(target)` fires the callbacks. */
+class FakeObserver {
+  static live = new Set<FakeObserver>();
+  target: FakeEl | null = null;
+  constructor(private readonly callback: () => void) {}
+  observe(target: FakeEl) { this.target = target; FakeObserver.live.add(this); }
+  disconnect() { FakeObserver.live.delete(this); }
+  static mutate(target: FakeEl) { for (const o of [...FakeObserver.live]) if (o.target === target) o.callback(); }
+}
 function stubStage() {
+  FakeObserver.live.clear();
+  vi.stubGlobal('MutationObserver', FakeObserver);
   const body = new FakeEl('body');
   const panes = (['encore', 'static'] as const).map(arm => { const pane = new FakeEl('div'); pane.dataset.arm = arm; pane.append(new FakeEl('canvas')); return pane; });
   body.append(...panes);
@@ -169,7 +181,7 @@ describe('invariants layer: legend text', () => {
       expect(rowOf(l, inv), inv).toMatchObject({ state: 'unavailable', text: `${inv} – not checkable live (see CLI)` });
       expect(rowOf(l, inv)?.why, inv).toBeTruthy();
     }
-    expect(rowOf(l, 'INV-QUIET')?.why).toMatch(/no registered score/);
+    expect(rowOf(l, 'INV-QUIET')?.why).toMatch(/registered score/);
     expect(rowOf(l, 'INV-STATIC')?.why).toMatch(/static arm only/);
     expect(l.footer).toBe('2 of 6 checkable live · dupContactRuns unavailable live');
     // A delivered heartbeat and a legal commit (drop 5 >= claimGap + 1 = 3): both now hold on evidence.
@@ -326,6 +338,27 @@ describe('invariants layer: visibility, DOM and failure handling', () => {
     expect(panes[1].children).toHaveLength(2);
   });
 
+  it('a layout change while paused (no tick, no render) removes the element of the hidden pane at once', () => {
+    const { panes } = stubStage();
+    const encore = setup(), statics = setup();
+    setViewMode({ xray: true });
+    encore.feed(snap(1)); statics.feed(snap(1));
+    expect(FakeObserver.live.size).toBe(2);           // one per opted-in pane
+    (panes[1].style as Record<string, string>).visibility = 'hidden';   // main.ts layoutViews('encore'), paused
+    FakeObserver.mutate(panes[1]);
+    expect(panes[1].children).toHaveLength(1);        // only the canvas
+    FakeObserver.mutate(panes[0]);                    // a style change on a shown pane keeps its legend
+    expect(panes[0].children).toHaveLength(2);
+    statics.layer.dispose();
+    expect(FakeObserver.live.size).toBe(1);           // disconnected on dispose
+  });
+
+  it('without the flag no observer is created', () => {
+    stubStage();
+    setup(createInvariantsLayer({ optIn: false }));
+    expect(FakeObserver.live.size).toBe(0);
+  });
+
   it('after a reset, update never ingests the buffered frame of the discarded show; the next real ingest starts it', () => {
     const { layer, group, legend } = setup();
     setViewMode({ xray: true });
@@ -390,14 +423,17 @@ function liveVsCli(ticks: number, brains?: { encore: AgentBrain }) {
   const worlds = createWorlds({ seed: 101, params, score: scenario.score, events: scenario.events, ...(brains ? { brains } : {}) });
   const layers = { encore: setup(), static: setup() };
   setViewMode({ xray: true });
+  let spent = 0;   // the Encore layer's ingest + update, the per-tick cost P2-T10 bounds
   for (let t = 1; t <= ticks; t++) {
     const s = worlds.stepBoth();
+    const t0 = performance.now();
     layers.encore.feed(s.encore);
+    spent += performance.now() - t0;
     layers.static.feed(s.static);
   }
   const cli = (arm: 'encore' | 'static') => runCustom({ label: 'S2', seed: 101, params, score: scenario.score, events: scenario.events, ticks, arm }, brains ? { brains: { ...BRAINS, ...brains } } : {});
   const out = {
-    worlds,
+    worlds, ticks, msPerTick: spent / ticks,
     legends: { encore: layers.encore.legend(), static: layers.static.legend() },
     live: { encore: layers.encore.layer.report()!, static: layers.static.layer.report()! },
     cli: { encore: cli('encore'), static: brains ? null : cli('static') },
@@ -425,10 +461,10 @@ describe('invariants layer: live report equals the CLI runCustom report (snapsho
         expect(live.counts[inv], `${arm} ${inv}`).toBe(cli.counts[inv]);
       }
       expect(pick(live.violations), arm).toEqual(pick(cli.violations));
-      expect(live.unavailable.map(u => u.inv).sort(), arm).toEqual(['INV-QUIET', 'INV-SILENCE', 'INV-STATIC']);
+      expect(live.unavailable, arm).toEqual([]);   // the other four are never asked of the checker live
       console.log(`#209 live vs CLI, S2 seed 101 n0 40 450 ticks, ${arm}: INV-DUP ${live.counts['INV-DUP']} = ${cli.counts['INV-DUP']}, INV-MONO ${live.counts['INV-MONO']} = ${cli.counts['INV-MONO']} (checked on this run, not proofs)`);
     }
-    expect(LIVE_REQUESTED).not.toContain('INV-CONVERGE');
+    expect(LIVE_REQUESTED).toEqual(['INV-DUP', 'INV-MONO']);
   }, 60_000);
 
   it('falsification: a belief-lying brain makes INV-DUP and INV-MONO fire, and live and CLI report the same violations', () => {
@@ -439,8 +475,12 @@ describe('invariants layer: live report equals the CLI runCustom report (snapsho
     expect(r.worlds.worlds.encore.stateHash()).toBe(r.cli.encore!.record.stateHash);   // the same run, readout attached
     expect(live.lastTick).toBe(130);
     expect(live.checked).toEqual(['INV-DUP', 'INV-MONO']);
-    expect(live.unavailable.map(u => u.inv).sort()).toEqual(['INV-QUIET', 'INV-SILENCE', 'INV-STATIC']);
-    expect(LIVE_REQUESTED).not.toContain('INV-CONVERGE');
+    expect(live.unavailable).toEqual([]);                  // only INV-DUP and INV-MONO are asked of the checker live
+    expect(LIVE_REQUESTED).toEqual(['INV-DUP', 'INV-MONO']);
+    // P2-T10 default guard: a generous bound that catches a regression without being timing-flaky (the 0.5 ms/tick
+    // budget at n0 200 is the opt-in P2_PERF test below).
+    console.log(`#209 default P2-T10 guard: Encore layer ingest + update ${r.msPerTick.toFixed(4)} ms/tick over ${r.ticks} ticks at n0 40 (bound 2)`);
+    expect(r.msPerTick).toBeLessThan(2);
     for (const inv of LIVE_COMPARED) {
       expect(cli.checked, inv).toContain(inv);
       expect(live.counts[inv], inv).toBe(cli.counts[inv]);

@@ -5,15 +5,16 @@
 // only while shown. It reads snapshots only: it never touches a world or brain.
 //
 // What a layer can check (PHASE2_WORK_PACKAGES §P2-WP-06 step 1): a layer sees snapshots only, so it knows neither its
-// arm nor the recorded events nor the registered scores. The checker is created with arm 'unknown', no score and
-// eventsRecorded false. Nothing is inferred:
+// arm nor the recorded events nor the registered scores. The checker is created with arm 'unknown', no score,
+// eventsRecorded false, and asked for INV-DUP and INV-MONO only. Nothing is inferred:
 // - INV-DUP and INV-MONO run live (heartbeats and slots are in every snapshot). They are the subset compared with the
 //   CLI's runCustom report (tests/app/xray/invariantsLayer.test.ts).
-// - INV-SILENCE and INV-QUIET need a registered score, INV-STATIC needs the static arm: the checker reports them
-//   unavailable, and the legend says "not checkable live (see CLI)".
-// - INV-CONVERGE is not asked for at all: live it would run on partitionSide with SET_LOSS unseen (the checker's own
-//   "derived" note), and in the static pane an uplinked score that the static brain never relays would read as a
-//   stall. A false violation on stage is worse than none (PHASE2_EVALUATION §7).
+// - The other four are never asked for, so the checker allocates nothing for them (INV-SILENCE's heard matrix alone
+//   is about 480 KB per view at n0 200). The legend says "not checkable live (see CLI)" with the reason from
+//   NOT_LIVE_WHY: INV-SILENCE and INV-QUIET need a registered score, INV-STATIC needs the static arm, and INV-CONVERGE
+//   needs the recorded events (live it would run on partitionSide with SET_LOSS unseen, and in the static pane an
+//   uplinked score that the static brain never relays would read as a stall; a false violation on stage is worse
+//   than none, PHASE2_EVALUATION §7).
 // - The dupContactRuns diagnostic needs the truth-contact model and so the recorded events: unavailable live.
 // Wording follows requirements §5: "checked on this run, not proofs". No colour suggests a guarantee.
 import { Group, type Scene } from 'three';
@@ -23,10 +24,17 @@ import type { Layer } from '../Layer';
 import { readViewMode } from '../colourModes/viewMode';
 
 export const INVARIANTS_TITLE = 'Checked on this run, not proofs';
-/** Asked of the checker live. INV-CONVERGE is left out on purpose (see the header). */
-export const LIVE_REQUESTED: readonly InvariantId[] = INVARIANT_IDS.filter(id => id !== 'INV-CONVERGE');
-/** The snapshot-checkable subset: the live result for these equals the CLI's on the same run. */
+/** The snapshot-checkable subset: the only invariants asked of the checker live, and the ones whose live result equals
+ *  the CLI's on the same run. */
 export const LIVE_COMPARED: readonly InvariantId[] = ['INV-DUP', 'INV-MONO'];
+export const LIVE_REQUESTED: readonly InvariantId[] = LIVE_COMPARED;
+/** Why the others are not checkable live (PHASE2_WORK_PACKAGES §P2-WP-06 step 1); the CLI checks them on recorded runs. */
+export const NOT_LIVE_WHY: Readonly<Partial<Record<InvariantId, string>>> = Object.freeze({
+  'INV-SILENCE': 'needs a registered score (slot positions) and the recorded events; a layer sees snapshots only',
+  'INV-QUIET': 'needs a registered score (hold starts); a layer sees snapshots only',
+  'INV-CONVERGE': 'needs the recorded events (every partition and SET_LOSS); a layer sees snapshots only',
+  'INV-STATIC': 'static arm only, and a layer does not know its arm',
+});
 const NOT_LIVE = 'not checkable live (see CLI)';
 /** WorldView gives its canvas this label and appends it to its pane before it inits the layers (WorldView.ts). */
 export const AIRSPACE_CANVAS = 'canvas[aria-label="Three dimensional drone airspace"]';
@@ -35,7 +43,6 @@ export const IN_PANE_CSS = 'position:absolute;right:16px;top:64px';
 /** Without a pane (no WorldView canvas found): fixed, stacked down the right column. */
 export const FALLBACK_TOP = 410;
 export const FALLBACK_STEP = 150;
-const CONVERGE_WHY = 'needs the recorded events (every partition and SET_LOSS); not asked for live';
 
 /** The Phase 2 opt-in flag (§2.1 of the work packages): `?p2=<name>[,<name>…]` contains `inv`. */
 export function invariantsOptIn(search: string): boolean {
@@ -58,7 +65,7 @@ export function buildLegend(report: InvariantReport, evidence: LiveEvidence, fai
   if (report.lastTick === 0) return { title: INVARIANTS_TITLE, rows: [], footer: 'Waiting for the first tick', failure: null };
   const rows = INVARIANT_IDS.map((inv): LegendRow => {
     if (!report.checked.includes(inv)) {
-      const why = report.unavailable.find(u => u.inv === inv)?.why ?? (inv === 'INV-CONVERGE' ? CONVERGE_WHY : 'not asked for live');
+      const why = report.unavailable.find(u => u.inv === inv)?.why ?? NOT_LIVE_WHY[inv] ?? 'not asked for live';
       return { inv, state: 'unavailable', text: `${inv} – ${NOT_LIVE}`, why };
     }
     const derived = report.derived.find(d => d.inv === inv);
@@ -110,6 +117,8 @@ interface Live {
   element: HTMLDivElement | null;
   /** This view's pane (the element WorldView appended its canvas to), or null: then the legend is fixed on body. */
   pane: HTMLElement | null;
+  /** Watches the pane's style: the layout hides a pane by visibility and stops rendering it (main.ts layoutViews). */
+  paneWatch: MutationObserver | null;
 }
 
 /** The opted-in layers on this page, in creation order: without a pane, the index places them and names them "View n". */
@@ -140,6 +149,7 @@ function makeLive(params: Params): Live {
     key: '',
     element: null,
     pane: claimPane(),
+    paneWatch: null,
   };
 }
 
@@ -247,7 +257,16 @@ export function createInvariantsLayer(options: InvariantsLayerOptions = {}): Inv
     init(ctx) {
       scene = ctx.scene;
       optIn = options.optIn ?? (typeof location !== 'undefined' && invariantsOptIn(location.search));
-      if (optIn) { live = makeLive(ctx.params); views.push(token); }
+      if (optIn) {
+        live = makeLive(ctx.params); views.push(token);
+        // A layout change hides a pane without a render or a tick (also while paused): drop the element at once, so
+        // no legend element exists while hidden (P2-WP-06 step 3). The next render of a shown pane rebuilds it.
+        const pane = live.pane;
+        if (pane && typeof MutationObserver !== 'undefined') {
+          live.paneWatch = new MutationObserver(() => { if (live?.element && !shouldShow()) hide(); });
+          live.paneWatch.observe(pane, { attributes: true, attributeFilter: ['style'] });
+        }
+      }
       scene.add(group);   // without the flag: an empty, hidden Group, never updated
       publish();
     },
@@ -280,6 +299,7 @@ export function createInvariantsLayer(options: InvariantsLayerOptions = {}): Inv
     dispose() {
       scene?.remove(group);
       if (live) {
+        live.paneWatch?.disconnect();
         removeElement();
         const at = views.indexOf(token); if (at >= 0) views.splice(at, 1);
         if (live.pane) claimed.delete(live.pane);
