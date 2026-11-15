@@ -97,3 +97,12 @@ export interface TigerRepository extends TigerReader {
 }
 
 export const LIST_LIMIT_MAX = 200;
+
+/** Thrown by `importRun` when COMMIT was sent but its acknowledgement was lost (RFC §11.2 case E): the run may or
+ *  may not be stored. The importer records `incomplete` / `COMMIT_UNKNOWN`; reconciliation (Q1) settles it. */
+export class CommitUnknownError extends Error {
+  constructor() {
+    super('COMMIT outcome unknown');
+    this.name = 'CommitUnknownError';
+  }
+}
