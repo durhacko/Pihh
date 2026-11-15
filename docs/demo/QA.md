@@ -26,6 +26,9 @@ node scripts/perf/run.mjs --gl probe   # which WebGL renderer each graphics mode
 | `--url <url>` | (build and serve) | Measure an app that is already running, e.g. `npm run dev` |
 | `--seconds N` / `--warmup N` | 10 / 6 | Measured window and warm-up per scenario |
 | `--no-sim` | | Skip the Node simulation benchmark |
+| `--only <state,…>` | (all) | Screenshot only these states, e.g. `--shots-only --only xray,jam` |
+
+The harness works with both app shells: the stage-first shell (#113) and the earlier layout.
 
 On Windows, run the app yourself (`npm.cmd run build`, then `npm.cmd run preview`) and pass `--url http://127.0.0.1:4173/`. On Windows the harness cannot reliably stop a preview server it started itself.
 
@@ -33,7 +36,7 @@ On Windows, run the app yourself (`npm.cmd run build`, then `npm.cmd run preview
 
 The harness keeps these apart and never mixes them:
 
-- **Render fps.** The number of `requestAnimationFrame` callbacks per real second, measured in the page over the window. The frame-time percentiles and the count of frames longer than 50 ms come from the same deltas. "App readout fps" is the app's own counter (the bottom-right readout), shown as a cross-check.
+- **Render fps.** The number of `requestAnimationFrame` callbacks per real second, measured in the page over the window. The frame-time percentiles and the count of frames longer than 50 ms come from the same deltas. "App readout fps" is the app's own counter, shown as a cross-check. It is read from the readout's `data-fps`: `.readout` at the top right in the stage-first shell, `.frame-readout` at the bottom right before it.
 - **Sim ticks/s.** The change in `window.encore.tick()` per real second over the same window. The target is **20 ticks/s at 1× speed** (`DT` = 50 ms). The app's frame loop runs at most 5 ticks per frame and drops the backlog after a 0.1 s frame (`createFrameLoop`). So when frames are slow, the simulation itself falls behind real time. That shows up here as fewer than 20 ticks/s, and it is a different failure from a low frame rate.
 - **Scenarios.** Single view, single view with X-ray on (key `X`), split view (`?split=1`), and split with X-ray. All use seed 101 at 1440×900.
 - **Node simulation cost** (`scripts/perf/simBench.ts`, run with `npx tsx`). The mean, p50, p95 and max time of one `worlds.stepBoth()`: both worlds and both observers, exactly what the app does per tick, with no rendering. It is measured at **100 and 200 drones**, with the static brain and with the real Encore brain in the Encore arm. "Max ticks/s" is 1000 / mean: the simulation's ceiling on this CPU with nothing else running.
@@ -65,7 +68,7 @@ A run meets a line only if both its render fps and its sim ticks/s meet it, on h
 - active injection and version divergence: `I` and belief colours `C`, the latter with a jam first;
 - inspector, composer, console, timeline, scripted demo.
 
-A state is captured only if the feature is really on screen. The check runs after the setup step and needs a visible element, so a module that is loaded but not connected (the inspector stays hidden until `main.ts` connects it) is reported as "not shown in this build", not photographed. Each capture records the tick and the app's own brain badge. A screenshot taken while both arms run the static brain says so, and it shows no repair and no adoption, because none happens.
+A state is captured only if the feature is really on screen. The check runs after the setup step and needs a visible element, so a module that is loaded but not connected (the inspector stays hidden until `main.ts` connects it) is reported as "not shown in this build", not photographed. Each capture records the tick and what the app itself says about its brains. In the earlier layout that is the badge at the top right. In the stage-first shell it is the Metrics popover's "Brains" row; the harness opens it with M after the screenshot, reads it and closes it, so the picture is not affected. A screenshot taken while both arms run the static brain says so, and it shows no repair and no adoption, because none happens.
 
 The PNGs are git-ignored (`assets/qa/.gitignore`): they are large and take minutes to regenerate. To keep one as evidence, run `git add -f` on that file.
 

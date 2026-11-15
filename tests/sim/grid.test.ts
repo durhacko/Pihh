@@ -14,7 +14,9 @@ import { SpatialGrid } from '../../src/sim/grid';
 import { distanceSquared } from '../../src/sim/math';
 import { createRandom } from '../../src/sim/random';
 
+/** Brute force: every live id at distance <= radius. No distance is <= a negative (or NaN) radius. */
 function reference(positions: readonly Vec3[], live: readonly number[], pos: Vec3, radius: number): number[] {
+  if (!(radius >= 0)) return [];
   return live.filter((id) => distanceSquared(pos, positions[id]) <= radius * radius).sort((a, b) => a - b);
 }
 
@@ -68,6 +70,109 @@ describe('SpatialGrid.within equals a brute-force scan', () => {
         expect(grid.within(positions[3], radius), `cell ${cellSize} r ${radius}`).toEqual(reference(positions, live, positions[3], radius));
       }
     }
+  });
+});
+
+describe('SpatialGrid guards (#140): adversarial cell sizes, radii and query points terminate and equal brute force', () => {
+  // Before #140 a tiny positive cell size (1e-20 m) made cell indices exceed 2^53, so `x++` stopped advancing in the
+  // Map fallback and within() never returned; an infinite radius did the same there; and a tiny negative radius
+  // could return a drone sitting exactly on the query point. Each case below has a 10 s timeout, so a stall fails.
+  const RADII = [-Infinity, -1e300, -5, -1e-30, -Number.MIN_VALUE, -0, 0, Number.MIN_VALUE, 1e-300, 1e-30, 0.8, 15, 1e6, 1e300, Infinity, Number.NaN];
+  const show = cloud(11, 120, 60, [0, 30, 0]);
+  const outliers: Vec3[] = [...cloud(12, 80, 30), [1e7, 0, 0], [-3e6, 4e6, 2e6], [0, 0, -9e6]];
+  const queries = (positions: readonly Vec3[]): Vec3[] => [
+    positions[0], positions[5], [0, 30, 0], [-1e9, 1e9, 0], [1e300, -1e300, 1e300], [Infinity, 0, 0], [0, Number.NaN, 0],
+  ];
+  const check = (positions: readonly Vec3[], cellSizes: readonly number[]) => {
+    const live = positions.map((_, id) => id).filter((id) => id % 5 !== 2);
+    for (const cellSize of cellSizes) {
+      const grid = new SpatialGrid(positions, live, cellSize);
+      for (const [q, pos] of queries(positions).entries()) {
+        for (const radius of RADII) {
+          expect(grid.within(pos, radius), `cell ${cellSize} r ${radius} q ${q}`).toEqual(reference(positions, live, pos, radius));
+        }
+      }
+    }
+  };
+
+  it('tiny positive cell sizes (1e-20, 1e-300, Number.MIN_VALUE) on a show-sized cloud', () => {
+    check(show, [1e-9, 1e-20, 1e-300, Number.MIN_VALUE]);
+  }, 10_000);
+
+  it('tiny positive cell sizes on a cloud with far outliers (the Map fallback)', () => {
+    check(outliers, [1e-20, 1e-300, Number.MIN_VALUE]);
+  }, 10_000);
+
+  it('real-sized and huge cell sizes, in both layouts', () => {
+    check(show, [0.8, 15, 1e6, 1e300]);
+    check(outliers, [8, 15, 1e300]);
+  }, 10_000);
+
+  it('invalid cell sizes (0, negative, NaN, Infinity) with adversarial radii', () => {
+    check(show, [0, -1, Number.NaN, Infinity, -Infinity]);
+  }, 10_000);
+
+  it('a negative radius returns [] even with a drone exactly on the query point; -0 counts as 0', () => {
+    const positions: Vec3[] = [[1, 2, 3], [1, 2, 3.5]];
+    for (const cellSize of [0.5, 1e-20]) {
+      const grid = new SpatialGrid(positions, [0, 1], cellSize);
+      expect(grid.within([1, 2, 3], -1e-30), `cell ${cellSize}`).toEqual([]);
+      expect(grid.within([1, 2, 3], -1), `cell ${cellSize}`).toEqual([]);
+      expect(grid.within([1, 2, 3], Number.NaN), `cell ${cellSize}`).toEqual([]);
+      expect(grid.within([1, 2, 3], -0), `cell ${cellSize}`).toEqual([0]);
+      expect(grid.within([1, 2, 3], 0.5), `cell ${cellSize}`).toEqual([0, 1]);
+    }
+  });
+
+  it('all drones at the origin (extent 0) with a tiny cell size', () => {
+    const positions: Vec3[] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const grid = new SpatialGrid(positions, [0, 1, 2], 1e-300);
+    expect(grid.within([0, 0, 0], 0)).toEqual([0, 1, 2]);
+    expect(grid.within([0, 0, 0], Infinity)).toEqual([0, 1, 2]);
+    expect(grid.within([1, 0, 0], 0.5)).toEqual([]);
+  });
+});
+
+describe('SpatialGrid at the radius boundary: a drone the rounded test admits is found whatever the cell size', () => {
+  it('repro: q = -1e-17 is admitted from p = 1 at radius 1 (1 - (-1e-17) rounds to 1), and found at cell size 1', () => {
+    const positions: Vec3[] = [[-1e-17, 0, 0], [1, 0, 0]];
+    expect(reference(positions, [0, 1], [1, 0, 0], 1)).toEqual([0, 1]);
+    for (const cellSize of [1, 0.5, 0.3, 2, 1e-9, 1e-20]) {
+      expect(new SpatialGrid(positions, [0, 1], cellSize).within([1, 0, 0], 1), `cell ${cellSize}`).toEqual([0, 1]);
+    }
+  });
+
+  it('a far query with a small cell: the rounding spans several cells, so one extra cell would not be enough', () => {
+    // dx = 1e10 - (1 - 2^-30) rounds to 9999999999 = radius, so brute force admits drone 0; its cell is 4 cells below
+    // floor((1e10 - radius) / 2^-32).
+    const positions: Vec3[] = [[1 - 2 ** -30, 0, 0], [0, 0, 0]];
+    const query: Vec3 = [1e10, 0, 0];
+    expect(reference(positions, [0, 1], query, 9999999999)).toEqual([0]);
+    expect(new SpatialGrid(positions, [0, 1], 2 ** -32).within(query, 9999999999)).toEqual([0]);
+  });
+
+  it('fuzz: drones on cell edges, radius within a few ulps of a drone\'s computed distance, both layouts', () => {
+    const rng = createRandom(140);
+    const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)];
+    const CELLS = [2 ** -32, 1e-9, 0.37, 1, 2.5, 15, 1e6];
+    const MAGS = [1e-17, 1e-9, 1e-3, 1, 30, 100, 1e4, 1e10];
+    let compared = 0;
+    for (let n = 0; n < 4000; n++) {
+      const cellSize = pick(CELLS);
+      // Drones sit on or a few ulps off cell edges, so a rounding slip at the range end lands in the next cell.
+      const edge = () => Math.round((rng() - 0.5) * pick([4, 100, 1e4])) * cellSize * (1 + (Math.floor(rng() * 7) - 3) * Number.EPSILON);
+      const positions: Vec3[] = Array.from({ length: 8 }, () => [edge(), edge(), edge()] as Vec3);
+      const live = positions.map((_, id) => id);
+      const target = positions[Math.floor(rng() * positions.length)];
+      const query = [0, 1, 2].map((a) => (rng() < 0.5 ? target[a] + (rng() - 0.5) * pick(MAGS) : (rng() - 0.5) * pick(MAGS))) as Vec3;
+      const radius = Math.sqrt(distanceSquared(query, target)) * (1 + (Math.floor(rng() * 7) - 3) * Number.EPSILON);
+      if (!Number.isFinite(radius * radius)) continue;
+      const grid = new SpatialGrid(positions, live, cellSize);
+      expect(grid.within(query, radius), `n ${n} cell ${cellSize} r ${radius} q ${JSON.stringify(query)} drones ${JSON.stringify(positions)}`)
+        .toEqual(reference(positions, live, query, radius));
+      compared++;
+    }
+    expect(compared).toBeGreaterThan(3500);
   });
 });
 

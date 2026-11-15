@@ -53,7 +53,7 @@ describe('G4: a connected swarm adopts an injected score everywhere', () => {
     expect(r.adopted.every((t) => t !== null)).toBe(true);
     checkRateLimit([minSendGap(r.sends)], params.scoreResendMin);
     console.log(`G4 swarm n0=200 loss 0.2: 100% adopted, last after ${maxDelay(r.adopted, 400)} ticks (${secs(maxDelay(r.adopted, 400))} s); ${r.sends.length} SCORE sends`);
-  }, 30_000);
+  }, 60_000); // Heavy world stepping: headroom for CPU contention under parallel load (30 s was seen to time out).
 });
 
 describe('G4: a jam stops adoption inside it until JAM_OFF, then all adopt', () => {

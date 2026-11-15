@@ -10,7 +10,8 @@ import { expandRecipe } from '../../src/score';
 import { createWorld, idsInSphere } from '../../src/sim';
 import { bindControls } from '../../src/app/actions';
 import { readViewMode, resetViewMode } from '../../src/app/render/colourModes/viewMode';
-import { controlContext, createWorlds, DEFAULT_N0, viewModeDisplay, type Pair, type Worlds } from '../../src/app/worlds';
+import { controlContext, createWorlds, DEFAULT_N0, viewModeDisplay, type Pair, type ShellHooks, type Worlds } from '../../src/app/worlds';
+import { createSelectionArm } from '../../src/app/ui/popovers';
 import {
   BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, dispatchTick,
   INJECT_DRONE, JAM_CENTRE, JAM_RADIUS, KILL_CENTRE, KILL_RADIUS, LEAD_TICKS, type DemoBeat,
@@ -19,7 +20,7 @@ import {
 afterEach(() => resetViewMode());
 
 /** The app's wiring minus WebGL: same binder, context and display adapter; the demo talks to it by events only. */
-function rig(seed = 7, beats: readonly DemoBeat[] = DEMO_BEATS) {
+function rig(seed = 7, beats: readonly DemoBeat[] = DEMO_BEATS, shell: Partial<ShellHooks> = {}) {
   const worlds = createWorlds({ seed });
   worlds.stepBoth();
   const transport = { playing: true, speed: 1 };
@@ -31,6 +32,7 @@ function rig(seed = 7, beats: readonly DemoBeat[] = DEMO_BEATS) {
     setSpeed: speed => { transport.speed = speed; },
     reset: next => { worlds.reset(next); worlds.stepBoth(); },
     display: viewModeDisplay,
+    ...shell,
   }));
   const cameras: string[] = [];
   const captions: { tick: number; caption: string }[] = [];
@@ -260,6 +262,30 @@ describe('injection target and brain note', () => {
     play(r, 25);
     expect(readViewMode().selectedDroneId).toBe(INJECT_DRONE);
     r.controls.handle({ type: 'select', id: 3 });   // a presenter clicks another drone
+    play(r, 90);
+    expect(r.runner.problems).toEqual([]);
+    expect(r.controls.getEventLog()).toMatchObject([{ type: 'INJECT_SCORE', droneId: INJECT_DRONE }]);
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
+
+  it('a static-pane selection whose status fires the due select / target / inject beats leaves them in Encore', () => {
+    // The shell's wiring (main.ts): the selection's arm comes from createSelectionArm, and faults centred on a
+    // static-pane selection refuse. selectDrone emits its status synchronously, so connectDemo runs the due beats
+    // while the presenter's within('static', ...) is still on the stack.
+    const arm = createSelectionArm();
+    const selected: { id: number; arm: 'encore' | 'static' }[] = [];
+    const beats = DEMO_BEATS.filter(beat => ['select', 'target', 'inject'].includes(beat.id))
+      .map(beat => ({ ...beat, tick: beat.tick - DEMO_TICKS.JAM_ON + 20, action: beat.action?.kind === 'control' && beat.action.intent.type === 'inject' ? { kind: 'control' as const, intent: { ...beat.action.intent, at: DEMO_TICKS.INJECT - DEMO_TICKS.JAM_ON + 20 } } : beat.action }));
+    const r = rig(7, beats, {
+      selectionWorld: () => selected.at(-1)?.arm ?? 'encore',
+      display: { ...viewModeDisplay, setSelected: id => { const a = arm.current(id); viewModeDisplay.setSelected(id); if (id !== null) selected.push({ id, arm: a }); } },
+    });
+    r.runner.start();
+    while (r.worlds.tick < 25) r.worlds.stepBoth();   // the beats are due, but no status has polled them yet
+    expect(selected).toEqual([]);
+    arm.within('static', () => r.controls.selectDrone(3));   // a static-pane click: its status runs the beats
+    expect(selected[0]).toEqual({ id: 3, arm: 'static' });
+    expect(selected.slice(1).map(s => s.id)).toContain(INJECT_DRONE);
+    expect(selected.slice(1).every(s => s.arm === 'encore')).toBe(true);   // the demo's own selections stay Encore
     play(r, 90);
     expect(r.runner.problems).toEqual([]);
     expect(r.controls.getEventLog()).toMatchObject([{ type: 'INJECT_SCORE', droneId: INJECT_DRONE }]);
