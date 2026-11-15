@@ -20,8 +20,15 @@ export function connectPreview(store: PreviewSource | null): () => void {
 /** The preview to draw now, or null. */
 export function currentPreview(): StagePreview | null { return source?.state.preview ?? null; }
 
-/** The stage label. A precomputed fixture formation (GF-WP-10, #265) says it is a target arrangement, not a flight. */
+/**
+ * The stage label. A precomputed formation (GF-WP-10) says it is a target arrangement, not a flight, and where it came
+ * from: a committed fixture (#265), or a scene the gateway generated, named by its provider (#213). A generated scene
+ * is never labelled a fixture.
+ */
 export function previewLabel(preview: StagePreview): string {
+  if (preview.formation && preview.source === 'generated') {
+    return `PREVIEW · target arrangement (preview), not flown · generated “${preview.label}” · ${preview.provider ?? 'unknown provider'} · local only, nothing is sent`;
+  }
   if (preview.formation) return `PREVIEW · target arrangement (preview), not flown · fixture “${preview.label}” · local only, nothing is sent`;
   return `PREVIEW · “${preview.label}” · local only, nothing is sent`;
 }

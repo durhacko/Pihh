@@ -328,9 +328,14 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
   let generatedMode = false;
   let composerDisposed = false;
   if (generatedFlag()) {
-    void Promise.all([import('./GeneratedSource'), import('../workers/formationClient')]).then(([g, c]) => {
+    // #213: live generation only with the non-secret build flag AND `?p2=generated,live`; otherwise no client exists
+    // and the tab says "live Gemini unavailable (D3 not granted)". The build flag is a static check, so a default
+    // build never even loads the live module's client path.
+    const wantLive = import.meta.env.VITE_GENERATE_LIVE === '1';
+    void Promise.all([import('./GeneratedSource'), import('../workers/formationClient'), wantLive ? import('../live/generate') : Promise.resolve(null)]).then(([g, c, l]) => {
       if (composerDisposed) return;
-      const source = g.createGeneratedSource({ params, store, client: c.createFormationClient(c.spawnFormationWorker) });
+      const live = l && l.liveGenerationEnabled(import.meta.env.VITE_GENERATE_LIVE, typeof location !== 'undefined' ? location.search : null) ? l.createGenerateClient() : null;
+      const source = g.createGeneratedSource({ params, store, client: c.createFormationClient(c.spawnFormationWorker), live });
       generated = { source, el: g.renderGeneratedSource(source, params.n0, () => render()), blocked: g.INJECT_BLOCKED };
       source.subscribe(() => renderTransmit());
       render();
@@ -427,16 +432,22 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
         ...LATER_TYPES.map(type => h('span', { class: 'ft', title: `${type}: not in the Recipe contract yet; needs a new Recipe kind through a [contract] PR.` }, type))));
 
     // Generated source (#265): its own tab replaces the text, light and preview regions; nothing here is injectable.
+    // `.field { display: grid }` outranks the `hidden` attribute, so the regions are hidden with an inline display:
+    // none here and restored to '' (the stylesheet's own value) outside generated mode (98's browser smoke, #213).
     if (generatedMode && generated) {
-      textField.hidden = true;
-      lightBox.hidden = true;
+      textField.style.display = 'none';
+      lightBox.style.display = 'none';
       errorsBox.replaceChildren();
       warningsBox.replaceChildren();
-      if (previewBox.firstChild !== generated.el || previewBox.childNodes.length !== 1) previewBox.replaceChildren(generated.el);
+      if (previewBox.firstChild !== generated.el || previewBox.childNodes.length !== 1) {
+        previewBox.replaceChildren(generated.el);
+        generated.el.scrollIntoView?.({ block: 'nearest' });   // entering the tab: its chips may sit below the fold
+      }
       renderTransmit();
       return;
     }
-    lightBox.hidden = false;
+    textField.style.display = '';
+    lightBox.style.display = '';
 
     // Text, validated live against the font table and expandRecipe
     textField.hidden = draft.kind !== 'text';

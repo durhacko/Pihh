@@ -10,6 +10,8 @@
 // shrink over atomic units and a p2-repro/1 file. There is no default --out and nothing is written outside it.
 // Results are "checked properties on these runs, not proofs"; a find tagged with a known limit is not a counterexample.
 import { execFileSync } from 'node:child_process';
+import { dirname, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { makeParams } from '../contracts';
 import type { EnvEvent, Params, Recipe, Score, Vec3 } from '../contracts';
 import { composeNext, currentMovement, expandRecipe, makeScore } from '../score';
@@ -36,8 +38,29 @@ export const FZ1_RECIPE: Recipe = { kind: 'text', text: 'ENCORE' };
 export const SHRINK_BUDGET = 300;          // §6.2: re-runs per shrink
 export const RUN_BUDGET = 400;             // §6.2: an estimate, the cap for a campaign and for calibration
 export const MAX_KILLED = 10;              // §6.2: at most 10 ids per run
-const GENERATOR_SALT = 0x0f2100;           // the generator's own stream, apart from the world's and the brains'
-const CALIBRATION_SALT = 0x0f2200;
+/** The generator's own stream (salt + run), apart from the world's (-1) and the brains' (ids < n0 <= 400). */
+export const GENERATOR_SALT = 0x0f2100;
+
+/**
+ * The repo's results/ folder, anchored to this module's own location (src/cli/fuzz.ts), never to the working
+ * directory, so an absolute `--out <repo>/results/...` run from anywhere is still refused. results/ is locked for
+ * Phase 2 output (P2-WP-02: results/phase2/fuzz/ only once the lock lifts). Same rule as #286's bounds.ts.
+ */
+export const REPO_RESULTS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'results');
+
+/** True when `out` is the repo's results/ folder or inside it, by whole path segments (results-x is outside). */
+export function insideRepoResults(out: string): boolean {
+  const rel = relative(REPO_RESULTS, resolve(out));
+  if (rel === '') return true;
+  if (rel === '..' || rel.startsWith('../') || rel.startsWith('..\\')) return false;
+  return !/^([A-Za-z]:|[\\/])/.test(rel);   // another drive or root: outside
+}
+
+function refuseResults(out: string | null): void {
+  if (out !== null && insideRepoResults(out)) throw new RangeError('--out must not be inside the repo\'s results/ (locked for Phase 2 output)');
+}
+/** The calibration centres' stream (salt + run): 4096 above GENERATOR_SALT, so the two run ranges (each < RUN_BUDGET) never overlap. */
+export const CALIBRATION_SALT = GENERATOR_SALT + 0x1000;
 
 /**
  * RESTATED from tests/g1/helpers.ts healReadyTick (fuzz.test.ts pins it): the first tick at which every drone may
@@ -357,6 +380,7 @@ function fileFind(setup: Fz1Setup, opts: CampaignOptions, run: number, seed: num
 
 /** FZ1: R runs of the swarm generator; every violating run is shrunk and filed. */
 export function runCampaign(opts: CampaignOptions): CampaignResult {
+  refuseResults(opts.out);
   const setup = opts.setup ?? fz1Setup();
   const log = opts.log ?? (() => {});
   const finds: Find[] = [];
@@ -378,8 +402,19 @@ export function runCampaign(opts: CampaignOptions): CampaignResult {
       log(`run ${run}: compare (exploratory, not an INV): Encore ${e?.toFixed(4) ?? 'null'} vs static ${s?.toFixed(4) ?? 'null'}${flagged ? ' FLAGGED' : ''}`);
     }
   }
-  log(`${FZ1} seed ${opts.campaignSeed}: ${opts.runs} runs, ${finds.length} violating (${finds.filter(f => f.knownLimit === null).length} counterexamples, ${finds.filter(f => f.knownLimit !== null).length} known-limit instances). Checked properties on these runs, not proofs.`);
+  log(campaignSummary(opts.campaignSeed, opts.runs, finds));
   return { runs: opts.runs, finds, compareFlags };
+}
+
+/**
+ * The campaign's last line. With no finds it says "calibration not verified": a campaign that found nothing is not a
+ * "0 violations" statement unless P2-T05's calibration passed (§6.2), and a campaign does not run calibration.
+ */
+export function campaignSummary(campaignSeed: number, runs: number, finds: readonly Pick<Find, 'knownLimit'>[]): string {
+  const counter = finds.filter(f => f.knownLimit === null).length;
+  const head = `${FZ1} seed ${campaignSeed}: ${runs} runs, ${finds.length} violating (${counter} counterexamples, ${finds.length - counter} known-limit instances).`;
+  const none = finds.length === 0 ? ' No violation found in these runs; calibration not verified by this campaign, so this is not a "0 violations" claim (§6.2).' : '';
+  return `${head}${none} Checked properties on these runs, not proofs.`;
 }
 
 /**
@@ -387,6 +422,7 @@ export function runCampaign(opts: CampaignOptions): CampaignResult {
  * other events, until the first INV-QUIET violation or `runs`. The find is shrunk and filed like any other.
  */
 export function runCalibration(opts: CampaignOptions): { runsToDiscovery: number | null; find: Find | null } {
+  refuseResults(opts.out);
   const setup = opts.setup ?? fz1Setup();
   const log = opts.log ?? (() => {});
   for (let run = 0; run < opts.runs; run++) {
@@ -451,6 +487,7 @@ export function parseFuzzArgs(argv: readonly string[]): FuzzArgs {
     }
   }
   if (a.mode === 'replay') return a;
+  refuseResults(a.out);
   if (a.seed < 0 || a.runs < 0) throw new RangeError(`--seed and --runs are required.\n${USAGE}`);
   if (a.mode === 'campaign' && (a.campaign !== FZ1 || a.out === null)) throw new RangeError(`--campaign FZ1 and --out are required (there is no default --out).\n${USAGE}`);
   return a;
