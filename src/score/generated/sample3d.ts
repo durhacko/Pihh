@@ -20,6 +20,8 @@ export const MOSTLY_HIDDEN = 0.8;
 export const PROTECTED_IMPORTANCE = 4;
 /** Spec §7.8: the dense reference has about 2,000 points (band 1,500-2,500). */
 export const DENSE_TARGET = 2000;
+/** Fewest dense draws for an original part that keeps at least one candidate (its share may round to 0 draws). */
+export const MIN_DENSE_DRAWS = 8;
 /** Spec §7.3 step 5 (heuristic defaults, tuned by the ladder): Q(p) = αI + βV + γD, D capped at 2. */
 export const Q_WEIGHTS = Object.freeze({ alpha: 0.35, beta: 0.35, gamma: 0.3, distanceCap: 2 });
 /** Spec §7.3 step 5: at least this share of selected slots with V = 0 (applied by GF-WP-06's selection). */
@@ -174,7 +176,11 @@ export function sample3d(scene: Scene3DInput, solids: Solid3D[], opts: Sample3DO
   // Dense (spec §7.8): an area-weighted sample of the exposed surface, from its own streams, filtered like the
   // candidates. Raw draws per original are set so that about DENSE_TARGET survive: Σ area·kept is the exposed area.
   const exposed = solids.reduce((sum, s, i) => sum + s.area() * kept[i], 0);
-  const perOriginalDense = new Map(originals.map(s => [s, exposed > 0 ? Math.round((DENSE_TARGET * s.area()) / exposed) : 0]));
+  // An original that keeps a candidate (itself or through its mirror copy) gets at least MIN_DENSE_DRAWS draws, so a
+  // slot on a tiny part still has dense nearby (spec §7.8; GF-WP-06 review, orchestrator-approved edit in #259).
+  const keepsCandidate = (s: Solid3D) => solids.some((t, i) => (t === s || t.mirrorOf === s) && kept[i] > 0);
+  const perOriginalDense = new Map(originals.map(s => [s, exposed > 0
+    ? Math.max(keepsCandidate(s) ? MIN_DENSE_DRAWS : 0, Math.round((DENSE_TARGET * s.area()) / exposed)) : 0]));
   const rawDense = rawSamples(solids, perOriginalDense, opts.stream, 'dense');
   const dense: Vec3[] = [];
   const denseSolid: number[] = [];

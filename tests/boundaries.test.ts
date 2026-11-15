@@ -38,8 +38,14 @@ function violations(source: string, filename: string): string[] {
     if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
       (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) check(node.arguments[0]);
     if (ts.isIdentifier(node) && ['window', 'document'].includes(node.text)) errors.push(`${filename}: DOM access ${node.text}`);
-    if (own === 'agent') {
+    // Clock, randomness and platform crypto: brains (contract §4) and the score package, whose expandRecipe and
+    // generated-scene compiler brains call (GF-WP-06, spec §7.12). An identifier check also sees `globalThis.Date`;
+    // `self` is checked only as an object (`self.crypto`), since it is a valid local name.
+    if (own === 'agent' || own === 'score') {
       if (ts.isIdentifier(node) && ['Date', 'performance'].includes(node.text)) errors.push(`${filename}: unseeded clock ${node.text}`);
+      if (ts.isIdentifier(node) && node.text === 'crypto') errors.push(`${filename}: platform crypto`);
+      if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+        ts.isIdentifier(node.expression) && node.expression.text === 'self') errors.push(`${filename}: platform global self`);
       if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
         ts.isIdentifier(node.expression) && node.expression.text === 'Math') {
         const key = ts.isPropertyAccessExpression(node) ? node.name.text :
@@ -72,6 +78,16 @@ describe('core import isolation', () => {
   });
   it.each(['Math.random()', "Math['random']()", 'Date.now()', 'performance.now()'])('rejects unseeded brain clock/random: %s', source => {
     expect(violations(source, 'src/agent/brain.ts').length).toBeGreaterThan(0);
+  });
+  it.each([
+    'Math.random()', "Math['random']()", 'Date.now()', 'new Date()', 'performance.now()', 'globalThis.Date.now()',
+    'globalThis.performance.now()', 'crypto.getRandomValues(a)', 'globalThis.crypto.randomUUID()', "self['crypto']", 'self.performance',
+  ])('rejects clock, random and platform crypto in the score package: %s', source => {
+    expect(violations(source, 'src/score/generated/compile.ts').length).toBeGreaterThan(0);
+    expect(violations(source, 'src/agent/brain.ts').length).toBeGreaterThan(0);
+  });
+  it('allows a local named self in the score package', () => {
+    expect(violations('function hidden(p: number, self: number) { return p === self; }', 'src/score/generated/sample3d.ts')).toEqual([]);
   });
   it('allows contracts, score, and private brain helpers', () => {
     expect(violations("import type { Input } from '../contracts/types'; import './state'; export { x } from '../score/index';", 'src/agent/brain.ts')).toEqual([]);
