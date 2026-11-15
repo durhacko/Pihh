@@ -332,7 +332,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
   let composerDisposed = false;
   if (generatedFlag()) {
     // #213: live generation only with the non-secret build flag AND `?p2=generated,live`; otherwise no client exists
-    // and the tab says "live Gemini unavailable (D3 not granted)". The build flag is a static check, so a default
+    // and the tab says "live Gemini unavailable (live mode is off on this page)". The build flag is a static check, so a default
     // build never even loads the live module's client path.
     const wantLive = import.meta.env.VITE_GENERATE_LIVE === '1';
     void Promise.all([import('./GeneratedSource'), import('../workers/formationClient'), import('./generatedInject'), wantLive ? import('../live/generate') : Promise.resolve(null)]).then(([g, c, gi, l]) => {

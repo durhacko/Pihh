@@ -8,7 +8,7 @@ import type { SceneSpec } from '../../../src/score/generated';
 import { gatewayUnavailable, type GenerateClient, type GenerateOutcome } from '../../../src/app/live/generate';
 import { previewLabel } from '../../../src/app/render/layers/PreviewLayer';
 import {
-  createGeneratedSource, D3_UNAVAILABLE, NOT_CONNECTED, OFFLINE_FIXTURE, provenanceText, rejectionReason, sourceText, statusText, type FixtureEntry,
+  createGeneratedSource, LIVE_OFF, NOT_CONNECTED, OFFLINE_FIXTURE, provenanceText, rejectionReason, sourceText, statusText, type FixtureEntry,
 } from '../../../src/app/ui/GeneratedSource';
 import { Store } from '../../../src/app/ui/store';
 import { createFormationClient, type CompileReply, type WorkerLike } from '../../../src/app/workers/formationClient';
@@ -41,7 +41,7 @@ describe('honest source labels', () => {
     expect(source.status.state).toBe('idle');
     await source.select('3d-sphere');
     expect(sourceText(source.status)).toBe('Source: offline fixture');
-    expect(D3_UNAVAILABLE).toBe('live Gemini unavailable (D3 not granted)');
+    expect(LIVE_OFF).toBe('live Gemini unavailable (live mode is off on this page)');
     // While a gateway request runs, the source is the gateway (pending), never "offline fixture".
     expect(sourceText({ state: 'generating', fixtureId: 'live', prompt: 'a cat', mode: 'scene3d' })).toBe('Source: gateway (pending)');
   });
@@ -53,6 +53,19 @@ describe('honest source labels', () => {
     expect(source.status.state).toBe('rejected');
     expect(statusText(source.status, 40)).toBe('Live generation did not run: live Gemini unavailable (gateway: MODULE_DISABLED)');
     expect(store.state.preview).toBe(null);
+  });
+
+  it('only a real Gemini model id from the gateway reads "live Gemini (<model>)", in the tab and on the stage (D3 granted)', async () => {
+    const { createGenerateClient } = await import('../../../src/app/live/generate');
+    const ok = (model: string) => createGenerateClient({ fetch: (async () => ({ status: 200, json: async () => ({ model, mode: 'scene3d', scene: read('valid-3d-two-spheres.json'), sceneHash: 'x', modelLatencyMs: 900 }), headers: { get: () => null } })) as unknown as typeof fetch });
+    const real = rig(ok('gemini-3.1-flash-lite'));
+    await real.source.generate('two spheres', 'scene3d');
+    expect(sourceText(real.source.status)).toBe('Source: live Gemini (gemini-3.1-flash-lite)');
+    real.source.preview(true);
+    expect(previewLabel(real.store.state.preview!)).toContain('· live Gemini (gemini-3.1-flash-lite) ·');
+    const fakeRig = rig(ok('offline-fake'));
+    await fakeRig.source.generate('two spheres', 'scene3d');
+    expect(sourceText(fakeRig.source.status)).toBe('Source: offline-fake provider (not Gemini)');
   });
 
   it('a gateway preview\'s stage label never says fixture; it names the provider (#283 review)', async () => {

@@ -3,7 +3,7 @@
 // test provider is never called Gemini; the token is sent only as a bearer header; no socket is ever opened here.
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { createGenerateClient, D3_UNAVAILABLE, GATEWAY_UNREACHABLE, gatewayUnavailable, liveGenerationEnabled, providerLabel } from '../../../src/app/live/generate';
+import { createGenerateClient, LIVE_OFF, GATEWAY_UNREACHABLE, gatewayUnavailable, liveGenerationEnabled, providerLabel } from '../../../src/app/live/generate';
 
 const scene = JSON.parse(readFileSync('tests/fixtures/scenes/valid-3d-sphere.json', 'utf8'));
 function fakeFetch(status: number, body: unknown, seen: { url?: string; init?: RequestInit }[] = []): typeof fetch {
@@ -40,7 +40,7 @@ describe('honest states', () => {
     const out = await createGenerateClient({ fetch: fakeFetch(503, body) }).generate({ prompt: 'x', mode: 'scene3d' });
     expect(out).toMatchObject({ ok: false, kind: 'unavailable', code: 'PROVIDER_UNAVAILABLE', message: 'live Gemini unavailable (gateway: MODULE_DISABLED)' });
     expect(gatewayUnavailable('MODULE_DISABLED')).toBe('live Gemini unavailable (gateway: MODULE_DISABLED)');
-    expect(D3_UNAVAILABLE).toBe('live Gemini unavailable (D3 not granted)');   // only for "no live client at all"
+    expect(LIVE_OFF).toBe('live Gemini unavailable (live mode is off on this page)');   // only for "no live client at all"
   });
 
   it('an unreachable gateway (or a CORS refusal) is unavailable too, said once', async () => {

@@ -20,7 +20,7 @@ import { injectPreflight, provenanceFromCompile, replayFromProvenance, type Gene
 import { makeGeneratedRecipe } from '../../score';
 import type { CompileResult, CompileWarning, SceneSpec } from '../../score/generated';
 import { validateScene } from '../../score/generated/validation';
-import { D3_UNAVAILABLE, type GenerateClient, type LiveMode } from '../live/generate';
+import { LIVE_OFF, type GenerateClient, type LiveMode } from '../live/generate';
 import type { FormationClient } from '../workers/formationClient';
 import type { ComposeContext, InjectOutcome } from './Composer';
 import { h } from './dom';
@@ -39,7 +39,7 @@ export const NOT_CONNECTED = 'Injection is not connected on this page.';
 export const PLACEHOLDER_RECIPE: Readonly<Recipe> = Object.freeze({ kind: 'sphere' });
 /** The source label of a committed fixture. */
 export const OFFLINE_FIXTURE = 'offline fixture';
-export { D3_UNAVAILABLE };
+export { LIVE_OFF };
 
 export interface FixtureEntry { id: string; file: string; load(): Promise<unknown> }
 
@@ -274,7 +274,7 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
       await compile(mine, fixtureId, parsed, origin);
     },
     async generate(prompt, mode, token) {
-      if (!live) return;                              // no client: the tab shows D3_UNAVAILABLE and never sends
+      if (!live) return;                              // no client: the tab shows LIVE_OFF and never sends
       const mine = ++selection;
       accepted = null;
       abortLive();                                    // a newer request supersedes the older one, which is aborted
@@ -400,20 +400,30 @@ export function renderGeneratedSource(source: GeneratedSource, n0: number, onPre
   // The live block is built once (its inputs keep focus, IME state and text across redraws).
   let liveBox: HTMLElement;
   let go: HTMLButtonElement | null = null;
+  let stop: HTMLButtonElement | null = null;
+  let loading: HTMLElement | null = null;
   if (source.liveAvailable) {
     const prompt = h('textarea', { class: 'input', rows: 2, maxlength: 500, placeholder: 'Describe a formation…', 'aria-label': 'Formation prompt' });
     const mode = h('select', { class: 'input', 'aria-label': 'Scene mode' }, h('option', { value: 'scene3d' }, '3D'), h('option', { value: 'silhouette2d' }, '2D'));
     const token = h('input', { class: 'input mono', type: 'password', autocomplete: 'new-password', placeholder: 'gateway launch token (if required)', 'aria-label': 'Gateway launch token' });
     go = h('button', { type: 'button', class: 'btn small', 'data-fk': 'generate', onclick: () => { void source.generate(prompt.value, mode.value as LiveMode, token.value.trim() || undefined); } }, 'Generate');
-    liveBox = h('div', { class: 'field' }, h('span', { class: 'label' }, 'Live generation · through the gateway'), prompt, h('div', { style: { display: 'flex', gap: '6px' } }, mode, token, go));
+    // Loading and cancel: while a request is in flight, a status line says so and Cancel aborts it (the fetch too).
+    stop = h('button', { type: 'button', class: 'btn small ghost', 'data-fk': 'generate-cancel', onclick: () => { source.cancel(); } }, 'Cancel');
+    loading = h('div', { class: 'hint', role: 'status', 'aria-live': 'polite' }, 'Generating through the gateway… (up to about 45 s)');
+    liveBox = h('div', { class: 'field' }, h('span', { class: 'label' }, 'Live generation · through the gateway'), prompt,
+      h('div', { style: { display: 'flex', gap: '6px' } }, mode, token, go, stop), loading);
   } else {
-    liveBox = h('div', { class: 'hint' }, `Live generation: ${D3_UNAVAILABLE}. Scenes come from offline fixtures.`);
+    liveBox = h('div', { class: 'hint' }, `Live generation: ${LIVE_OFF}. Scenes come from offline fixtures.`);
   }
   let lastActive: string | null = null;
   let acceptError = '';
   const draw = () => {
     const st = source.status;
-    if (go) go.disabled = st.state === 'generating';   // one gateway request at a time
+    const inFlight = st.state === 'generating';
+    if (go) go.disabled = inFlight;                     // one gateway request at a time
+    // Inline display: `.btn` / `.hint` rules may outrank [hidden] (as `.field` did, #213), so hide them explicitly.
+    if (stop) stop.style.display = inFlight ? '' : 'none';
+    if (loading) loading.style.display = inFlight ? '' : 'none';
     const active = st.state === 'idle' ? null : st.fixtureId;
     chipsBox.replaceChildren(h('div', { class: 'drafts', role: 'radiogroup', 'aria-label': 'Fixture scenes' },
       ...source.fixtures.map(f => h('button', {
