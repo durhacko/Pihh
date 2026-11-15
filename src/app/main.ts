@@ -310,9 +310,11 @@ window.addEventListener('pointerup', onPointerUp);
 window.addEventListener('pointercancel', onPointerCancel);
 
 // ---------- popovers ----------
-function radioTally(arm: Arm): { drawn: number; observed: number } | null {
-  const group = viewOf(arm).scene.children.find(child => child.userData.radio);
-  return group ? { drawn: group.userData.radio.drawn as number, observed: group.userData.radio.observed as number } : null;
+function radioTally(arm: Arm): { drawn: number; observed: number; filteredTo?: number; involving?: number } | null {
+  const radio = viewOf(arm).scene.children.find(child => child.userData.radio)?.userData.radio;
+  if (!radio) return null;
+  // With a drone selected the layer draws only its links and says so (#126): filteredTo / involving.
+  return { drawn: radio.drawn as number, observed: radio.observed as number, ...(radio.filteredTo !== undefined ? { filteredTo: radio.filteredTo as number, involving: radio.involving as number } : {}) };
 }
 let lastFps: number | null = null;
 const popCtx: PopoverContext = {
@@ -556,6 +558,7 @@ function refreshChrome(): void {
     versions: samples[legendArm]?.versions ?? null, radio: radioTally(legendArm),
     deaf: snaps[legendArm].drones.filter(d => d.alive && d.belief.deaf).length, partitions: snaps[legendArm].partitions.length,
     ghosts: ghostCounts(legendArm), arm: view === 'split' ? 'Encore' : undefined,
+    quality: Number(document.documentElement.dataset.quality ?? 0),   // #126 mirrors its quality level here
     // Only shown panes render, so a hidden pane's stale tally is never counted.
     tethers: ARMS.reduce((n, arm) => n + (shown[arm] ? drawnTethers(viewOf(arm).scene.children) : 0), 0),
   });

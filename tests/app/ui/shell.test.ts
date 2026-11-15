@@ -404,3 +404,22 @@ describe('pane labels (#134 P1)', () => {
     }
   });
 });
+
+describe('legend radio key follows the #126 radio layer', () => {
+  const off = { xray: true, belief: false, versions: null, deaf: 0, partitions: 0, ghosts: null };
+  const honest = (radio: Parameters<typeof legendItems>[0]['radio']) => legendItems({ ...off, radio }).find(i => i.kind === 'honest')!.text;
+  it('says when the count is filtered to the selected drone, and stays literal otherwise', () => {
+    expect(honest({ drawn: 180, observed: 113021 })).toBe('radio drawn 180 / 113,021 logged · last 1 s');
+    expect(honest({ drawn: 12, observed: 113021, filteredTo: 151, involving: 40 })).toBe('radio drawn 12 of 40 · filtered to #151 · last 1 s');
+    expect(honest(null)).toBe('radio: nothing logged yet');
+  });
+  it('marks plain heartbeats off at quality level 1 and above', () => {
+    const hb = (quality?: number) => legendItems({ ...off, radio: null, quality }).find(i => i.kind === 'line' && i.text.startsWith('Heartbeat (sampled)'))!.text;
+    expect(hb()).toBe('Heartbeat (sampled)');
+    expect(hb(0)).toBe('Heartbeat (sampled)');
+    expect(hb(1)).toBe('Heartbeat (sampled) · off at this quality level');
+    expect(hb(4)).toBe('Heartbeat (sampled) · off at this quality level');
+    expect(legendItems({ ...off, radio: null, quality: 2 })).toContainEqual({ kind: 'line', text: 'Heartbeat carrying a claim', colour: 'var(--claim)' });
+  });
+});
+

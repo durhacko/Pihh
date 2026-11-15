@@ -15,7 +15,9 @@ export interface LegendInput {
   /** "issuedTick:origin" → live drones believing it (MetricsSample.versions), or null before the first sample. */
   versions: Record<string, number> | null;
   /** The radio layer's own tally for the last second of simulation, or null while it has not drawn. */
-  radio: { drawn: number; observed: number } | null;
+  radio: { drawn: number; observed: number; filteredTo?: number; involving?: number } | null;
+  /** The quality level mirrored on <html data-quality> (#126). At 1 and above plain heartbeat lines are not drawn. */
+  quality?: number;
   deaf: number;
   partitions: number;
   /** Ghost-slot counts from the observer's slot status (Observer.slotStatus), or null while the lens is off. */
@@ -36,6 +38,13 @@ const css = (c: RGB): string => `rgb(${c.map(v => Math.round(v * 255)).join(',')
 /** The tether legend row: amber like the lines (TETHER_COLOUR 0xffb547 = --transit), and named as belief, not radio. */
 export const TETHER_ROW: LegendItem = { kind: 'line', text: 'Tether · drone → the target it believes (belief, not radio)', colour: 'var(--transit)' };
 
+/** The radio counter, literal: everything logged, or with a drone selected only its links (#126 filteredTo / involving). */
+function radioText(radio: LegendInput['radio']): string {
+  if (!radio) return 'radio: nothing logged yet';
+  if (radio.filteredTo !== undefined) return `radio drawn ${radio.drawn} of ${(radio.involving ?? 0).toLocaleString('en-GB')} · filtered to #${radio.filteredTo} · last 1 s`;
+  return `radio drawn ${radio.drawn} / ${radio.observed.toLocaleString('en-GB')} logged · last 1 s`;
+}
+
 export function legendItems(input: LegendInput): LegendItem[] {
   const items: LegendItem[] = [];
   const of = (text: string) => (input.arm ? `${input.arm} · ${text}` : text);
@@ -43,11 +52,11 @@ export function legendItems(input: LegendInput): LegendItem[] {
   if ((input.tethers ?? 0) > 0) items.push(TETHER_ROW);
   if (input.xray) {
     items.push({ kind: 'title', text: of('Radio · real log') },
-      { kind: 'line', text: 'Heartbeat (sampled)', colour: 'var(--hb)' },
+      { kind: 'line', text: (input.quality ?? 0) >= 1 ? 'Heartbeat (sampled) · off at this quality level' : 'Heartbeat (sampled)', colour: 'var(--hb)' },
       { kind: 'line', text: 'Heartbeat carrying a claim', colour: 'var(--claim)' },
       { kind: 'line', text: 'SCORE message', colour: 'var(--score)' },
       { kind: 'line', text: 'Dropped: lost · jammed · split', colour: 'var(--lost)' },
-      { kind: 'honest', text: input.radio ? `radio drawn ${input.radio.drawn} / ${input.radio.observed.toLocaleString('en-GB')} logged · last 1 s` : 'radio: nothing logged yet' });
+      { kind: 'honest', text: radioText(input.radio) });
   }
   if (input.belief) {
     items.push({ kind: 'title', text: of('Score version held') });
