@@ -34,6 +34,11 @@ export interface Cue {
   transitionTicks: number;
   /** The next cue's start, or null for the last cue (it holds until something replaces it). */
   endTick: number | null;
+  /**
+   * Where this movement ends in its OWN score (the next movement of that score), or null if it is the score's last.
+   * Drones on this version fly this movement exactly while the shared show clock is in [startTick, scoreEndTick).
+   */
+  scoreEndTick: number | null;
   palette: [RGB, RGB] | null;
   /** The drone that received the uplink, for injected cues. */
   droneId: number | null;
@@ -51,11 +56,13 @@ export function recipeName(recipe: Recipe): string {
  */
 export function planCues(preloaded: Score, events: readonly EnvEvent[]): Cue[] {
   const preKey = versionKey(preloaded.version);
-  let cues: Omit<Cue, 'endTick'>[] = preloaded.movements.map(m => ({
+  let cues: Omit<Cue, 'endTick'>[] = preloaded.movements.map((m, i) => ({
     key: `${preKey}@${m.startTick}`, name: recipeName(m.recipe), source: 'preloaded', versionKey: preKey,
     startTick: m.startTick, transitionTicks: m.transitionTicks, palette: m.recipe.palette ?? null, droneId: null,
+    scoreEndTick: preloaded.movements[i + 1]?.startTick ?? null,
   }));
-  for (const event of events) {
+  // Applied in tick order: since `at` (#104) the log can hold an event scheduled for an earlier tick after a later one.
+  for (const event of byTick(events)) {
     if (event.type !== 'INJECT_SCORE') continue;
     const { score } = event;
     const added = score.movements[score.movements.length - 1];
@@ -65,6 +72,7 @@ export function planCues(preloaded: Score, events: readonly EnvEvent[]): Cue[] {
     cues.push({
       key: `${key}@${added.startTick}`, name: recipeName(added.recipe), source: 'injected', versionKey: key,
       startTick: added.startTick, transitionTicks: added.transitionTicks, palette: added.recipe.palette ?? null, droneId: event.droneId,
+      scoreEndTick: null,   // composeNext adds its movement last
     });
   }
   cues.sort((a, b) => a.startTick - b.startTick);
@@ -78,10 +86,33 @@ export function cueStatus(cue: Cue, tick: number): CueStatus {
   return tick < cue.startTick + cue.transitionTicks ? 'in transition' : 'holding';
 }
 
-/** Live drones per world that believe the cue's version, from the latest sample of each world (null: no sample). */
-export function heldBy(cue: Cue, latest: Pair<MetricsSample | null>): Pair<{ count: number; alive: number } | null> {
-  const one = (s: MetricsSample | null) => (s ? { count: s.versions[cue.versionKey] ?? 0, alive: s.alive } : null);
+/** Events in tick order, stable for equal ticks, each with its index in the log (for keys that survive re-sorting). */
+function byTick(events: readonly EnvEvent[]): EnvEvent[] {
+  return indexedByTick(events).map(entry => entry.event);
+}
+function indexedByTick(events: readonly EnvEvent[]): { event: EnvEvent; index: number }[] {
+  return events.map((event, index) => ({ event, index })).sort((a, b) => a.event.tick - b.event.tick || a.index - b.index);
+}
+
+/**
+ * Who flies this cue, per world, from the latest sample (null: no sample). A drone holds a cue when it believes the
+ * cue's score version AND the shared show clock is inside that movement of that score: before the movement starts
+ * the cue is 'not started', after its score moves on it is 'over'. So an upcoming cue never reads as held.
+ */
+export interface Held { count: number; alive: number; flying: 'not started' | 'flying' | 'over' }
+export function heldBy(cue: Cue, latest: Pair<MetricsSample | null>): Pair<Held | null> {
+  const one = (s: MetricsSample | null): Held | null => {
+    if (!s) return null;
+    const flying = s.tick < cue.startTick ? 'not started' : cue.scoreEndTick !== null && s.tick >= cue.scoreEndTick ? 'over' : 'flying';
+    return { count: flying === 'flying' ? s.versions[cue.versionKey] ?? 0 : 0, alive: s.alive, flying };
+  };
   return { encore: one(latest.encore), static: one(latest.static) };
+}
+
+/** "held by 12/40 Encore, static: not started", for labels and the cue detail. */
+export function heldText(held: Pair<Held | null>): string {
+  const one = (name: string, h: Held | null) => (!h ? `no ${name} sample` : h.flying === 'flying' ? `held by ${h.count}/${h.alive} ${name}` : `${name}: ${h.flying}`);
+  return `${one('Encore', held.encore)}, ${one('static', held.static)}`;
 }
 
 export interface EventMark { key: string; kind: 'kill' | 'inject' | 'loss'; tick: number; scheduled: boolean; label: string }
@@ -93,7 +124,8 @@ export function eventLane(events: readonly EnvEvent[], tick: number): { marks: E
   const bands: EventBand[] = [];
   const open = new Map<string, EventBand>();
   const when = (t: number) => (t > tick ? `scheduled for ${fmtTime(t)}` : `at ${fmtTime(t)}`);
-  events.forEach((event, i) => {
+  // In tick order, so an OFF logged before its ON (`at`, #104) still closes the right band; keys keep the log index.
+  indexedByTick(events).forEach(({ event, index: i }) => {
     const scheduled = event.tick > tick;
     if (event.type === 'KILL') marks.push({ key: `kill@${event.tick}#${i}`, kind: 'kill', tick: event.tick, scheduled, label: `KILL ${event.ids.length} drone${event.ids.length === 1 ? '' : 's'} ${when(event.tick)}` });
     else if (event.type === 'INJECT_SCORE') marks.push({ key: `inject@${event.tick}#${i}`, kind: 'inject', tick: event.tick, scheduled, label: `INJECT_SCORE v${versionKey(event.score.version)} into drone ${event.droneId} ${when(event.tick)}` });
@@ -282,7 +314,7 @@ export function connectTimeline(ctx: TimelineContext, options: TimelineOptions =
   // --- interaction: the cue detail follows keyboard focus (a click focuses the button, so it follows clicks too)
   let focused: string | null = null;
   const cueEls = new Map<string, HTMLButtonElement>();
-  on(planItems, 'focusin', e => { focused = keyOf(e.target); update(); });
+  on(planItems, 'focusin', e => { focused = keyOf(e.target); queueMicrotask(update); });   // like focusout: never re-enter the DOM mid-event
   on(planItems, 'focusout', () => { focused = null; queueMicrotask(update); });
   on(planItems, 'keydown', e => {
     const key = (e as KeyboardEvent).key;
@@ -400,11 +432,6 @@ export function connectTimeline(ctx: TimelineContext, options: TimelineOptions =
     });
 
     renderDetail(cues.find(c => c.key === focused) ?? null, tick, latest);
-  }
-
-  function heldText(held: Pair<{ count: number; alive: number } | null>): string {
-    const one = (name: string, h: { count: number; alive: number } | null) => (h ? `${h.count}/${h.alive} ${name}` : `no ${name} sample`);
-    return `held by ${one('Encore', held.encore)}, ${one('static', held.static)}`;
   }
 
   function renderDetail(cue: Cue | null, tick: number, latest: Pair<MetricsSample | null>) {

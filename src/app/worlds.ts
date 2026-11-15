@@ -199,7 +199,7 @@ export function killEvent(worlds: Pick<Worlds, 'tick' | 'params'>, ids: readonly
 }
 
 /** What the app shell owns and the control binder needs: the clock (transport) and the view. */
-export type ShellHooks = Pick<ControlContext, 'getSnapshots' | 'getTransport' | 'setPlaying' | 'setSpeed' | 'reset' | 'display' | 'step'>;
+export type ShellHooks = Pick<ControlContext, 'getSnapshots' | 'getTransport' | 'setPlaying' | 'setSpeed' | 'reset' | 'display' | 'step' | 'selectionWorld'>;
 
 /** The ControlContext the app hands to bindControls (#22): real worlds, real score composer, radio faults on, both observers. */
 export function controlContext(worlds: Worlds, shell: ShellHooks): ControlContext {

@@ -83,7 +83,7 @@ describe('plan lane', () => {
   });
 
   it('gives each cue a status from the tick', () => {
-    const cue = { key: 'k', name: 'X', source: 'preloaded' as const, versionKey: '0:-1', startTick: 100, transitionTicks: 50, endTick: 300, palette: null, droneId: null };
+    const cue = { key: 'k', name: 'X', source: 'preloaded' as const, versionKey: '0:-1', startTick: 100, transitionTicks: 50, endTick: 300, scoreEndTick: 900, palette: null, droneId: null };
     expect([99, 100, 149, 150, 299, 300].map(t => cueStatus(cue, t))).toEqual(['upcoming', 'in transition', 'in transition', 'holding', 'holding', 'done']);
     expect(cueStatus({ ...cue, endTick: null }, 10_000)).toBe('holding');
   });
@@ -105,6 +105,24 @@ describe('events lane', () => {
     const early = eventLane(log, 30);
     expect([...early.marks, ...early.bands].every(x => x.scheduled)).toBe(true);
     expect(early.marks[0]?.label).toBe('KILL 1 drone scheduled for 00:01.6');
+  });
+
+  it('reads a log that is out of tick order (#104 `at`) in tick order, keeping each event’s key', () => {
+    // An OFF logged before its ON, and an injection logged before an earlier one.
+    const { worlds, controller } = scenario();
+    const log = controller.getEventLog();
+    const first = log.find((e): e is Extract<EnvEvent, { type: 'INJECT_SCORE' }> => e.type === 'INJECT_SCORE');
+    expect(first).toBeDefined();
+    const later: Extract<EnvEvent, { type: 'INJECT_SCORE' }> = { ...structuredClone(first!), tick: first!.tick + 100, score: { ...structuredClone(first!.score), version: { issuedTick: first!.tick + 99, origin: 9 }, movements: [first!.score.movements[0]!, { ...first!.score.movements.at(-1)!, startTick: first!.tick + 160, recipe: { kind: 'sphere' } }] } };
+    const shuffled: EnvEvent[] = [later, { type: 'JAM_OFF', tick: 400, id: 'late' }, ...log, { type: 'JAM_ON', tick: 300, id: 'late', centre: [0, 0, 0], radius: 5 }];
+    const sorted = [...shuffled].sort((a, b) => a.tick - b.tick);
+    expect(planCues(worlds.score, shuffled)).toEqual(planCues(worlds.score, sorted));
+    expect(planCues(worlds.score, shuffled).at(-1)).toMatchObject({ name: 'Sphere', versionKey: `${first!.tick + 99}:9` });
+    const lane = eventLane(shuffled, 1000);
+    expect(lane.bands.find(b => b.id === 'late')).toMatchObject({ start: 300, end: 400 });
+    expect(lane.marks.map(m => m.tick)).toEqual([...lane.marks.map(m => m.tick)].sort((a, b) => a - b));
+    // keys still name each event's position in the log, so elements stay keyed as the log grows
+    expect(lane.marks.find(m => m.tick === later.tick)?.key).toBe(`inject@${later.tick}#0`);
   });
 
   it('widens the window to include the last event and the last cue', () => {
@@ -185,7 +203,7 @@ describe('the tray DOM', () => {
     const { root, cues } = mount(s.ctx);
     const plan = planCues(s.worlds.score, s.controller.getEventLog());
     expect(cues()).toHaveLength(plan.length);
-    cues().forEach((button, i) => expect(button.getAttribute('aria-label')).toMatch(new RegExp(`^Cue ${i + 1}: ${plan[i]!.name}, ${plan[i]!.source}, starts \\d\\d:\\d\\d\\.\\d, planned (upcoming|in transition|holding|done); held by \\d+/\\d+ Encore, \\d+/\\d+ static$`)));
+    cues().forEach((button, i) => expect(button.getAttribute('aria-label')).toMatch(new RegExp(`^Cue ${i + 1}: ${plan[i]!.name}, ${plan[i]!.source}, starts \\d\\d:\\d\\d\\.\\d, planned (upcoming|in transition|holding|done); (held by \\d+/\\d+ Encore|Encore: (not started|over)), (held by \\d+/\\d+ static|static: (not started|over))$`)));
     expect(root.findAll('ev').every(e => e.getAttribute('role') === 'listitem' && (e.getAttribute('aria-label') ?? '').length > 0)).toBe(true);
     expect(root.findAll('ev').map(e => e.getAttribute('data-state'))).toEqual(['applied', 'applied', 'applied']);
     expect(root.findAll('band').map(b => b.className)).toEqual(['band jam', 'band part']);
@@ -262,7 +280,8 @@ describe('the tray DOM', () => {
     for (let i = 0; i < before.length; i++) expect(after[i]).toBe(before[i]);
   });
 
-  it('shows cue detail on focus, toggles it on click, and moves with the arrow keys', () => {
+  it('shows cue detail on focus, toggles it on click, and moves with the arrow keys', async () => {
+    const settled = () => Promise.resolve();          // focusin updates in a microtask, like focusout
     const s = scenario();
     const { root, cues, doc } = mount(s.ctx);
     const detail = root.findAll('cue-detail')[0] as FakeElement;
@@ -270,24 +289,28 @@ describe('the tray DOM', () => {
     const plan = planCues(s.worlds.score, s.controller.getEventLog());
     const [first, second] = cues() as [FakeElement, FakeElement];
     first.focus();
+    await settled();
     expect(detail.textContent).toMatch(/^ENCOREpreloadedstarts 00:00\.0transition/);
     first.dispatch('keydown', { key: 'ArrowRight' });
     expect(doc.activeElement).toBe(second);
+    await settled();
     expect(detail.textContent.startsWith(plan[1]!.name)).toBe(true);
     const last = cues().at(-1) as FakeElement;
     second.dispatch('keydown', { key: 'End' });
     expect(doc.activeElement).toBe(last);
+    await settled();
     expect(detail.textContent).toMatch(/^Helixinjected · v\d+:\d+ into drone \d+/);
     // The app's Encore arm runs the real Encore brain with gossip (#105, #107), so its count is whatever the observer
     // measured; the static brain never adopts an injection.
-    expect(detail.textContent).toMatch(/held by \d+\/\d+ Encore, 0\/\d+ static/);
+    expect(detail.textContent).toMatch(/held by \d+\/\d+ Encore, held by 0\/\d+ static/);
     first.click();                                     // a click focuses the button, so the detail follows it
     expect(doc.activeElement).toBe(first);
+    await settled();
     expect(detail.textContent).toMatch(/^ENCORE/);
     expect(first.hasAttribute('aria-pressed')).toBe(false);
   });
 
-  it('a cue replaced during its own transition is done, not "in transition", and its hold is never negative', () => {
+  it('a cue replaced during its own transition is done, not "in transition", and its hold is never negative', async () => {
     const r = rig();
     r.steps(29);
     r.must({ type: 'select', id: 4 });
@@ -300,6 +323,7 @@ describe('the tray DOM', () => {
     r.steps(80);
     const { root, cues: buttons } = mount(r.ctx);
     (buttons()[0] as FakeElement).focus();
+    await Promise.resolve();                                            // focusin updates in a microtask
     const detail = root.findAll('cue-detail')[0]!.textContent;
     expect(detail).toMatch(/replaced \d+\.\d s before its transition ended/);
     expect(detail).not.toMatch(/hold -/);
@@ -310,9 +334,46 @@ describe('the tray DOM', () => {
     const s = scenario({ encore: staticBrain });                        // helix injected; static brains never adopt it
     const { cues } = mount(s.ctx);
     const helix = cues().at(-1) as FakeElement;
-    expect(helix.getAttribute('aria-label')).toMatch(/planned (in transition|holding); held by 0\/\d+ Encore, 0\/\d+ static$/);
+    expect(helix.getAttribute('aria-label')).toMatch(/planned (in transition|holding); held by 0\/\d+ Encore, held by 0\/\d+ static$/);
     expect(helix.className).toBe('cue injected');
     expect(cues()[0]!.getAttribute('aria-label')).toMatch(/held by \d+\/\d+ Encore/);
+  });
+
+  it('marks a cue as now, labelled with its holders, once the observer measures drones on its version flying it', () => {
+    // #109 review: the positive case. The app's Encore arm runs the real Encore brain with gossip (#105, #107).
+    const r = rig();
+    r.steps(29);
+    r.must({ type: 'select', id: 4 });
+    const event = r.must({ type: 'inject', recipe: { kind: 'sphere' } }).event as Extract<EnvEvent, { type: 'INJECT_SCORE' }>;
+    const key = `${event.score.version.issuedTick}:${event.droneId}`;
+    const start = event.score.movements.at(-1)!.startTick;
+    const held = () => { const s = r.worlds.series().encore.at(-1); return s && s.tick >= start ? s.versions[key] ?? 0 : 0; };
+    for (let i = 0; i < 600 && held() === 0; i++) r.steps(1);
+    const holders = held();
+    expect(holders, 'gossip must spread the injected score within 30 s for this test to mean anything').toBeGreaterThan(0);
+    const { cues } = mount(r.ctx);
+    const injected = cues().at(-1) as FakeElement;
+    const alive = r.worlds.series().encore.at(-1)!.alive;
+    expect(injected.className).toBe('cue injected now');
+    expect(injected.getAttribute('aria-label')).toMatch(new RegExp(`planned (in transition|holding); held by ${holders}/${alive} Encore, held by 0/\\d+ static$`));
+  });
+
+  it('never counts drones on a version as holding a cue of that version that has not started, or is over', () => {
+    // #109 review: "held by" is per movement, not per version. Every live drone believes the preloaded version from
+    // tick 0, but an upcoming preloaded cue is "not started", never "held by 40/40".
+    const r = rig();
+    r.steps(40);
+    const { cues } = mount(r.ctx);
+    const plan = planCues(r.worlds.score, r.controller.getEventLog());
+    const upcoming = plan.findIndex(c => c.startTick > r.worlds.tick);
+    expect(upcoming).toBeGreaterThan(0);
+    expect(cues()[upcoming]!.getAttribute('aria-label')).toMatch(/planned upcoming; Encore: not started, static: not started$/);
+    expect(cues()[upcoming]!.className).toBe('cue');
+    expect(cues()[0]!.getAttribute('aria-label')).toMatch(/held by \d+\/\d+ Encore, held by \d+\/\d+ static$/);
+    // After its own score's next movement starts, a cue is over, whatever version the drones believe.
+    const first = plan[0]!;
+    const sample = { ...r.worlds.series().encore.at(-1)!, tick: first.scoreEndTick! + 1 };
+    expect(timelineModule.heldBy(first, { encore: sample, static: null })).toEqual({ encore: { count: 0, alive: sample.alive, flying: 'over' }, static: null });
   });
 
   it('moves focus to the cue in its place when the focused cue is superseded, instead of dropping it on <body>', () => {
