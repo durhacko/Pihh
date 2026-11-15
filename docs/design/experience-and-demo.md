@@ -127,7 +127,7 @@ HUD, 4 Hz, from each world's `MetricsSample`:
 | 58 | `INJECT_SCORE` (sphere), one un-jammed drone | Speed 0.5× | New colour spreads along real `SCORE` lines; the jam blocks sends involving drones currently inside it |
 | 58 + `scoreLead` | New movement starts | Speed 1× | Still-isolated drones keep the old score; drones that leave the geometric jam may receive and adopt the new score |
 | 68 | `JAM_OFF` | — | Colour crosses; late adopters join by the clock |
-| 82 | — | Audience | Sphere, final HUD |
+| 82 | — | Audience | Sphere, final readout |
 
 **3 minutes (SHOULD)**
 
