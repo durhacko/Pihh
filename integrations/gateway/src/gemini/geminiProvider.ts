@@ -1,9 +1,10 @@
 // integrations/gateway/src/gemini/geminiProvider.ts
 // The live Gemini Flash-Lite adapter for the `gemini` module's provider port (GF-WP-12, spec gemini-generated-formations.md
-// §10.1, §10.3, §10.6). Prepared under G4 BEFORE decision D3 (GF-D1): it is not wired anywhere, and it cannot reach the
-// network by itself. It holds no reference to the global `fetch`: the caller injects a `transport` (under D3 the wiring
-// in module.ts passes the platform fetch; until then only tests call it, with a recorded-shape fake). No SDK, no key in
-// the repo; the key arrives in `GeminiConfig.apiKey` (config.ts reads GEMINI_API_KEY server-side, only when enabled).
+// §10.1, §10.3, §10.6). Prepared under G4, WIRED under D3 (#218, free quota only): module.ts builds it with the platform
+// fetch as its transport whenever GEMINI_ENABLED and GEMINI_API_KEY are both set, so it then makes REAL calls to
+// Google. The file itself holds no reference to the global `fetch`: the caller injects a `transport` (tests inject a
+// recorded-shape fake, and the suite's tripwire, test/no-network.mjs, refuses any real one). No SDK, no key in the
+// repo; the key arrives in `GeminiConfig.apiKey` (config.ts reads GEMINI_API_KEY server-side, only when enabled).
 //
 // One `generate` call = exactly one HTTP request, never a retry: `withRetries` (provider.ts) owns the 429/503 policy
 // (§10.3: the SDK's own retries must be off; with plain HTTP there are none). The per-attempt timeout is applied here

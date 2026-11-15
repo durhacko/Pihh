@@ -1,5 +1,5 @@
-// Test doubles only. They are never wired into src/: the module as shipped has no provider (offline default), and
-// no fake output is ever presented as a live Gemini response.
+// Test doubles only. They are never wired into src/ (createModule wires the live adapter when GEMINI_ENABLED and
+// GEMINI_API_KEY are both set, and no provider otherwise), and no fake output is ever presented as a live Gemini response.
 import type { FormationMode, GeminiProvider, ProviderOutcome, ProviderRequest, SceneCheck, SceneSpec, SceneValidator } from '../../src/gemini/types.ts';
 
 export interface FakeProvider extends GeminiProvider {

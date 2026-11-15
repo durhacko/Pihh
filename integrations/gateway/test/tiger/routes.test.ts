@@ -1,6 +1,7 @@
 // TIG-06 offline part: GET /api/runs and GET /api/runs/:runId/metrics over the TigerReader seam, fed with the 50
 // genuine committed records from results/ (read-only). Responses are checked against rowsToRecord of the stored rows
 // and against the source records. Everything here is an OFFLINE FIXTURE: provenance.source is 'fixture', never 'tiger'.
+import '../no-network.mjs'; // the network tripwire, FIRST: it must be in force before any module captures fetch
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -17,6 +18,8 @@ import { createFakeRepository } from '../../src/tiger/fakeRepository.ts';
 import { importFiles, operatorDt, type ArtifactFile } from '../../src/tiger/importer.ts';
 import type { ImportManifestV1 } from '../../../../src/telemetry/index.ts';
 import { TigerConfigError } from '../../src/tiger/config.ts';
+
+assert.equal(fetch.name, 'guardedFetch', 'the network tripwire (test/no-network.mjs) is not in force');
 
 const RESULTS = new URL('../../../../results/', import.meta.url);
 const sha256 = (data: string | Uint8Array) => createHash('sha256').update(data).digest('hex');

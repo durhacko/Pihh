@@ -20,10 +20,12 @@ import {
 
 export interface GeminiDeps {
   readonly config: GeminiConfig;
-  /** The live provider. `null` in this build: no SDK and no network code exist yet. */
+  /** The live provider (module.ts builds it under D3 when the flag and the key are set); `null` keeps the module off. */
   readonly provider: GeminiProvider | null;
   /** Server-side V1–V11 and trial compile (spec §10.2). `null` until GF-WP-01 lands. */
   readonly validator: SceneValidator | null;
+  /** Live upstream calls used and allowed in this process (GEMINI_MAX_CALLS), when the provider is capped. */
+  readonly liveCalls?: () => { readonly used: number; readonly max: number };
 }
 
 /** True only when the module can actually answer: enabled in config, with a provider and a validator. */
@@ -94,6 +96,8 @@ export async function handleGenerateFormation(rawBody: string, deps: GeminiDeps)
   switch (outcome.kind) {
     case 'timeout':
       return errorResponse('TIMEOUT', 'The provider did not answer in time.', { details: [{ path: '', reason: 'TIMEOUT' }], requestId });
+    case 'call-cap':
+      return errorResponse('RATE_LIMITED', 'This gateway has used its live call allowance; restart it to reset.', { details: [{ path: '', reason: 'CALL_CAP_REACHED' }], requestId });
     case 'upstream-error':
       if (outcome.status === 429) return errorResponse('RATE_LIMITED', 'The provider is rate limiting requests.', { details: [{ path: '', reason: 'PROVIDER_RATE_LIMITED' }], requestId });
       if (outcome.status === 503) return errorResponse('PROVIDER_UNAVAILABLE', 'The provider is unavailable.', { details: [{ path: '', reason: 'PROVIDER_UNAVAILABLE' }], requestId });

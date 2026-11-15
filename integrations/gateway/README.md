@@ -1,4 +1,4 @@
-# Encore gateway (optional, offline skeleton)
+# Encore gateway (optional; offline by default, `gemini` can be live)
 
 This is the one shared optional gateway of [boundaries §6.2](../../docs/design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard) (XI-12, XI-20), issue #218. It has one server, one guard, one error envelope, one config and one `GET /api/health`. Every integration plugs in as a module:
 
@@ -6,10 +6,11 @@ This is the one shared optional gateway of [boundaries §6.2](../../docs/design/
 - `shows` (MongoDB Atlas, MDB-WP-03, #130);
 - `tiger` (Tiger Data, TIG-03, #142).
 
-**Status: offline skeleton.**
-- It has zero dependencies, no SDK and no outbound network code. A test enforces this.
+**Status: offline by default; `gemini` can be live (D3, #218, free quota only).**
+- It has zero dependencies and no SDK. The only outbound code is the `gemini` module's one transport line (`src/gemini/module.ts`, pinned by `test/offline.test.ts`).
 - The server listens on `127.0.0.1` only, when someone runs it by hand.
-- **Every module is disabled in this build.** `gemini` is interface-only and answers 503 `PROVIDER_UNAVAILABLE` / `MODULE_DISABLED`. `shows` and `tiger` are placeholders their lanes replace.
+- **`gemini` is live only when `GEMINI_ENABLED` and `GEMINI_API_KEY` are both set**: then each `POST /api/generate-formation` makes real calls to Google, at most `GEMINI_MAX_CALLS` per process (default 50). Otherwise it answers 503 `PROVIDER_UNAVAILABLE` / `MODULE_DISABLED`. Start it live with `scripts/gemini-live.sh`, which reads the key from a private file outside the repo. `shows` and `tiger` are disabled; their lanes replace them.
+- **Tests never reach the network.** `test/no-network.mjs` refuses every non-loopback fetch, HTTP(S) request and socket. `npm test` loads it, and so does every test file that can reach the real `gemini` module (`test/noNetwork.test.ts` checks this), so `node --test <file>` and IDE runs are covered too.
 - Encore does not use the gateway. Nothing in `src/`, `tests/` or the build imports `integrations/` (a test checks this). Deleting the folder changes nothing for the app, the CLI or `bash scripts/check.sh`.
 - **Gates.** It merges into `phase2/development` only. A live provider, a database driver or any app-side client waits for **P2-G6** and that integration's own **D3** (boundaries §9; GF-D1 for Gemini, MDB-D1 for MongoDB, the Tiger D3 for Tiger Data).
 
@@ -19,7 +20,7 @@ This is the one shared optional gateway of [boundaries §6.2](../../docs/design/
 |---|---|---|
 | `src/server.ts`, `guard.ts`, `errors.ts`, `config.ts`, `health.ts`, `module.ts`, `modules.ts`, `router.ts` | skeleton (#218) | Single writer: the #218 worker. Lanes never edit these |
 | `test/*.test.ts` (top level), `loader/`, `package.json`, `package-lock.json`, `tsconfig.json`, `.env.example`, this README | skeleton (#218) | |
-| `src/gemini/`, `test/gemini/` | Gemini lane (#117) | Interface-only today (GF-WP-12) |
+| `src/gemini/`, `test/gemini/` | Gemini lane (#117) | Live under D3 (#218, free quota only) when `GEMINI_ENABLED` and `GEMINI_API_KEY` are both set (GF-WP-12) |
 | `src/shows/`, `test/shows/` | MongoDB lane (#130) | `module.ts` is a placeholder to replace |
 | `src/tiger/`, `test/tiger/` | Tiger Data lane (#142) | `module.ts` is a placeholder to replace. `src/tiger-live/server.ts` exists only if OIB-Q5 is accepted |
 

@@ -1,10 +1,11 @@
 // integrations/gateway/src/gemini/fakeProvider.ts
 // A scripted, offline stand-in for the provider port (GF-WP-12 offline part). It exists so the module's whole path
-// (retries, finish-reason mapping, validation, hashing) is exercised without an SDK, a key or a network, and so the
-// later live adapter can be swapped in behind the same port.
+// (retries, finish-reason mapping, validation, hashing) is exercised without an SDK, a key or a network, behind the same
+// port as the live adapter.
 //
-// It is NEVER wired by `createModule`: the module as shipped has no provider and answers MODULE_DISABLED. Its model id
-// is `offline-fake`, so no output from it can be mistaken for a Gemini response.
+// It is NEVER wired by `createModule`. createModule wires the LIVE adapter (geminiProvider.ts, real calls to Google)
+// when GEMINI_ENABLED and GEMINI_API_KEY are both set, and answers MODULE_DISABLED otherwise. Its model id is
+// `offline-fake`, so no output from it can be mistaken for a Gemini response.
 import { mapProviderResponse, type RawProviderResponse } from './mapResponse.ts';
 import type { GeminiProvider, ProviderOutcome, ProviderRequest } from './types.ts';
 

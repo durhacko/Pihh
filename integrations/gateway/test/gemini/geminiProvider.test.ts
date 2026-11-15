@@ -7,6 +7,7 @@
 // header marks UNVERIFIED (`candidates[0].content.parts[].text`, `usageMetadata`). Names that appear ONLY in these
 // fixtures and nowhere in the spec, all UNVERIFIED: `role: 'model'`, `promptTokenCount`, `candidatesTokenCount`,
 // `totalTokenCount`, and the finish reason `MALFORMED_FUNCTION_CALL` (used only as "some other finish").
+import '../no-network.mjs'; // the network tripwire, FIRST: it must be in force before any module captures fetch
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
@@ -20,6 +21,8 @@ import { geminiModule } from '../../src/gemini/module.ts';
 import { RETRY_POLICY, withRetries } from '../../src/gemini/provider.ts';
 import { createSceneValidator } from '../../src/gemini/validate.ts';
 import type { FormationMode, ProviderRequest } from '../../src/gemini/types.ts';
+
+assert.equal(fetch.name, 'guardedFetch', 'the network tripwire (test/no-network.mjs) is not in force');
 
 const KEY = 'test-key-not-real-0123456789';
 const schema = (mode: FormationMode): object =>

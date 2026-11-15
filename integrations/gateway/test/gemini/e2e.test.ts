@@ -1,5 +1,6 @@
 // GF-T33 (gateway side) end to end: real server, real guard, real validator and sceneHash, a scripted fake provider.
 // Every socket is 127.0.0.1; the fake records every upstream call, so "no call" is checked directly.
+import '../no-network.mjs'; // the network tripwire, FIRST: it must be in force before any module captures fetch
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -13,6 +14,8 @@ import { scriptedProvider, stopWith, FAKE_MODEL, type FakeStep, type ScriptedPro
 import { createSceneValidator, type TrialCompile } from '../../src/gemini/validate.ts';
 import { RETRY_POLICY } from '../../src/gemini/provider.ts';
 import { sceneHash } from '../../../../src/score/generated/hashing.ts';
+
+assert.equal(fetch.name, 'guardedFetch', 'the network tripwire (test/no-network.mjs) is not in force');
 
 const APP = 'http://localhost:5173';
 const KEY = 'test-key-not-real-0123456789';

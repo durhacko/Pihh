@@ -1,10 +1,13 @@
 // Registry and router (no socket): how modules plug in, and that one bad module never disables another.
+import './no-network.mjs'; // the network tripwire, FIRST: it must be in force before any module captures fetch
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MODULES, type ModuleEntry } from '../src/modules.ts';
 import { buildGateway, HEALTH_PATH } from '../src/router.ts';
 import { FatalConfigError } from '../src/errors.ts';
 import type { GatewayModule, ModuleRoute, RouteRequest } from '../src/module.ts';
+
+assert.equal(fetch.name, 'guardedFetch', 'the network tripwire (test/no-network.mjs) is not in force');
 
 const ok = (body: unknown = { ok: 1 }) => async () => ({ status: 200, body });
 

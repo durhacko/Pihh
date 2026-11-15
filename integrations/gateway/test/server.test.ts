@@ -1,4 +1,5 @@
 // The server on a real loopback socket (port 0). Every request goes to 127.0.0.1 only; nothing leaves the machine.
+import './no-network.mjs'; // the network tripwire, FIRST: it must be in force before any module captures fetch
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
@@ -8,6 +9,8 @@ import { FatalConfigError } from '../src/errors.ts';
 import { readGeminiConfig } from '../src/gemini/config.ts';
 import type { Transport, TransportInit } from '../src/gemini/geminiProvider.ts';
 import { geminiModule, liveGeminiDeps } from '../src/gemini/module.ts';
+
+assert.equal(fetch.name, 'guardedFetch', 'the network tripwire (test/no-network.mjs) is not in force');
 
 const APP = 'http://localhost:5173';
 const FAKE_KEY = 'test-key-not-real-0123456789';
