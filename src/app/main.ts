@@ -336,8 +336,8 @@ surfaces.register({ id: 'metrics', kind: 'popover', el: metrics.el, anchor: () =
 surfaces.register({ id: 'help', kind: 'popover', el: help.el, anchor: () => dock.buttons.help, onOpen: help.render });
 const expanders: [string, HTMLElement][] = [['disrupt', dock.buttons.disrupt], ['lenses', dock.buttons.lenses], ['help', dock.buttons.help], ['metrics', readout.button], ['composer', dock.buttons.compose], ['console', dock.buttons.console]];
 const offSurfaces = surfaces.onChange(open => { for (const [id, b] of expanders) b.setAttribute('aria-expanded', String(open.includes(id))); layoutBottom(); });
-// Mounted explicitly, not through the createPanel loader: the demo bar's own panel (DemoScript) would sit on the
-// dock and bring a second D key; the shell drives the same runner from Show / D and shows its captions above the dock.
+// Mounted explicitly. The demo bar (DemoScript's createDemoBar) is opt-in and not mounted here: the shell drives the
+// same runner from Show / D and shows its captions above the dock.
 const inspectorPanel = createInspectorPanel({ host: root });
 
 // ---------- store reactions ----------

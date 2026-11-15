@@ -8,6 +8,7 @@ import { currentMovement } from '../../../src/score';
 import { createActionController } from '../../../src/app/actions';
 import { controlContext, createWorlds, type WorldsOptions } from '../../../src/app/worlds';
 import { encoreBrain } from '../../../src/agent/encoreBrain';
+import { staticBrain } from '../../../src/agent/staticBrain';
 import * as timelineModule from '../../../src/app/ui/Timeline';
 import { connectTimeline, cueStatus, eventLane, holdColumns, planCues, windowEnd, type Cue, type TimelineContext } from '../../../src/app/ui/Timeline';
 import { FakeDocument, type FakeContext2D, type FakeElement } from './fakeDom';
@@ -33,8 +34,8 @@ function rig(brains?: WorldsOptions['brains']) {
 }
 
 /** kill, jam on/off, loss, an open partition and one injection, with samples on both sides. */
-function scenario() {
-  const r = rig();
+function scenario(brains?: WorldsOptions['brains']) {
+  const r = rig(brains);
   r.steps(29);                                                   // tick 30
   r.must({ type: 'select', id: 3 }); r.must({ type: 'kill-selected' });
   r.must({ type: 'select', id: 4 }); r.must({ type: 'jam', radius: 6 });
@@ -277,7 +278,9 @@ describe('the tray DOM', () => {
     second.dispatch('keydown', { key: 'End' });
     expect(doc.activeElement).toBe(last);
     expect(detail.textContent).toMatch(/^Helixinjected · v\d+:\d+ into drone \d+/);
-    expect(detail.textContent).toMatch(/held by 0\/\d+ Encore, 0\/\d+ static/);   // both arms fly the static brain here
+    // The app's Encore arm runs the real Encore brain with gossip (#105, #107), so its count is whatever the observer
+    // measured; the static brain never adopts an injection.
+    expect(detail.textContent).toMatch(/held by \d+\/\d+ Encore, 0\/\d+ static/);
     first.click();                                     // a click focuses the button, so the detail follows it
     expect(doc.activeElement).toBe(first);
     expect(detail.textContent).toMatch(/^ENCORE/);
@@ -304,7 +307,7 @@ describe('the tray DOM', () => {
   });
 
   it('marks a cue as now only when some world measures drones holding its version', () => {
-    const s = scenario();                                               // helix injected; static brains never adopt it
+    const s = scenario({ encore: staticBrain });                        // helix injected; static brains never adopt it
     const { cues } = mount(s.ctx);
     const helix = cues().at(-1) as FakeElement;
     expect(helix.getAttribute('aria-label')).toMatch(/planned (in transition|holding); held by 0\/\d+ Encore, 0\/\d+ static$/);

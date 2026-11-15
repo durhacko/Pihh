@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeParams, OPERATOR } from '../../src/contracts';
 import type { AgentBrain, AgentInput, Score, World, WorldConfig, WorldSnapshot } from '../../src/contracts';
 import { createWorld } from '../../src/sim';
+import { encoreBrain } from '../../src/agent/encoreBrain';
 import { staticBrain } from '../../src/agent/staticBrain';
 import { probeBrain } from './probeBrain';
 
@@ -55,9 +56,11 @@ function advance(world: World, ticks: number): WorldSnapshot {
   return snapshot;
 }
 
+// T02–T04 run against every brain, including the real Encore brain (#65). T05 is static-only by definition.
 const brains: [string, AgentBrain][] = [
   ['radio probe', probeBrain],
   ['real static baseline', staticBrain],
+  ['real Encore', encoreBrain as AgentBrain],
 ];
 
 describe.each(brains)('%s isolation and replay', (_name, brain) => {
@@ -69,7 +72,10 @@ describe.each(brains)('%s isolation and replay', (_name, brain) => {
     const before = control.step();
     expect(killed.step()).toEqual(before);
     const observer = before.drones[0];
+    // The victim must be due to send a heartbeat at the kill tick (brains send when tick % hbPeriod === id % hbPeriod):
+    // otherwise its broadcast is absent from both worlds anyway, and a radio that ignored rRadio would go unnoticed.
     const distant = [...before.drones].reverse().find(drone => drone.alive &&
+      drone.id % base.params.hbPeriod === (before.tick + 1) % base.params.hbPeriod &&
       Math.hypot(...drone.pos.map((component, index) => component - observer.pos[index])) >
         // Also exclude a two-hop sensing path over this two-tick assertion window.
         Math.max(base.params.rRadio, 2 * base.params.rSense) + 1);
@@ -127,13 +133,25 @@ function structuredCloneConfig(base: WorldConfig): WorldConfig {
 }
 
 it('T04: changing the run seed changes a seeded radio-active run', () => {
-  const first = createWorld(config(probeBrain, 101));
-  const second = createWorld(config(probeBrain, 102));
-  const firstSnapshot = advance(first, 400);
-  const secondSnapshot = advance(second, 400);
+  const seeded = (seed: number) => { const c = config(probeBrain, seed); c.params.loss = 0.3; return createWorld(c); };
+  const first = seeded(101);
+  const second = seeded(102);
+  // Brain seeds alone would differ even if the world ignored its seed: also compare something only the world's
+  // own random stream drives, the radio's per-broadcast loss counts.
+  const lost: [number[], number[]] = [[], []];
+  let firstSnapshot: WorldSnapshot | undefined;
+  let secondSnapshot: WorldSnapshot | undefined;
+  for (let tick = 1; tick <= 400; tick++) {
+    firstSnapshot = first.step();
+    secondSnapshot = second.step();
+    lost[0].push(...firstSnapshot.radio.map(r => r.lost));
+    lost[1].push(...secondSnapshot.radio.map(r => r.lost));
+  }
   // Different seed metadata alone is insufficient: actual brain behavior must differ.
-  expect(secondSnapshot.drones).not.toEqual(firstSnapshot.drones);
+  expect(secondSnapshot!.drones).not.toEqual(firstSnapshot!.drones);
   expect(second.stateHash()).not.toBe(first.stateHash());
+  expect(lost[0].reduce((a, b) => a + b, 0), 'the radio must lose packets for this check to mean anything').toBeGreaterThan(0);
+  expect(lost[1]).not.toEqual(lost[0]);
 }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
 it('T05: a full-show jam leaves the real static baseline bodies and private state unchanged', () => {

@@ -160,9 +160,9 @@ describe('Escape order with the shell deselect', () => {
 });
 
 describe('the new shell modules load headless and stay out of the panel loader', () => {
-  it('Dock, Readout, Legend, Toasts, popovers, keys and Hud import without a DOM and export no createPanel', async () => {
+  it('Dock, Readout, Legend, Toasts, popovers, keys, Hud and DemoScript (its bar is opt-in) import without a DOM and export no createPanel', async () => {
     expect(typeof document).toBe('undefined');
-    for (const name of ['Dock', 'Readout', 'Legend', 'Toasts', 'popovers', 'keys', 'Hud']) {
+    for (const name of ['Dock', 'Readout', 'Legend', 'Toasts', 'popovers', 'keys', 'Hud', 'DemoScript']) {
       const mod = await import(`../../../src/app/ui/${name}.ts`);
       expect(Object.keys(mod), name).not.toContain('createPanel');
     }
