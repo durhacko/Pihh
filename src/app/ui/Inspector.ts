@@ -94,15 +94,21 @@ const STATUS_LABEL: Record<SlotStatus, string> = { occupied: 'occupied by a live
 
 /** Observer box rows: the pre-labelled truth object only. */
 export function truthRows(truth: ObserverTruth): Row[] {
-  // A dead drone's belief froze at death: once the score moves on, its old target no longer matches the reference
-  // slot, which would otherwise read as "flies a different score". It flies nothing.
+  // A dead drone's belief froze at death. While its frozen target still IS the reference slot, the observer's status of
+  // that slot is still true (whether a live drone holds it now) and is shown with when the target froze. Once the score
+  // moves on, the old target no longer matches, which would otherwise read as "flies a different score": it flies
+  // nothing, and the row says so.
+  const slotStatus = (status: SlotStatus) => `${STATUS_LABEL[status]}${truth.slotStatusTick === null ? '' : ` (t${truth.slotStatusTick})`}`;
+  const died = `t${truth.diedTick ?? '?'}`;
   const status = !truth.alive
-    ? `dead since t${truth.diedTick ?? '?'}; target frozen`
+    ? truth.sameFormation && truth.believedSlotStatus !== null
+      ? `${slotStatus(truth.believedSlotStatus)}; its target frozen since ${died}`
+      : `dead since ${died}; target frozen`
     : truth.sameFormation === null || (truth.sameFormation && truth.believedSlotStatus === null)
       ? 'not sampled yet'
       : !truth.sameFormation || truth.believedSlotStatus === null
         ? 'not comparable: it flies a different score than the observer reference'
-        : `${STATUS_LABEL[truth.believedSlotStatus]}${truth.slotStatusTick === null ? '' : ` (t${truth.slotStatusTick})`}`;
+        : slotStatus(truth.believedSlotStatus);
   return [
     { label: 'True state', value: truth.alive ? 'alive' : `dead since t${truth.diedTick ?? '?'}` },
     { label: `Slot ${truth.believedSlot}, per observer`, value: status },
