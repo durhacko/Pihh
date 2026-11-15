@@ -29,6 +29,18 @@ import { validateScene } from './validation';
 export const COMPILER_VERSION = 1;
 
 /**
+ * Largest roster compiled. Spec §7.3 step 2: clamp(20·n0, 2,000, 5,000) candidates stay ≥ 4·n0 (the contract's
+ * "about 4·n0", CR-06) only up to n0 = 1,250. The app's rosters are 100, 150 and 200 (main.ts); the CLI and tests
+ * use others, so the spec's bound is the limit here.
+ */
+export const MAX_N0 = 1250;
+/**
+ * Smallest slotSpacingMin compiled, metres (interpretation: a sanity floor, far below any drone and the defaults'
+ * rOcc 0.6 and dAvoid 1.4; it keeps world coordinates many 1e-6 digest steps apart).
+ */
+export const MIN_SLOT_SPACING = 0.1;
+
+/**
  * §7.11 codes, plus the validation codes a non-V3-valid input can produce (parse, schema, too-large) and
  * unsupported-mode for the 2D path until GF-WP-04 lands (spec differences, approved on #212).
  */
@@ -84,10 +96,10 @@ export function compileGeneratedScene(scene: SceneSpec, params: CompileParams, n
   const reject = (code: RejectCode, detail: string): CompileResult =>
     ({ ok: false, code, detail, sceneHash: hash, compilerVersion: COMPILER_VERSION, warnings });
   try {
-    if (!Number.isInteger(n0) || n0 < 1) return reject('range', `n0 must be a positive integer, got ${String(n0)}`);
+    if (!Number.isInteger(n0) || n0 < 1 || n0 > MAX_N0) return reject('range', `n0 must be an integer in 1..${MAX_N0}, got ${String(n0)}`);
     const spacing = params?.slotSpacingMin;
-    if (typeof spacing !== 'number' || !(spacing > 0) || !Number.isFinite(spacing)) {
-      return reject('range', `slotSpacingMin must be a positive finite number, got ${String(spacing)}`);
+    if (typeof spacing !== 'number' || !Number.isFinite(spacing) || spacing < MIN_SLOT_SPACING) {
+      return reject('range', `slotSpacingMin must be a finite number ≥ ${MIN_SLOT_SPACING} m, got ${String(spacing)}`);
     }
     const validated = validateScene(scene);
     if (!validated.ok) {
@@ -146,9 +158,14 @@ function compile3D(
   if (selection.rear.selected < selection.rear.floor) {
     warnings.push({ code: 'rear-floor-unmet', detail: `${selection.rear.selected} of ${n0} slots face away from the reference view; the heuristic floor asks ${selection.rear.floor} (§7.3 step 5)` });
   }
-  const simplifications = simplificationsOf(selection.phase, warnings);
+  const simplifications = simplificationsOf('scene3d', selection.phase, warnings);
   warnings.push(...colourWarnings(scene));
-  if (params.rClaim !== undefined && params.claimGap !== undefined) warnings.push(...repairWarnings(formation, params.rClaim, params.claimGap));
+  const { rClaim, claimGap } = params;
+  if (typeof rClaim === 'number' && Number.isFinite(rClaim) && rClaim > 0 && typeof claimGap === 'number' && Number.isFinite(claimGap) && claimGap > 0) {
+    warnings.push(...repairWarnings(formation, rClaim, claimGap));
+  } else {
+    warnings.push({ code: 'repair-check-skipped', detail: `the §8.11 confined-repair check needs finite positive rClaim and claimGap (got ${String(rClaim)}, ${String(claimGap)}); the formation does not depend on them` });
+  }
 
   const stats: CompileStats = {
     candidates: { boundary: 0, interior: 0, feature: 0, surface: cands.length },
@@ -158,11 +175,15 @@ function compile3D(
   return { ok: true, formation, warnings, sceneHash: hash, compilerVersion: COMPILER_VERSION, slotsDigest: slotsDigest(formation, n0, spacing), stats };
 }
 
-/** §7.11: the permitted simplifications that ran, in order, each also as a warning. */
-function simplificationsOf(phase: SelectionPhase, warnings: CompileWarning[]): string[] {
+/**
+ * §7.11: the permitted simplifications that ran, in order, each also as a warning. Steps 1–2 (drop specks, thicken)
+ * and step 4 (boundary quota) exist only in 2D: shapes2d.ts emits speck-dropped and thickened, and only 2D has a
+ * boundary quota, so the 3D path can record step 3 alone. The 2D branches serve the 2D path (GF-WP-04 plug-in).
+ */
+function simplificationsOf(mode: SceneSpec['mode'], phase: SelectionPhase, warnings: CompileWarning[]): string[] {
   const out: string[] = [];
-  if (warnings.some((w) => w.code === 'speck-dropped')) out.push('drop-specks');
-  if (warnings.some((w) => w.code === 'thickened')) out.push('thicken');
+  if (mode === 'silhouette2d' && warnings.some((w) => w.code === 'speck-dropped')) out.push('drop-specks');
+  if (mode === 'silhouette2d' && warnings.some((w) => w.code === 'thickened')) out.push('thicken');
   if (phase !== 'full') {
     out.push('relax-reservations');
     warnings.push({ code: 'reservations-relaxed', detail: 'no spacing reached n0 with full reservations; protected reservations were relaxed to one slot each (§7.11 step 3)' });
