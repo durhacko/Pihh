@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { SCENE_LIMITS, quantise, utf8Length, validateScene, type SceneIssue, type SceneValidation } from '../../../src/score/generated/validation';
 import { canonicalJson } from '../../../src/score/canonical';
+import { canonicalSceneBytes } from '../../../src/score/generated/hashing';
 
 const fixtureDir = new URL('../../fixtures/scenes/', import.meta.url);
 const schemaDir = new URL('../../../src/score/generated/schema/', import.meta.url);
@@ -404,7 +405,8 @@ describe('GF-T04 complexity and byte limits', () => {
 
   it('canonical size: exactly at the cap is accepted; one byte under the size is rejected', () => {
     const s = load('valid-3d-elephant.json');
-    const bytes = utf8Length(canonicalJson(accepted(validateScene(s)).scene));
+    const bytes = canonicalSceneBytes(accepted(validateScene(s)).scene);
+    expect(bytes).toBe(utf8Length(canonicalJson(accepted(validateScene(s)).scene)));
     accepted(validateScene(s, { ...SCENE_LIMITS, canonicalBytes: bytes }));
     expect(first(validateScene(s, { ...SCENE_LIMITS, canonicalBytes: bytes - 1 }))).toEqual({ code: 'too-large', path: '' });
   });
