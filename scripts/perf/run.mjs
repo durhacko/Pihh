@@ -8,7 +8,9 @@
 //   node scripts/perf/run.mjs --gl probe      print the WebGL renderer under each graphics mode, then exit
 //   options: --gl auto|swiftshader|vulkan|egl (default auto) · --url <running app> (skips build and serve)
 //            --seconds N (measured window, default 10) · --warmup N (default 6) · --no-sim (skip the Node bench)
+//            --only state,state (screenshot only these states, e.g. --only xray,jam)
 //
+// Works with both app shells: the readout is `.readout` in the stage-first shell (#113) and `.frame-readout` before it.
 // Render fps (requestAnimationFrame) and simulation ticks per real second are measured separately and never mixed.
 // A software renderer (SwiftShader, llvmpipe) is detected and reported as such: its numbers are never GPU numbers.
 // See docs/demo/QA.md.
@@ -27,6 +29,7 @@ const option = (name, fallback) => { const i = argv.indexOf(`--${name}`); return
 const GL = option('gl', 'auto');
 const SECONDS = Number(option('seconds', 10));
 const WARMUP = Number(option('warmup', 6));
+const ONLY = option('only') ? option('only').split(',').map(s => s.trim()) : null;
 const SOFTWARE = /swiftshader|llvmpipe|softpipe|software|basic render/i;
 const VIEWPORTS = [{ width: 1440, height: 900 }, { width: 1280, height: 720 }];
 const WINDOWS = platform() === 'win32';
@@ -36,11 +39,18 @@ const SHELL = { shell: WINDOWS };   // .cmd files need a shell on Windows
 
 // ------------------------------------------------------------------------------------ the page side
 
+/** The app's readout element: the new shell's `.readout` (#113) first, then the old `.frame-readout`. Both carry
+ *  `data-fps` and, after a loop failure, `data-error`. */
+const READOUT = `(document.querySelector('.readout') ?? document.querySelector('.frame-readout'))`;
+
+/** A start-up failure the app reports on the page: `.error` (old shell) or a `.banner` saying WebGL failed (#113). */
+const START_ERROR = `([...document.querySelectorAll('.error, .banner')].map(el => el.textContent ?? '').find(text => /could not start|error/i.test(text)) ?? null)`;
+
 const WAIT_FOR_APP = `new Promise((resolve, reject) => {
   const start = performance.now();
   (function poll() {
     if (window.encore && typeof window.encore.tick === 'function' && window.encore.tick() > 0) return resolve(true);
-    const error = document.querySelector('.error')?.textContent;
+    const error = ${START_ERROR};
     if (error) return reject(new Error(error));
     if (performance.now() - start > 20000) return reject(new Error('window.encore did not appear within 20 s'));
     setTimeout(poll, 100);
@@ -66,7 +76,7 @@ const MEASURE = seconds => `new Promise(resolve => {
     deltas.push(now - last);
     last = now;
     if (now - t0 < ${seconds * 1000}) return requestAnimationFrame(frame);
-    const readout = document.querySelector('.frame-readout');
+    const readout = ${READOUT};
     resolve({ elapsed: (performance.now() - t0) / 1000, ticks: window.encore.tick() - tick0, deltas: deltas.slice(1),
       appFps: readout?.dataset.fps ? Number(readout.dataset.fps) : null, loopError: readout?.dataset.error ?? null });
   });
@@ -213,12 +223,30 @@ async function selectDrone(page, id) {
   await sleep(300);
 }
 
+/**
+ * What the app itself says about its brains. The old shell shows it in `.preview-badge`. The stage-first shell
+ * (#113) shows it only in the Metrics popover's "Brains" row, so open Metrics (M), read the row and close it
+ * (Escape). Called after the screenshot, so the captured state is never changed.
+ */
+async function brainLabel(page) {
+  const badge = await page.eval(`document.querySelector('.preview-badge')?.textContent ?? null`);
+  if (badge) return badge;
+  await page.key('m');
+  await sleep(400);
+  const row = await page.eval(`(() => {
+    const row = [...document.querySelectorAll('div')].find(d => d.firstChild?.nodeType === 3 && d.firstChild.textContent.trim() === 'Brains');
+    return row ? 'Brains: ' + (row.querySelector('b')?.textContent ?? '?') : null;
+  })()`);
+  await page.key('Escape');
+  return row;
+}
+
 async function screenshots(chrome, url) {
   const manifest = [];
   for (const viewport of VIEWPORTS) {
     const dir = join(OUT, `${viewport.width}x${viewport.height}`);
     mkdirSync(dir, { recursive: true });
-    for (const state of STATES) {
+    for (const state of STATES.filter(s => !ONLY || ONLY.includes(s.name))) {
       const page = await openPage(chrome.browser, viewport);
       const entry = { state: state.name, viewport: `${viewport.width}x${viewport.height}`, url: `?seed=101${state.query ?? ''}` };
       try {
@@ -234,8 +262,9 @@ async function screenshots(chrome, url) {
         const png = await page.screenshot();
         const file = join(dir, `${state.name}.png`);
         writeFileSync(file, png);
-        const badge = await page.eval(`document.querySelector('.preview-badge')?.textContent ?? null`);
-        manifest.push({ ...entry, captured: true, file: file.slice(ROOT.length + 1).replaceAll('\\', '/'), tick: await page.eval('window.encore.tick()'), note: state.note ?? '', badge, bytes: png.length });
+        const tick = await page.eval('window.encore.tick()');
+        const badge = await brainLabel(page);   // after the screenshot: it may open and close the Metrics popover
+        manifest.push({ ...entry, captured: true, file: file.slice(ROOT.length + 1).replaceAll('\\', '/'), tick, note: state.note ?? '', badge, bytes: png.length });
       } catch (error) {
         manifest.push({ ...entry, captured: false, reason: String(error) });
       } finally {
