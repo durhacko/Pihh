@@ -113,8 +113,12 @@ export const INTERIOR_PER_N0 = 4;
  * (tests/score/expand.test.ts caps dense at 2,500 too). */
 export const DENSE_TARGET = 2000;
 export const DENSE_MAX = 2500;
-const DENSE_RETRIES = 4;
+/** The lower edge of the §7.8 test band. */
+export const DENSE_MIN = 1500;
 const DENSE_FLOOR_TARGET = 200;
+const DENSE_BISECT_STEPS = 8;
+const COVER_RADIUS_GROWTH = 1.25;
+const COVER_RADIUS_TRIES = 24;
 /** Spec §7.4 step 1: hexagonal packing at spacing s needs about 0.866·s² per point; δ₀ factor 0.9. */
 export const HEX_PACKING = 0.866;
 export const DELTA0_FACTOR = 0.9;
@@ -566,6 +570,55 @@ function coverFilledCells(mask: Mask2D, region: Region2D, points: Pt2[], radius:
   }
 }
 
+/**
+ * Dense (spec §7.8): the fixed-offset lattice plus the coverage pass, kept within the cap and, where it
+ * can be, inside the band [DENSE_MIN, DENSE_MAX].
+ * - The lattice target starts at DENSE_TARGET. Coverage of long thin parts can push the count over the
+ *   cap, so the target is bisected over [DENSE_FLOOR_TARGET, DENSE_TARGET] (fewer lattice points also
+ *   mean a wider coverage radius, so the count falls with the target): the first result inside the band
+ *   wins, otherwise the largest one under the cap.
+ * - If even the floor target is over the cap, coverage alone is too many points at that radius: the set
+ *   is rebuilt by coverage alone with a growing radius until it fits. Every filled, contained cell then
+ *   still has a dense point within the reported spacing (no stride thin, which could leave cells bare).
+ *   No comb or thin-stroke scene probed so far reaches this branch; it is a safety net, exported so a
+ *   test can drive it with a hand-built mask.
+ */
+export function denseSet(mask: Mask2D, region: Region2D, area: number): { points: Pt2[]; spacing: number } {
+  const build = (target: number): { points: Pt2[]; spacing: number } => {
+    const d = hexLattice(mask, region, area, target, 0.5, 0.5);
+    coverFilledCells(mask, region, d.points, d.spacing);
+    return d;
+  };
+  const first = build(DENSE_TARGET);
+  if (first.points.length <= DENSE_MAX) return first;
+  let lo = DENSE_FLOOR_TARGET;
+  let hi = DENSE_TARGET;
+  let underCap: { points: Pt2[]; spacing: number } | null = null;
+  const floor = build(lo);
+  if (floor.points.length <= DENSE_MAX) {
+    underCap = floor;
+    if (floor.points.length >= DENSE_MIN) return floor;
+    for (let t = 0; t < DENSE_BISECT_STEPS && hi - lo > 1; t++) {
+      const mid = Math.round((lo + hi) / 2);
+      const d = build(mid);
+      if (d.points.length > DENSE_MAX) { hi = mid; continue; }
+      if (d.points.length > underCap.points.length) underCap = d;
+      if (d.points.length >= DENSE_MIN) return d;
+      lo = mid;
+    }
+    return underCap;
+  }
+  let radius = floor.spacing;
+  let points: Pt2[] = [];
+  for (let t = 0; t < COVER_RADIUS_TRIES; t++) {
+    radius *= COVER_RADIUS_GROWTH;
+    points = [];
+    coverFilledCells(mask, region, points, radius);
+    if (points.length <= DENSE_MAX) break;
+  }
+  return { points, spacing: radius };
+}
+
 // ---------------------------------------------------------------- sampling
 
 /** The part deciding a point (the last part containing it, any operation), or -1. */
@@ -727,20 +780,7 @@ export function sample2d(scene: SceneSpec2D, region: Region2D, mask: Mask2D, opt
   // Dense: from the region alone (spec §7.8), a fixed-offset lattice, never from candidates or slots,
   // then a row-major coverage pass so a part thinner than the lattice spacing (or a kept speck) is not
   // missed: any filled cell with no dense point within one spacing adds its centre.
-  // Coverage can push the count over the §7.8 cap (many long thin parts), so the lattice target is
-  // lowered by the excess and the pair rebuilt; a deterministic stride thin is the last resort.
-  let denseTarget = DENSE_TARGET;
-  let dense = hexLattice(mask, region, area, denseTarget, 0.5, 0.5);
-  coverFilledCells(mask, region, dense.points, dense.spacing);
-  for (let t = 0; t < DENSE_RETRIES && dense.points.length > DENSE_MAX; t++) {
-    denseTarget = Math.max(DENSE_FLOOR_TARGET, denseTarget - (dense.points.length - DENSE_TARGET));
-    dense = hexLattice(mask, region, area, denseTarget, 0.5, 0.5);
-    coverFilledCells(mask, region, dense.points, dense.spacing);
-  }
-  if (dense.points.length > DENSE_MAX) {
-    const all = dense.points;
-    dense = { points: Array.from({ length: DENSE_MAX }, (_, k) => all[Math.floor((k * all.length) / DENSE_MAX)]), spacing: dense.spacing };
-  }
+  const dense = denseSet(mask, region, area);
 
   const counts: Record<CandidateSource, number> = { boundary: 0, interior: 0, feature: 0 };
   for (const c of candidates) counts[c.source]++;

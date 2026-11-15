@@ -5,7 +5,7 @@
 // candidate order a deterministic function of the scene (and the seeded stream), dense 2000 ± 500.
 import { describe, it, expect } from 'vitest';
 import {
-  sample2d, traceContours, foregroundRGB, delta0, interiorTarget,
+  sample2d, traceContours, foregroundRGB, delta0, interiorTarget, denseSet,
   BOUNDARY_STEP_DIVISOR, DENSE_TARGET, INTERIOR_MIN,
   type Sample2DResult, type Candidate2D,
 } from '../../../src/score/generated/sample2d';
@@ -610,6 +610,83 @@ describe('sparse and thin scenes (orchestrator review of #257)', () => {
       }
       expect(of(r, 'interior').map(xy)).toEqual(ref);
     }
+  });
+});
+
+describe('dense on thin combs (#257 follow-ups)', () => {
+  /** 24 combs across [-1.1, 1.1]: each a base strip plus `teeth` vertical teeth (the review's repro scenes). */
+  const combs = (tooth: number, gap: number, teeth: number, top: number): Prepared => {
+    const r4 = (v: number): number => Math.round(v * 1e4) / 1e4;
+    const parts: Shape2D[] = [];
+    for (let k = 0; k < 24; k++) {
+      const x0 = r4(-1.1 + (k * 2.2) / 24);
+      const pts: [number, number][] = [[x0, -1.1], [r4(x0 + teeth * tooth + (teeth - 1) * gap), -1.1]];
+      for (let t = teeth - 1; t >= 0; t--) {
+        const right = r4(x0 + t * (tooth + gap) + tooth);
+        const left = r4(x0 + t * (tooth + gap));
+        pts.push([right, top], [left, top]);
+        if (t > 0) pts.push([left, r4(-1.1 + tooth)], [r4(left - gap), r4(-1.1 + tooth)]);
+      }
+      parts.push(part(`c0_${k}`, { type: 'polygon', points: pts }));
+    }
+    return prepare(scene(parts));
+  };
+  /** Filled, contained cells with no dense point within r (stamped from each dense point). */
+  const uncovered = (p: Prepared, dense: [number, number, number][], r: number): number => {
+    const n = p.mask.size;
+    const covered = new Uint8Array(n * n);
+    const reach = Math.ceil(r / p.mask.cell) + 1;
+    for (const d of dense) {
+      const ci = Math.floor((d[0] - p.mask.origin[0]) / p.mask.cell);
+      const cj = Math.floor((d[1] - p.mask.origin[1]) / p.mask.cell);
+      for (let j = Math.max(0, cj - reach); j <= Math.min(n - 1, cj + reach); j++) {
+        for (let i = Math.max(0, ci - reach); i <= Math.min(n - 1, ci + reach); i++) {
+          const c = cellCentre(p.mask, i, j);
+          if ((d[0] - c[0]) ** 2 + (d[1] - c[1]) ** 2 <= r * r) covered[j * n + i] = 1;
+        }
+      }
+    }
+    let missed = 0;
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) if (p.mask.bits[j * n + i] && !covered[j * n + i] && p.region.contains(cellCentre(p.mask, i, j))) missed++;
+    }
+    return missed;
+  };
+
+  it.each([
+    ['the low comb (4 teeth of 0.0058, gaps 0.0083)', 0.0058, 0.0083, 4, 1.0563],
+    ['the thin comb (3 teeth of 0.0025, gaps 0.0181)', 0.0025, 0.0181, 3, 1.052],
+  ])('%s: dense inside the 1,500–2,500 band with every filled cell covered', (_label, tooth, gap, teeth, top) => {
+    const p = combs(tooth, gap, teeth, top);
+    const r = run(p);
+    expect(r.dense.length).toBeGreaterThanOrEqual(1500);
+    expect(r.dense.length).toBeLessThanOrEqual(2500);
+    expect(uncovered(p, r.dense, r.stats.denseSpacing + 1e-9)).toBe(0);
+  });
+
+  it('a denser comb (6 teeth of 0.004) also lands in the band with every filled cell covered', () => {
+    const p = combs(0.004, 0.006, 6, 1.05);   // the merged code gave 686 dense points here
+    const r = run(p);
+    expect(r.dense.length).toBeGreaterThanOrEqual(1500);
+    expect(r.dense.length).toBeLessThanOrEqual(2500);
+    expect(uncovered(p, r.dense, r.stats.denseSpacing + 1e-9)).toBe(0);
+  });
+
+  it('when coverage alone overflows the cap, the set is rebuilt at a wider radius that still covers every cell', () => {
+    // 3,000 isolated cells, six cells apart: farther apart than the floor lattice's coverage radius, so
+    // coverage alone needs a point per cell, over the cap. A unit frame contains every cell centre.
+    const region = buildRegion2D(scene([part('frame', { type: 'polygon', points: [[-1.1, -1.1], [1.1, -1.1], [1.1, 1.1], [-1.1, 1.1]] })]));
+    const size = 512;
+    const bits = new Uint8Array(size * size);
+    let placed = 0;
+    for (let j = 10; j < size - 10 && placed < 3000; j += 6) for (let i = 10; i < size - 10 && placed < 3000; i += 6) { bits[j * size + i] = 1; placed++; }
+    const mask: Mask2D = { size, cell: 2.4 / size, origin: [-1.2, -1.2], bits, normalise: { scale: 1, centre: [0, 0] } };
+    const d = denseSet(mask, region, placed * mask.cell * mask.cell);
+    expect(placed).toBe(3000);
+    expect(d.points.length).toBeLessThanOrEqual(2500);
+    expect(d.points.length).toBeGreaterThan(0);
+    const p: Prepared = { scene: scene([]), region, mask };
+    expect(uncovered(p, d.points.map((q): [number, number, number] => [q[0], q[1], 0]), d.spacing + 1e-9)).toBe(0);
   });
 });
 
