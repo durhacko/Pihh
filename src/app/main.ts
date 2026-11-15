@@ -26,7 +26,7 @@ import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend } from './ui/Legend';
 import { createDisrupt, createHelp, createLenses, createMetrics, type PopoverContext } from './ui/popovers';
-import { armPhase, createReadout } from './ui/Readout';
+import { armPhase, createReadout, type ArmPhase } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
 import { connectTimeline } from './ui/Timeline';
@@ -509,11 +509,11 @@ function refreshChrome(): void {
     deaf: snaps[legendArm].drones.filter(d => d.alive && d.belief.deaf).length, partitions: snaps[legendArm].partitions.length,
     ghosts: ghostCounts(legendArm),
   });
-  const label = (name: string, desc: string, sample: MetricsSample | null) => [h('span', { class: 'name' }, name), h('span', { class: 'desc' }, desc), h('span', { class: 'num' }, `nPWC ${sample?.npwc === null || sample?.npwc === undefined ? '—' : sample.npwc.toFixed(3)}`)];
+  const label = (name: string, desc: string, sample: MetricsSample | null, phase: ArmPhase | null) => [h('span', { class: 'name' }, name), h('span', { class: 'desc' }, desc), h('span', { class: 'num', style: phase && !phase.inHold ? { color: 'var(--text-3)' } : undefined }, `nPWC ${sample?.npwc === null || sample?.npwc === undefined ? '—' : sample.npwc.toFixed(3)}${phase && !phase.inHold ? ' · in transition, measured against the new formation' : ''}`)];
   if (view === 'split') {
-    vpTop.replaceChildren(...label('▲ ENCORE', 'decentralised, self-healing', samples.encore));
-    vpBottom.replaceChildren(...label('▼ STATIC', 'pre-programmed baseline · sends no radio', samples.static));
-  } else if (view === 'static') vpTop.replaceChildren(...label('STATIC', 'pre-programmed baseline · sends no radio', samples.static));
+    vpTop.replaceChildren(...label('▲ ENCORE', 'decentralised, self-healing', samples.encore, phases.encore));
+    vpBottom.replaceChildren(...label('▼ STATIC', 'pre-programmed baseline · sends no radio', samples.static, phases.static));
+  } else if (view === 'static') vpTop.replaceChildren(...label('STATIC', 'pre-programmed baseline · sends no radio', samples.static, phases.static));
   if (surfaces.isOpen('metrics')) metrics.render();
   if (surfaces.isOpen('timeline')) timeline.update();
   if (surfaces.isOpen('composer')) composer.render();
