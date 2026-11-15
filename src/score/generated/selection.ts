@@ -1,13 +1,14 @@
 // src/score/generated/selection.ts
 // GF-WP-06 (#212): shared selection of exactly n0 candidates with closest pair ≥ δ (canonical spec
 // docs/integrations/gemini-generated-formations.md §7.4): initial spacing δ₀, protected reservations
-// (kMin), the fill (3D: greedy Q(p) with the rear-side floor, §7.3 step 5), and the one canonical
-// spacing search over δ in three phases. Ordering (FPS, §7.5) and placement (§7.6) happen after this.
+// (kMin), the 2D boundary quota on contours, the fill (2D: farthest-point; 3D: greedy Q(p) with the
+// rear-side floor, §7.3 step 5), and the one canonical spacing search over δ in three phases.
+// Ordering (FPS, §7.5) and placement (§7.6) happen after this.
 //
 // Everything is in normalised scene units (the longer side of the union box spans [-1.1, 1.1], §7.2
 // step 2), so a scene and its half-size copy select alike. Pure and deterministic (§7.12): index-order
 // iteration, ties to the lowest index, arithmetic and Math.sqrt only, no randomness, no clock.
-import { REAR_FLOOR, rankQ } from './sample3d';
+import { apportion, REAR_FLOOR, rankQ } from './sample3d';
 import type { Vec3 } from './types';
 
 /** §7.4 step 2: a protected part is reserved only if uniform fill would give it fewer than this. */
@@ -32,18 +33,23 @@ export interface SelectionCandidate {
   readonly importance: number;
   /** 3D only: V(p) = max(0, n · v_ref) (§7.3 step 4). */
   readonly visibility?: number;
+  /** 2D boundary only: arc length from its contour's fixed start (§7.4 step 3). */
+  readonly arc?: number;
 }
 
 export interface SelectionPart {
   readonly id: string;
   readonly importance: number;
-  /** importance ≥ 4 (§6.2, §6.3). */
+  /** importance ≥ 4 (§6.2, §6.3); in 2D a union part only. */
   readonly protected: boolean;
   /** The part's share of the filled area (2D) or of the exposed surface (3D), Σ over parts = 1. */
   readonly share: number;
   /** 2D only: length of the part's feature line (§7.4 step 2, length_f). */
   readonly featureLength?: number;
 }
+
+/** 2D: one contour's boundary candidates are candidates[first … first + count − 1], in arc order (§7.4 step 3). */
+export interface SelectionContour { readonly length: number; readonly first: number; readonly count: number }
 
 export interface SelectionInput {
   readonly mode: 'silhouette2d' | 'scene3d';
@@ -52,6 +58,8 @@ export interface SelectionInput {
   /** A of §7.4 step 1, in normalised units: filled area (2D) or exposed surface area (3D). */
   readonly area: number;
   readonly n0: number;
+  /** 2D only: the contours (outer, holes, components) for the boundary quota. */
+  readonly contours?: readonly SelectionContour[];
 }
 
 /** The three phases of §7.4 step 5, in order; each later one is a permitted simplification (§7.11 steps 3, 4). */
@@ -69,6 +77,8 @@ export type SelectionOutcome =
     reserved: number[];
     /** Selected slots with V = 0, and the floor that was asked for (3D; 0 in 2D). */
     rear: { selected: number; floor: number };
+    /** 2D: the boundary quota q asked for and the boundary slots placed by the quota step, per contour. */
+    boundary: { quota: number; perContour: number[]; placed: number[] };
   }
   | { ok: false; code: 'empty-geometry' | 'too-few-candidates' | 'infeasible-count'; detail: string };
 
@@ -105,7 +115,19 @@ export function reservationTargets(input: SelectionInput, delta: number, phase: 
   return targets;
 }
 
-interface Run { ok: boolean; selected: number[]; rear: number }
+/**
+ * §7.4 step 3, the boundary quota for one δ: q = min(⌊35%·n0⌋ − reserved, ⌊perimeter / δ⌋), split across the
+ * contours in proportion to length by largest remainder, ties to the lower contour index. One budget, applied
+ * once: `reserved` is the number of reservation slots actually placed.
+ */
+export function boundaryQuota(contours: readonly SelectionContour[], n0: number, delta: number, reserved: number): { quota: number; perContour: number[] } {
+  const perimeter = contours.reduce((s, c) => s + c.length, 0);
+  const budget = Math.max(0, Math.floor(FEATURE_BUDGET_SHARE * n0) - reserved);
+  const quota = Math.max(0, Math.min(budget, Math.floor(perimeter / delta)));
+  return { quota, perContour: apportion(quota, contours.map((c) => c.length)) };
+}
+
+interface Run { ok: boolean; selected: number[]; rear: number; boundary: { quota: number; perContour: number[]; placed: number[] } }
 
 /** One selection at a fixed δ and phase. Returns ok only if it reaches exactly n0. */
 function runAt(input: SelectionInput, delta: number, phase: SelectionPhase, targets: number[], rearFloor: number): Run {
@@ -115,7 +137,9 @@ function runAt(input: SelectionInput, delta: number, phase: SelectionPhase, targ
   const taken = new Uint8Array(count);
   const selected: number[] = [];
   const delta2 = delta * delta;
+  const twoD = input.mode === 'silhouette2d';
   let rear = 0;
+  const boundary = { quota: 0, perContour: [] as number[], placed: [] as number[] };
 
   const add = (c: number) => {
     taken[c] = 1;
@@ -144,8 +168,19 @@ function runAt(input: SelectionInput, delta: number, phase: SelectionPhase, targ
     }
     return best;
   };
+  /** 2D farthest-point pick (§7.4 step 4): the eligible candidate farthest from the selection; ties to the lowest index. */
+  const farthest = (admit: (i: number) => boolean): number => {
+    let best = -1;
+    let bestD = -1;
+    for (let i = 0; i < count; i++) {
+      if (!eligible(i) || !admit(i)) continue;
+      if (nearest2[i] > bestD) { bestD = nearest2[i]; best = i; }
+    }
+    return best;
+  };
 
   // §7.4 step 2: reservations first, served in w_f order (reservationTargets already capped them to the budget).
+  // 3D: greedy Q on the part's own candidates; 2D: farthest-point along the part's feature candidates.
   const serve = targets.map((t, i) => ({ i, t })).filter(({ t }) => t > 0)
     .sort((a, b) => {
       const pa = input.parts[a.i];
@@ -154,12 +189,48 @@ function runAt(input: SelectionInput, delta: number, phase: SelectionPhase, targ
     });
   for (const { i: part, t } of serve) {
     for (let k = 0; k < t && selected.length < n0; k++) {
-      const c = bestQ((j) => candidates[j].part === part);
+      const c = twoD
+        ? farthest((j) => candidates[j].part === part && candidates[j].source === 'feature')
+        : bestQ((j) => candidates[j].part === part);
       if (c < 0) break;              // the part ends below its target; the compiler reports feature-starved
       add(c);
     }
   }
-  void phase;
+
+  if (twoD) {
+    // §7.4 step 3: the boundary quota, at arc steps L_c / q_c from each contour's fixed start; a position is taken
+    // only if it is ≥ δ from everything selected, otherwise the next candidate in arc order is tried.
+    const contours = input.contours ?? [];
+    if (phase !== 'boundary-dropped' && contours.length > 0) {
+      const quota = boundaryQuota(contours, n0, delta, selected.length);
+      boundary.quota = quota.quota;
+      boundary.perContour = quota.perContour;
+      contours.forEach((contour, ci) => {
+        const q = quota.perContour[ci];
+        let placed = 0;
+        let cursor = contour.first;
+        const end = contour.first + contour.count;
+        for (let j = 0; j < q && selected.length < n0; j++) {
+          const target = (j * contour.length) / q;
+          while (cursor < end && (candidates[cursor].arc ?? 0) < target) cursor++;
+          let c = cursor;
+          while (c < end && !eligible(c)) c++;
+          if (c >= end) break;
+          add(c);
+          placed++;
+          cursor = c + 1;
+        }
+        boundary.placed.push(placed);
+      });
+    }
+    // §7.4 step 4, 2D: farthest-point selection over the remaining candidates, seeded with the points chosen.
+    while (selected.length < n0) {
+      const c = farthest(() => true);
+      if (c < 0) return { ok: false, selected, rear, boundary };
+      add(c);
+    }
+    return { ok: true, selected, rear, boundary };
+  }
 
   // §7.4 step 4, 3D: greedy Q(p) with the rear-side floor. Rear (V = 0) picks are interleaved: the next pick must be
   // a rear one while the rear count is below ⌊floor share · (picks + 1)⌋, or when the slots left are no more than the
@@ -171,17 +242,18 @@ function runAt(input: SelectionInput, delta: number, phase: SelectionPhase, targ
     let c = -1;
     if (deficit > 0 && (behind || n0 - selected.length <= deficit)) c = bestQ((j) => candidates[j].visibility === 0);
     if (c < 0) c = bestQ(() => true);
-    if (c < 0) return { ok: false, selected, rear };
+    if (c < 0) return { ok: false, selected, rear, boundary };
     add(c);
   }
-  return { ok: true, selected, rear };
+  return { ok: true, selected, rear, boundary };
 }
 
 /**
- * §7.4 step 5, the one canonical spacing search. Per phase: test 0.35·δ₀ first; if it fails the phase fails
- * (a larger δ is harder). Otherwise bisect over [0.35·δ₀, δ₀] for 10 steps and keep the largest tested δ that
- * reaches n0. Phases in order: full quotas, reservations relaxed to one slot each, boundary quota zero (2D only;
- * in 3D there is no boundary quota, so that phase would repeat the second and is skipped). No phase: infeasible-count.
+ * §7.4 step 5, the one canonical spacing search (a heuristic that assumes feasibility is monotone in δ). Per phase:
+ * test 0.35·δ₀ first; if it fails the phase fails. Otherwise bisect over [0.35·δ₀, δ₀] for 10 steps and keep the
+ * largest tested δ that reaches n0. Phases in order: full quotas, reservations relaxed to one slot each, boundary
+ * quota zero (2D only; in 3D there is no boundary quota, so that phase would repeat the second and is skipped).
+ * No phase: infeasible-count.
  */
 export function selectSlots(input: SelectionInput): SelectionOutcome {
   const { candidates, n0, area } = input;
@@ -191,13 +263,10 @@ export function selectSlots(input: SelectionInput): SelectionOutcome {
   if (candidates.length < n0) {
     return { ok: false, code: 'too-few-candidates', detail: `${candidates.length} candidates for ${n0} slots` };
   }
-  if (input.mode === 'silhouette2d') {
-    // The 2D fill (boundary quota on contours, farthest-point fill) arrives with GF-WP-04's candidates (#207).
-    return { ok: false, code: 'infeasible-count', detail: '2D selection is not available yet (GF-WP-04)' };
-  }
+  const twoD = input.mode === 'silhouette2d';
   const delta0 = initialSpacing(area, n0);
-  const rearFloor = Math.ceil(REAR_FLOOR * n0);
-  const phases: SelectionPhase[] = ['full', 'reservations-relaxed'];
+  const rearFloor = twoD ? 0 : Math.ceil(REAR_FLOOR * n0);
+  const phases: SelectionPhase[] = twoD ? ['full', 'reservations-relaxed', 'boundary-dropped'] : ['full', 'reservations-relaxed'];
   for (const phase of phases) {
     const lo = DELTA_LOW * delta0;
     const attempt = (delta: number) => {
@@ -216,7 +285,7 @@ export function selectSlots(input: SelectionInput): SelectionOutcome {
     }
     return {
       ok: true, selected: best.run.selected, delta: bestDelta, delta0, phase, reserved: best.targets,
-      rear: { selected: best.run.rear, floor: rearFloor },
+      rear: { selected: best.run.rear, floor: rearFloor }, boundary: best.run.boundary,
     };
   }
   return { ok: false, code: 'infeasible-count', detail: `no spacing in [${DELTA_LOW}·δ₀, δ₀] reaches ${n0} slots (δ₀ = ${delta0})` };

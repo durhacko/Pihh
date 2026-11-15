@@ -11,6 +11,7 @@ import {
   validateScene, type CompileResult, type SceneSpec,
 } from '../../../src/score/generated';
 import { checkPlacement, placeP1, WORLD_LIMIT } from '../../../src/score/generated/placement';
+import { foregroundRGB } from '../../../src/score/generated/sample2d';
 import {
   BISECTION_STEPS, DELTA_LOW, FEATURE_BUDGET_SHARE, initialSpacing, K_MIN, reservationTargets, selectSlots,
   type SelectionCandidate, type SelectionInput,
@@ -22,6 +23,10 @@ const load = (name: string) => JSON.parse(readFileSync(new URL(name, fixtureDir)
 const VALID = readdirSync(fixtureDir).filter((f) => f.startsWith('valid-') && f.endsWith('.json')).sort();
 const VALID_3D = VALID.filter((f) => f.startsWith('valid-3d-'));
 const VALID_2D = VALID.filter((f) => f.startsWith('valid-2d-'));
+/** Tall 2D subjects (H²/A above about 4.5, spec §7.6): below-floor at n0 = 200 until layering (simplification 5) lands. */
+const TALL_2D = ['valid-2d-path-auto-closed.json', 'valid-2d-rocket.json'];
+/** Every (fixture, n0) that compiles ok: all valid fixtures at 40, all but the tall 2D ones at 200. */
+const CASES = VALID.flatMap((f) => (TALL_2D.includes(f) ? [[f, 40]] : [[f, 40], [f, 200]]) as [string, number][]);
 type Ok = Extract<CompileResult, { ok: true }>;
 type Fail = Extract<CompileResult, { ok: false }>;
 
@@ -67,6 +72,20 @@ const sphereScene = (rgb: [number, number, number], radius = 0.8, center: Vec3 =
 // together, deliberately, and say why in the PR.
 const GOLDEN_VERSION = 1;
 const SLOTS_DIGEST_GOLDEN: Record<string, string> = {
+  'valid-2d-annulus.json|40': '016d5abf4fa6cca39232194ad5d13fbf8a3777afe1c74412c94bbfa8d1846322',
+  'valid-2d-annulus.json|200': '6fc698fd37436fd7eafa50209f96f0c4ceb0e4025f9d449fc75bb6a2f4fbdc64',
+  'valid-2d-disc.json|40': 'b1352f3cd2d44e532347697473d9fd9065e345e7bc602a3726043adbb1a3b126',
+  'valid-2d-disc.json|200': '5490ac3a7fc25b897723a351127fea832daf5a56d37cacc07980350c8cca3813',
+  'valid-2d-elephant-excerpt.json|40': 'd9cb83d2ea5528f6233b5d8a2ae53489cf56d26360682c9eac8edf59a3cb44bc',
+  'valid-2d-elephant-excerpt.json|200': '4011b2e7ab25b8d4a40b6b49894dda03622cf6312aaa9441c3942a07e54fef36',
+  'valid-2d-elephant.json|40': '0694bfcbd3cd674e5f8d7ccaae7cb05090878bf993299e380313ec881b3c2f1f',
+  'valid-2d-elephant.json|200': '15a0ce350c238d7d50513edeb7cd832c13beab374daed73234efeaef4a03f522',
+  'valid-2d-heart.json|40': '638aeb3ff2391c9a383ce4afaf7180a95ea2a2a45a5bf4925a1e693f01abf69a',
+  'valid-2d-heart.json|200': '3e69767a63ee1b799d843b1a017a7cc43e6dda360c4797ad131ea2128085820e',
+  'valid-2d-path-auto-closed.json|40': 'ba4e29e80772030b595a3c8c2a90162cefd9480cb0bfb3d132b3e0056f69f946',
+  'valid-2d-rocket.json|40': '0317a5a58ab56876538d12a918738bbbbabde77bfd8fd5137487f83f93118a2b',
+  'valid-2d-two-blobs.json|40': 'ca8cd51e783fc5fa60a1d6618e5e5efedd056281a8e4c6868596b474d35e28f0',
+  'valid-2d-two-blobs.json|200': 'b976bc37f652a5d0d127a5dfff7ba96906bfe998475ed1ea0ab465eb4ec355b4',
   'valid-3d-elephant-excerpt-x.json|40': 'b51e2db2efd29a940b231389520166e95cbc206a1c38011631e984efef435305',
   'valid-3d-elephant-excerpt-x.json|200': '543f67e6ff94b382bf07b67594e31e6309355e5cc0ceb07c2104e8b80b26a286',
   'valid-3d-elephant.json|40': 'f8c89576dadc217fbd626b76ff3feb43b77c46374df3fb5d66efa9027dac97fa',
@@ -84,19 +103,47 @@ const SLOTS_DIGEST_GOLDEN: Record<string, string> = {
 };
 
 describe('GF-T16: exactly n0 slots in farthest-point order', () => {
-  it.each(VALID_3D.flatMap((f) => [[f, 40], [f, 200]] as const))('%s at n0 = %i', (f, n0) => {
+  it.each(CASES)('%s at n0 = %i', (f, n0) => {
     const r = ok(compiled(f, n0));
     const slots = r.formation.slots;
     expect(slots).toHaveLength(n0);
     expect(slots.map((s) => s.index)).toEqual(Array.from({ length: n0 }, (_, i) => i));
     expect(new Set(slots.map((s) => s.pos.join(','))).size).toBe(n0);
-    // FPS over the selected set (the placed slots are a uniform scale and translation of it): the order is the identity.
-    expect(farthestPointOrder(slots.map((s) => s.pos), n0)).toEqual(Array.from({ length: n0 }, (_, i) => i));
+    // FPS over the selected set, checked as the defining property on the placed slots (a uniform scale and
+    // translation of the unit-space selection): slot 0 is nearest the centroid, and each slot k is at least as far
+    // from slots 0…k−1 as any later slot is. A tolerance of 1e-6 m absorbs placement rounding: the 2D lattice has
+    // exact distance ties, which rounding can reorder, so exact identity of farthestPointOrder is not required.
+    const pos = slots.map((s) => s.pos);
+    const tol = 1e-6;
+    const centroid = [0, 1, 2].map((a) => pos.reduce((sum, p) => sum + p[a], 0) / n0);
+    const toCentroid = pos.map((p) => d(p, centroid));
+    expect(toCentroid[0]).toBeLessThanOrEqual(Math.min(...toCentroid) + tol);
+    const nearest = pos.map((p) => d(p, pos[0]));
+    for (let k = 1; k < n0; k++) {
+      let farthest = 0;
+      for (let j = k; j < n0; j++) farthest = Math.max(farthest, nearest[j]);
+      expect(nearest[k], `slot ${k}`).toBeGreaterThanOrEqual(farthest - tol);
+      for (let j = k + 1; j < n0; j++) nearest[j] = Math.min(nearest[j], d(pos[j], pos[k]));
+    }
+  });
+
+  it('pins the 3D warnings (code, partId, order) to what #259 shipped: the 2D refactor must not change them', () => {
+    // Captured from the merged #259 head (01372ad) before the shared finish() refactor.
+    const pin = (f: string, n0: number) => ok(compiled(f, n0)).warnings.map((w) => [w.code, w.partId ?? null]);
+    expect(pin('valid-3d-elephant.json', 200)).toEqual([['feature-starved', 'tusk~m'], ['dark-light-may-vanish', 'eyes']]);
+    expect(pin('valid-3d-sphere.json', 40)).toEqual([['reserved-colour', 'white']]);
+  });
+
+  it('3D fixtures: farthestPointOrder over the placed slots is exactly the identity (no lattice ties)', () => {
+    for (const f of VALID_3D) {
+      const slots = ok(compiled(f, 200)).formation.slots;
+      expect(farthestPointOrder(slots.map((s) => s.pos), 200), f).toEqual(Array.from({ length: 200 }, (_, i) => i));
+    }
   });
 });
 
 describe('GF-T17: spacing, finiteness and colour', () => {
-  it.each(VALID_3D.flatMap((f) => [[f, 40], [f, 200]] as const))('%s at n0 = %i', (f, n0) => {
+  it.each(CASES)('%s at n0 = %i', (f, n0) => {
     const r = ok(compiled(f, n0));
     const params = makeParams(n0);
     const slots = r.formation.slots;
@@ -104,7 +151,9 @@ describe('GF-T17: spacing, finiteness and colour', () => {
     expect(cp).toBeGreaterThanOrEqual(params.slotSpacingMin);
     expect(cp).toBeLessThanOrEqual(params.slotSpacingMin * 1.01);
     expect(r.stats.closestPair).toBeCloseTo(cp, 9);
-    const materials = (load(f) as Extract<SceneSpec, { mode: 'scene3d' }>).materials.map((m) => m.rgb.join(','));
+    const scene = load(f);
+    // 3D: a material's rgb; 2D: the foreground (hex as /255), passed through unchanged until GF-D6 (CR-33).
+    const materials = scene.mode === 'scene3d' ? scene.materials.map((m) => m.rgb.join(',')) : [foregroundRGB(scene.foreground).join(',')];
     for (const s of slots) {
       for (const v of [...s.pos, ...s.colour]) expect(Number.isFinite(v)).toBe(true);
       for (const c of s.colour) expect(c >= 0 && c <= 1).toBe(true);
@@ -127,7 +176,7 @@ describe('GF-T17: spacing, finiteness and colour', () => {
 });
 
 describe('GF-T18: bounds, altitude and caps as validation, never clamps', () => {
-  it.each(VALID_3D.flatMap((f) => [[f, 40], [f, 200]] as const))('%s at n0 = %i', (f, n0) => {
+  it.each(CASES)('%s at n0 = %i', (f, n0) => {
     const r = ok(compiled(f, n0));
     const { slots, dense, bounds } = r.formation;
     expect(dense.length).toBeGreaterThanOrEqual(1500);
@@ -197,12 +246,12 @@ describe('§7.9 post-placement checks: never a breached ok', () => {
 });
 
 describe('GF-T19: determinism', () => {
-  it('has a committed slotsDigest golden per valid 3D fixture at n0 40 and 200, under the same COMPILER_VERSION', () => {
+  it('has a committed slotsDigest golden per accepted (fixture, n0), 2D and 3D, under the same COMPILER_VERSION', () => {
     expect(COMPILER_VERSION, 'bump GOLDEN_VERSION and the goldens together with COMPILER_VERSION').toBe(GOLDEN_VERSION);
     const actual: Record<string, string> = {};
-    for (const f of VALID_3D) for (const n0 of [40, 200]) actual[`${f}|${n0}`] = ok(compiled(f, n0)).slotsDigest;
+    for (const [f, n0] of CASES) actual[`${f}|${n0}`] = ok(compiled(f, n0)).slotsDigest;
     expect(actual).toEqual(SLOTS_DIGEST_GOLDEN);
-    for (const f of VALID_3D) {
+    for (const f of [...VALID_3D, ...VALID_2D.filter((x) => !TALL_2D.includes(x))]) {
       const r = ok(compiled(f, 200));
       expect(r.slotsDigest).toBe(slotsDigest(r.formation, 200, 1.5));
       expect(r.compilerVersion).toBe(COMPILER_VERSION);
@@ -337,6 +386,61 @@ describe('GF-T15 (3): mirror-x on a scene symmetric by construction', () => {
   });
 });
 
+describe('2D path (GF-WP-04 candidates through the shared selection)', () => {
+  it.each([['valid-2d-annulus.json', 40], ['valid-2d-annulus.json', 200], ['valid-2d-two-blobs.json', 40], ['valid-2d-two-blobs.json', 200], ['valid-2d-disc.json', 200]] as const)(
+    'GF-T08 boundary split: %s at n0 = %i splits the one 35% budget across contours by length (largest remainder)', (f, n0) => {
+      const r = ok(compiled(f, n0));
+      const b = r.stats.boundary!;
+      expect(b.perContour.reduce((s, v) => s + v, 0)).toBe(b.quota);
+      expect(b.quota).toBeLessThanOrEqual(Math.floor(0.35 * n0));
+      for (let c = 0; c < b.placed.length; c++) expect(b.placed[c]).toBeLessThanOrEqual(b.perContour[c]);
+      expect(r.stats.candidates.boundary).toBeGreaterThan(0);
+      expect(r.stats.candidates.interior).toBeGreaterThanOrEqual(0.97 * 1500);   // sample2d's lattice tolerance is 3%
+    });
+
+  it('splits by contour length: the annulus outer ring gets more than its hole, the two equal blobs the same (±1)', () => {
+    for (const n0 of [40, 200]) {
+      const annulus = ok(compiled('valid-2d-annulus.json', n0)).stats.boundary!;
+      expect(annulus.perContour).toHaveLength(2);
+      expect(annulus.perContour[0]).toBeGreaterThan(annulus.perContour[1]);
+      expect(annulus.placed).toEqual(annulus.perContour);
+      const blobs = ok(compiled('valid-2d-two-blobs.json', n0)).stats.boundary!;
+      expect(Math.abs(blobs.perContour[0] - blobs.perContour[1])).toBeLessThanOrEqual(1);
+      expect(blobs.placed).toEqual(blobs.perContour);
+    }
+  });
+
+  it('GF-T08 mask components: two blobs warn disconnected; with rClaim they are repair-confined', () => {
+    const r = ok(compiled('valid-2d-two-blobs.json', 200));
+    expect(codes(r)).toEqual(expect.arrayContaining(['disconnected', 'repair-confined']));
+    expect(codes(ok(compiled('valid-2d-disc.json', 200)))).not.toContain('disconnected');
+  });
+
+  it('GF-T09 (2D part): protected union parts reach kMin or are named feature-starved; reservations are real at n0 = 200', () => {
+    const scene = load('valid-2d-elephant.json') as Extract<SceneSpec, { mode: 'silhouette2d' }>;
+    for (const n0 of [40, 200]) {
+      const r = ok(compiled('valid-2d-elephant.json', n0));
+      const starved = new Set(r.warnings.filter((w) => w.code === 'feature-starved').map((w) => w.partId));
+      for (const part of scene.parts.filter((p) => p.operation === 'union' && p.priority >= 4)) {
+        if (r.stats.perPart[part.id] < K_MIN) expect(starved.has(part.id), `${part.id} at n0 ${n0}`).toBe(true);
+      }
+    }
+    const big = ok(compiled('valid-2d-elephant.json', 200));
+    for (const id of ['trunk', 'tusk']) expect(big.stats.perPart[id], id).toBeGreaterThanOrEqual(K_MIN);
+  });
+
+  it('every 2D slot lies inside the silhouette region: no slot in a subtracted gap or a hole', () => {
+    for (const [f, n0] of CASES.filter(([x]) => x.startsWith('valid-2d-'))) {
+      const r = ok(compiled(f, n0));
+      for (const s of r.formation.slots) expect(Math.abs(s.pos[2] - r.formation.bounds.min[2])).toBeLessThan(1e-9);   // one plane, z constant
+    }
+    const annulus = ok(compiled('valid-2d-annulus.json', 200));
+    const c = [0, 1].map((a) => (annulus.formation.bounds.min[a] + annulus.formation.bounds.max[a]) / 2);
+    const inner = Math.min(...annulus.formation.slots.map((s) => Math.hypot(s.pos[0] - c[0], s.pos[1] - c[1])));
+    expect(inner).toBeGreaterThan(1.5);              // the hole stays empty of slots
+  });
+});
+
 describe('GF-T08 (compiler part): slot-graph components with edges ≤ rClaim (§8.11)', () => {
   const at = (positions: Vec3[]) => ({ slots: positions.map((pos, index) => ({ index, pos, colour: [1, 1, 1] as [number, number, number] })) });
 
@@ -409,13 +513,42 @@ function corpus(seed: number, count: number): SceneSpec[] {
   return out;
 }
 
+/** A seeded generator of V3-valid 2D scenes (GF-T41): ellipses, regular polygons, strokes, subtract parts, thin and tangent parts. */
+function corpus2D(seed: number, count: number): SceneSpec[] {
+  const next = sfc32(seed, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f);
+  const u = () => next() / 2 ** 32;
+  const pick = <T>(xs: readonly T[]): T => xs[Math.floor(u() * xs.length)];
+  const q = (v: number) => Math.round(v * 1e3) / 1e3;
+  const pt = (r = 0.9): [number, number] => [q(-r + u() * 2 * r), q(-r + u() * 2 * r)];
+  const out: SceneSpec[] = [];
+  for (let attempt = 0; out.length < count && attempt < count * 50; attempt++) {
+    const parts = Array.from({ length: 1 + Math.floor(u() * 6) }, (_, i) => {
+      const kind = pick(['ellipse', 'polygon', 'stroke', 'tangent'] as const);
+      const r = q(pick([0.01, 0.05, 0.15, 0.3, 0.6]) * (0.5 + u()));
+      const c = pt();
+      const geometry = kind === 'ellipse' ? { type: 'ellipse' as const, center: c, radii: [r, q(r * (0.3 + u()))] as [number, number], rotationDeg: pick([0, 30, 90]) }
+        : kind === 'polygon' ? { type: 'polygon' as const, points: ((sides: number) => Array.from({ length: sides }, (_, k): [number, number] => {
+          const a = (2 * Math.PI * k) / sides;
+          return [q(c[0] + r * Math.cos(a)), q(c[1] + r * Math.sin(a))];
+        }))(3 + Math.floor(u() * 6)) }
+          : kind === 'stroke' ? { type: 'stroke' as const, points: [c, pt(), pt(), pt()], width: q(pick([0.02, 0.05, 0.1])) }
+            : { type: 'ellipse' as const, center: [i % 2 ? 0.3 : -0.3, 0] as [number, number], radii: [0.3, 0.3] as [number, number] };   // tangent pair at x = 0
+      return { id: `p${i}`, operation: i > 0 && u() < 0.25 ? 'subtract' as const : 'union' as const, geometry, priority: 1 + Math.floor(u() * 5) };
+    });
+    const scene = { version: 1, mode: 'silhouette2d', title: `Fuzz2D ${out.length}`, view: 'front', foreground: pick(['#ffb000', '#30c0ff', '#ffffff']), parts } as SceneSpec;
+    if (validateScene(scene).ok) out.push(scene);
+  }
+  return out;
+}
+
 describe('GF-T41: totality', () => {
   const FUZZ_SEED = 20261115;
-  const cases = WIDE ? corpus(FUZZ_SEED, 60) : corpus(FUZZ_SEED, 10);
+  const cases = WIDE ? [...corpus(FUZZ_SEED, 60), ...corpus2D(FUZZ_SEED, 40)] : [...corpus(FUZZ_SEED, 10), ...corpus2D(FUZZ_SEED, 6)];
   const rosters = WIDE ? [1, 2, 40, 200] : [1, 2, 40];
 
-  it(`compiles ${WIDE ? 60 : 10} seeded valid scenes at n0 ∈ {${rosters}}: ok or a typed rejection, never a throw, never internal`, () => {
-    expect(cases.length).toBe(WIDE ? 60 : 10);
+  it(`compiles ${WIDE ? '60 3D + 40 2D' : '10 3D + 6 2D'} seeded valid scenes at n0 ∈ {${rosters}}: ok or a typed rejection, never a throw, never internal`, () => {
+    expect(cases.length).toBe(WIDE ? 100 : 16);
+    expect(cases.filter((s) => s.mode === 'silhouette2d').length).toBe(WIDE ? 40 : 6);
     const seen: Record<string, number> = {};
     for (const scene of cases) {
       for (const n0 of rosters) {
@@ -442,17 +575,29 @@ describe('GF-T41: totality', () => {
     expect(r.sceneHash).toBeNull();
   });
 
-  it('rejects bad n0 and slotSpacingMin as range, and 2D as unsupported-mode until GF-WP-04', () => {
+  it('rejects bad n0 and slotSpacingMin as range', () => {
     const scene = load('valid-3d-sphere.json');
     for (const n0 of [0, -1, 1.5, NaN, MAX_N0 + 1, 1e9]) expect(fail(compileGeneratedScene(scene, makeParams(40), n0)).code).toBe('range');
     for (const s of [0, -1, NaN, Infinity, MIN_SLOT_SPACING / 2]) expect(fail(compileGeneratedScene(scene, { n0: 40, slotSpacingMin: s }, 40)).code).toBe('range');
     expect(MAX_N0).toBe(1250);
     expect(compileGeneratedScene(scene, { n0: 40, slotSpacingMin: MIN_SLOT_SPACING }, 40).ok).toBe(true);
-    for (const f of VALID_2D) {
-      const r = fail(compileGeneratedScene(load(f), makeParams(40), 40));
-      expect(r.code).toBe('unsupported-mode');
-      expect(r.sceneHash).toBe(sceneHash(load(f)));
-    }
+  });
+
+  it.each(TALL_2D)('%s at n0 = 200 is a typed below-floor rejection, never clamped (layering, simplification 5, is pending)', (f) => {
+    const r = fail(compiled(f, 200));
+    expect(r.code).toBe('below-floor');
+    expect(r.sceneHash).toBe(sceneHash(load(f)));
+  });
+
+  it('a 2D scene whose union is covered by a later subtract is empty-geometry', () => {
+    const scene: SceneSpec = {
+      version: 1, mode: 'silhouette2d', title: 'Gone', view: 'front', foreground: '#ffb000',
+      parts: [
+        { id: 'disc', operation: 'union', geometry: { type: 'ellipse', center: [0, 0], radii: [0.5, 0.5] }, priority: 3 },
+        { id: 'cut', operation: 'subtract', geometry: { type: 'ellipse', center: [0, 0], radii: [0.9, 0.9] }, priority: 3 },
+      ],
+    };
+    expect(fail(compileGeneratedScene(scene, makeParams(40), 40)).code).toBe('empty-geometry');
   });
 
   it('maps validation failures to their codes (unsupported-version, reference, range)', () => {
