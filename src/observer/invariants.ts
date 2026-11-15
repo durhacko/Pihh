@@ -246,6 +246,7 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
       silenceOpen: true,
       silenceEnd: Infinity,
       excusedCommit: new Uint8Array(n0),
+      unjudgedCommit: new Uint8Array(n0),
       history: [] as { tick: number; pos: Vec3[]; alive: boolean[] }[],      // snapshots t - L .. t - 1, for vacancy evidence
       // per (receiver, slot): the last HB_KEEP distinct send ticks, enough to keep the newest one <= c - latencyMax
       hbHeard: new Int32Array(n0 * n0 * HB_KEEP).fill(-1),
@@ -287,9 +288,14 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
         state.unavailable.push({ inv, why: 'no registered score: slot positions and hold starts are unknown' });
         continue;
       }
+      if (!eventsRecorded && inv === 'INV-CONVERGE') {
+        // §2 item 4: without recorded events the contact model may only suppress. SET_LOSS is unseen, so a loss-1
+        // blackout would still count as contact and could raise a false stall: report unavailable, never derived.
+        state.unavailable.push({ inv, why: 'events not recorded: SET_LOSS and partition groups unseen, so truth contact could over-report' });
+        continue;
+      }
       state.checked.push(inv);
       if (!eventsRecorded && inv === 'INV-QUIET') state.derived.push({ inv, why: 'events not recorded: anchor derived from snapshot changes' });
-      if (!eventsRecorded && inv === 'INV-CONVERGE') state.derived.push({ inv, why: 'events not recorded: partitions from partitionSide, suppressed while two or more are active; SET_LOSS unseen, so loss stays params.loss (a loss-1 blackout would count as contact)' });
     }
     // Seeded from the preloaded version, so a version change on tick 1 itself is seen (an uplink lands the same tick).
     for (const d of first.drones) {
@@ -376,9 +382,10 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
   }
 
   /** Excuse (a) for a commit by d into v at c, on d's own evidence only. */
-  function commitExcused(d: DroneSnap, v: number, c: number): { ok: boolean; why: string } {
+  /** missing = an input the excuse needs is absent: the commit cannot be judged (reported unavailable, never a counterexample). */
+  function commitExcused(d: DroneSnap, v: number, c: number): { ok: boolean; why: string; missing?: boolean } {
     const score = scoreFor(d.belief.version);
-    if (!score) return { ok: false, why: `no registered score for version ${versionKey(d.belief.version)}` };
+    if (!score) return { ok: false, missing: true, why: `no registered score for version ${versionKey(d.belief.version)}` };
     // Inside the window every live drone flies one version (a second one ends the window), so score_d is the same
     // score on every scan tick below.
     const from = Math.max(1, c - params.tVacant - params.claimWindow);
@@ -386,7 +393,7 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
       if (s % params.hbPeriod !== d.id % params.hbPeriod) continue;
       const before = snapshotAt(s - 1);
       const p = slotPos(score, s, v);
-      if (!before || !p) return { ok: false, why: `no evidence for scan tick ${s}` };
+      if (!before || !p) return { ok: false, missing: true, why: `no evidence for scan tick ${s}` };
       for (let k = 0; k < n0; k++) {
         if (k === d.id || !before.alive[k]) continue;
         const x = before.pos[k];
@@ -532,9 +539,16 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
           if (commit) {
             const excuse = commitExcused(d, to, s.tick);
             if (excuse.ok) { state.excusedCommit[d.id] = 1; state.silenceExcused++; }
+            else if (excuse.missing) {
+              // Not judged: the evidence the excuse needs is absent. Its later pop is not judged either.
+              state.unjudgedCommit[d.id] = 1;
+              noteOnce(state.unavailable, 'INV-SILENCE', `some changes not judged: ${excuse.why}`);
+            }
             else emit({ inv: 'INV-SILENCE', tick: s.tick, ids: [d.id], slot: to, knownLimit: null, detail: `commit ${from} -> ${to} before the first kill or version split, unexcused: ${excuse.why}` }, out);
           } else if (state.excusedCommit[d.id]) {
             state.silenceExcused++;
+          } else if (state.unjudgedCommit[d.id]) {
+            noteOnce(state.unavailable, 'INV-SILENCE', 'some pops not judged: they follow a commit that could not be judged');
           } else {
             emit({ inv: 'INV-SILENCE', tick: s.tick, ids: [d.id], slot: to, knownLimit: null, detail: `pop ${from} -> ${to} before the first kill or version split, with no excused commit` }, out);
           }
