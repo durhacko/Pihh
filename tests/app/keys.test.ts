@@ -3,7 +3,7 @@
 // browser. Space is always play / pause except in a text field or on a switch (#134). Pure: no DOM needed; the
 // window wiring runs against a stubbed window.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bindShortcuts, focusOf, shortcutFor, spaceIsPlayPause, type FocusLike } from '../../src/app/ui/keys';
+import { bindShortcuts, focusOf, focusVisibleNow, shortcutFor, spaceIsPlayPause, type FocusLike } from '../../src/app/ui/keys';
 
 describe('shortcutFor', () => {
   it('maps the DESIGN §2.3 keys, case-insensitively', () => {
@@ -56,7 +56,7 @@ describe('spaceIsPlayPause (#134)', () => {
     expect(focusOf(null)).toBeNull();
     expect(focusOf({} as EventTarget)).toBeNull();
     const sw = { tagName: 'INPUT', type: 'checkbox', getAttribute: (k: string) => (k === 'role' ? 'switch' : null) } as unknown as EventTarget;
-    expect(focusOf(sw)).toEqual({ tagName: 'INPUT', type: 'checkbox', role: 'switch', editable: false });
+    expect(focusOf(sw)).toEqual({ tagName: 'INPUT', type: 'checkbox', role: 'switch', editable: false, focusVisible: false });
   });
 });
 
@@ -91,7 +91,7 @@ describe('bindShortcuts: Space on a just-clicked button (#134)', () => {
     expect(plays).toBe(1);
     expect(demo).toBe(0);
     unbind();
-    expect((listeners.get('keydown')?.size ?? 0) + (listeners.get('keyup')?.size ?? 0)).toBe(0);
+    expect((listeners.get('keydown')?.size ?? 0) + (listeners.get('keyup')?.size ?? 0) + (listeners.get('focusin')?.size ?? 0)).toBe(0);
   });
 
   it('leaves Space to switches and text fields, and leaves Enter and Ctrl+Space alone', () => {
@@ -107,5 +107,84 @@ describe('bindShortcuts: Space on a just-clicked button (#134)', () => {
     expect(fire('keyup', reset, { key: 'Enter' })).toBe(false);
     expect(fire('keydown', reset, { ctrlKey: true })).toBe(false);
     expect(plays).toBe(0);
+  });
+});
+
+describe('Space for keyboard users (#139)', () => {
+  it('a control reached by keyboard keeps Space; the same control focused by mouse plays / pauses', () => {
+    for (const f of [{ tagName: 'BUTTON', type: 'button' }, { tagName: 'BUTTON', type: 'button', role: 'radio' }, { tagName: 'INPUT', type: 'radio' }, { tagName: 'A' }, { tagName: 'DIV', role: 'button' }] as FocusLike[]) {
+      expect(spaceIsPlayPause({ ...f, focusVisible: true }), JSON.stringify(f)).toBe(false);
+      expect(spaceIsPlayPause({ ...f, focusVisible: false }), JSON.stringify(f)).toBe(true);
+    }
+    // Space activates nothing on a slider or a plain region, so it stays play / pause even when reached by keyboard.
+    for (const f of [{ tagName: 'INPUT', type: 'range' }, { tagName: 'DIV' }, { tagName: 'CANVAS' }] as FocusLike[]) expect(spaceIsPlayPause({ ...f, focusVisible: true }), JSON.stringify(f)).toBe(true);
+    // Text fields and switches keep Space either way, as before.
+    expect(spaceIsPlayPause({ tagName: 'INPUT', type: 'checkbox', role: 'switch', focusVisible: false })).toBe(false);
+    expect(spaceIsPlayPause({ tagName: 'INPUT', type: 'text', focusVisible: false })).toBe(false);
+  });
+
+  it('focusVisibleNow reads :focus-visible and is false without matches() or when the selector throws', () => {
+    expect(focusVisibleNow(null)).toBe(false);
+    expect(focusVisibleNow({} as EventTarget)).toBe(false);
+    expect(focusVisibleNow({ matches: (s: string) => s === ':focus-visible' } as unknown as EventTarget)).toBe(true);
+    expect(focusVisibleNow({ matches: () => { throw new SyntaxError('unsupported'); } } as unknown as EventTarget)).toBe(false);
+  });
+
+  describe('bindShortcuts', () => {
+    type Fn = (e: Event) => void;
+    const listeners = new Map<string, Set<Fn>>();
+    afterEach(() => { listeners.clear(); vi.unstubAllGlobals(); });
+    function stubWindow() {
+      vi.stubGlobal('window', {
+        addEventListener: (t: string, f: Fn) => { (listeners.get(t) ?? listeners.set(t, new Set()).get(t)!).add(f); },
+        removeEventListener: (t: string, f: Fn) => { listeners.get(t)?.delete(f); },
+      });
+    }
+    /** A dock button whose :focus-visible state the test controls, as Chrome reports it. */
+    function button() {
+      const state = { visible: false };
+      const el = { tagName: 'BUTTON', type: 'button', getAttribute: () => null, matches: (s: string) => s === ':focus-visible' && state.visible } as unknown as EventTarget;
+      return { el, state };
+    }
+    function fire(type: 'focusin' | 'keydown' | 'keyup', target: EventTarget): boolean {
+      let prevented = false;
+      const event = { type, key: ' ', target, repeat: false, ctrlKey: false, altKey: false, metaKey: false, preventDefault: () => { prevented = true; } } as unknown as Event;
+      for (const f of listeners.get(type) ?? []) f(event);
+      return prevented;
+    }
+
+    it('keyboard-focused Show + Space activates Show (nothing prevented, no play)', () => {
+      stubWindow();
+      let plays = 0;
+      bindShortcuts({ play: () => plays++ }, () => {});
+      const show = button();
+      show.state.visible = true;                 // reached by Tab: :focus-visible as it takes focus
+      fire('focusin', show.el);
+      expect(fire('keydown', show.el)).toBe(false);
+      expect(fire('keyup', show.el)).toBe(false); // the browser activates the button on keyup
+      expect(plays).toBe(0);
+    });
+
+    it('mouse-clicked Show + Space is play / pause, even though Chrome flips :focus-visible on at the keydown', () => {
+      stubWindow();
+      let plays = 0;
+      bindShortcuts({ play: () => plays++ }, () => {});
+      const show = button();
+      fire('focusin', show.el);                  // a mouse click: not :focus-visible as it takes focus
+      show.state.visible = true;                 // Chrome: any key on a mouse-focused button makes it :focus-visible
+      expect(fire('keydown', show.el)).toBe(true);
+      expect(fire('keyup', show.el)).toBe(true);
+      expect(plays).toBe(1);
+    });
+
+    it('a button focused before the shortcuts were bound counts as mouse-focused (Space plays)', () => {
+      stubWindow();
+      let plays = 0;
+      bindShortcuts({ play: () => plays++ }, () => {});
+      const reset = button();
+      reset.state.visible = true;
+      expect(fire('keydown', reset.el)).toBe(true);
+      expect(plays).toBe(1);
+    });
   });
 });
