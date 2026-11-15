@@ -1,0 +1,8 @@
+{ "version": 1, "mode": "scene3d", "title": "Primitive Stack", "referenceView": "three-quarter",
+  "materials": [ { "id": "a", "rgb": [0.9, 0.5, 0.1] }, { "id": "b", "rgb": [0.1, 0.6, 0.9] }, { "id": "c", "rgb": [0.95, 0.95, 0.9] } ],
+  "parts": [
+    { "id": "base", "shape": { "type": "cylinder", "center": [0, -0.8, 0], "radius": 0.6, "height": 0.4 }, "materialId": "a", "importance": 4 },
+    { "id": "post", "shape": { "type": "capsule", "center": [0, -0.1, 0], "radius": 0.15, "length": 0.8, "rotationDeg": [0, 0, 20] }, "materialId": "b", "importance": 3 },
+    { "id": "spire", "shape": { "type": "cone", "center": [0, 0.75, 0], "baseRadius": 0.35, "topRadius": 0, "height": 0.7 }, "materialId": "c", "importance": 5 },
+    { "id": "frustum", "shape": { "type": "cone", "center": [0.55, -0.35, 0], "baseRadius": 0.2, "topRadius": 0.1, "height": 0.3, "rotationDeg": [90, 0, 0] }, "materialId": "a", "importance": 2 }
+  ] }

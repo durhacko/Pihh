@@ -1,0 +1,2 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Off Stage", "view": "front", "foreground": [1, 1, 1],
+  "parts": [ { "id": "disc", "operation": "union", "geometry": { "type": "ellipse", "center": [1.6, 0], "radii": [0.1, 0.1] }, "priority": 5 } ] }
