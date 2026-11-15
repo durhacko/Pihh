@@ -5,7 +5,7 @@
 // Intents are shaped for the one action API in src/app/actions.ts. A `control` intent carries the exact
 // ControlIntent steps to pass to the controller's handle(), in order. Where that API only toggles, the intent
 // also carries `when`: dispatch only if the live state matches, otherwise the command is already in effect.
-import type { EnvEvent, RGB, Recipe, WorldSnapshot } from '../../contracts';
+import type { EnvEvent, GeneratedRecipe, RGB, Recipe, WorldSnapshot } from '../../contracts';
 import { TEXT_MAX, validateText } from '../compose/validate';
 import { OPERATOR_JAM_ID, OPERATOR_PARTITION_ID, toggleOnAt, type ControlIntent, type ControlStatus } from '../actions';
 
@@ -326,7 +326,7 @@ function planned(spec: CommandSpec, reason?: string): PlannedIntent {
 
 function buildForm(kind: 'text' | 'sphere' | 'helix'): Build {
   return (args, _ctx, spec) => {
-    let recipe: Recipe;
+    let recipe: Exclude<Recipe, GeneratedRecipe>;   // GF-CC-01: a console form is never `generated`
     if (kind === 'text') {
       const text = args.positional[0];
       const problem = validateText(text);

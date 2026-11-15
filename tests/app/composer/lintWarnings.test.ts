@@ -59,7 +59,7 @@ function setup(seed = 11, n0 = 40) {
 }
 const injects = (log: EnvEvent[]) => log.filter((e): e is Extract<EnvEvent, { type: 'INJECT_SCORE' }> => e.type === 'INJECT_SCORE');
 const lintLines = (warnings: readonly string[]) => warnings.filter(w => w.startsWith('Lint ') || w.startsWith('Transition not linted'));
-const draft = (text: string, kind: Recipe['kind'] = 'text'): Draft => ({ id: 'dx', name: 'X', kind, text, palette: null, sent: [] });
+const draft = (text: string, kind: Draft['kind'] = 'text'): Draft => ({ id: 'dx', name: 'X', kind, text, palette: null, sent: [] });
 const evalLike = (n0: number, params: Params): Score => makeScore([{ kind: 'text', text: 'ENCORE' }, { kind: 'sphere' }, { kind: 'helix' }], n0, params);
 
 describe('P2-T09: lint never blocks', () => {

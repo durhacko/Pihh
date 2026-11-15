@@ -28,7 +28,8 @@ type Recipe = Score['movements'][number]['recipe'];
  */
 const drawnText = (text: string): string => [...text.toUpperCase()].map(ch => (Object.hasOwn(FONT, ch) ? ch : ' ')).join('').trim();
 export const movementName = (recipe: Recipe): string =>
-  recipe.kind === 'text' ? `“${drawnText(recipe.text)}”` : recipe.kind === 'sphere' ? 'Sphere' : 'Double helix';
+  recipe.kind === 'generated' ? recipe.scene.title   // GF-CC-01: never mislabelled "Double helix"
+    : recipe.kind === 'text' ? `“${drawnText(recipe.text)}”` : recipe.kind === 'sphere' ? 'Sphere' : 'Double helix';
 
 const samePositions = (a: Formation, b: Formation): boolean =>
   a.slots.length === b.slots.length && a.slots.every((slot, i) => {
