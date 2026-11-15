@@ -3,7 +3,7 @@
 // { tick, action, caption } beats. Every world change goes through the same `encore:control` intents as the
 // buttons and keys (src/app/actions.ts), so the demo is never special-cased: it resets from a fixed seed and
 // schedules real EnvEvents into both worlds. The panel only sends intents and reads control status.
-import { DT } from '../../contracts';
+import { DT, makeParams } from '../../contracts';
 import type { Recipe, Vec3 } from '../../contracts';
 import type { ControlIntent, ControlResult, ControlStatus } from '../actions';
 import type { CameraPreset } from '../render/CameraRig';
@@ -51,7 +51,13 @@ export type DemoAction =
   | { kind: 'camera'; preset: CameraPreset }
   | { kind: 'view'; xray: boolean; beliefColours: boolean }
   /** Which world(s) the stage shows (#92 shell: Encore · Split · Static). A page without that control ignores it. */
-  | { kind: 'layout'; view: 'encore' | 'split' | 'static' };
+  | { kind: 'layout'; view: 'encore' | 'split' | 'static' }
+  /**
+   * E5 (?p2=generated-demo): the committed fixture scene, compiled, goes to ONE drone through the controller: the same
+   * two intents as injectGeneratedRecipe (select the drone, then `inject` with the recipe, here with an exact `at`).
+   * The controller re-validates the recipe (scene hash, compiler version) before it schedules one INJECT_SCORE.
+   */
+  | { kind: 'generated'; fixture: string; droneId: number; at: number };
 /** An empty caption keeps the one on screen. */
 export interface DemoBeat { id: string; tick: number; action: DemoAction | null; caption: string }
 
@@ -114,8 +120,83 @@ export function demoBeatsFor(options: { cascade: boolean }): readonly DemoBeat[]
  */
 export function activeDemoBeats(): readonly DemoBeat[] {
   const search = typeof location !== 'undefined' ? location.search : '';
+  if (generatedDemoOptIn(search)) { void preloadGeneratedScene(); return generatedDemoBeats(); }
   return demoBeatsFor({ cascade: cascadeOptIn(search) });
 }
+
+// ---------- E5: the opt-in generated-scene demo (?p2=generated-demo) ----------
+/** The opt-in flag (`?p2=<name>[,<name>…]`, as the other Phase 2 paths use). It takes precedence over `cascade`. */
+export const GENERATED_DEMO_FLAG = 'generated-demo';
+export function generatedDemoOptIn(search: string): boolean {
+  const value = new URLSearchParams(search).get('p2');
+  return value !== null && value.split(',').map(part => part.trim()).includes(GENERATED_DEMO_FLAG);
+}
+/** The committed fixture scene it flies (tests/fixtures/scenes, validated by #203): seen side-on from the audience camera. */
+export const GENERATED_FIXTURE = 'valid-3d-elephant-excerpt-x.json';
+/**
+ * When the generated-demo beats land. Everything up to the sphere (FORMATION) is the default script. The partition is
+ * the operator's (actions.ts: the plane x = 0), so it splits the sphere in two; NEW_MOVEMENT is INJECT + scoreLead.
+ */
+export const GENERATED_TICKS = Object.freeze({
+  PARTITION: 52 * SECOND, ACCEPT: 55 * SECOND, INJECT: 58 * SECOND, NEW_MOVEMENT: 58 * SECOND + 60, PARTITION_OFF: 70 * SECOND,
+});
+/**
+ * The one drone that receives the scene: alive after the kill and on the x > 0 side of the partition, well clear of
+ * the plane (measured, seed 101, Encore brain, this script; tests/app/demo.test.ts checks both).
+ */
+export const GENERATED_DRONE = 151;
+/** Each at most two lines (measured in Chrome at 1440x900, split view: box top y 731, as the default captions). */
+export const GENERATED_CAPTIONS = Object.freeze({
+  partition: 'Partition: the radio is cut along a plane through the middle of the sphere. Nothing crosses it; both halves keep the same score.',
+  accept: 'Accepted: “Grey Elephant”, a committed fixture scene, not Gemini. It was validated and compiled offline into 200 slots; nothing is generated live.',
+  inject: 'The scene goes to ONE drone by uplink; the controller checks its hash first. Others learn it only from real SCORE messages: belief colours show who holds it.',
+  diverge: 'The new movement starts. Drones that heard the scene fly it; across the partition they keep the old score and the sphere. The score versions diverge.',
+  partitionOff: 'Partition off. The new score crosses by gossip, and the drones that were cut off join the scene by the clock.',
+  final: 'The observer measures each arm against its own formation (Encore: the scene; static: its sphere), so they are not comparable. It counts adoption, not the UI.',
+});
+
+const G = GENERATED_TICKS;
+/** The generated-scene demo: the default script up to the sphere, then the partition, the scene into one drone, the
+ *  divergence and the merge, and the honest final view. A new array; DEMO_BEATS itself is untouched. */
+export function generatedDemoBeats(): readonly DemoBeat[] {
+  const upToSphere = DEMO_BEATS.slice(0, DEMO_BEATS.findIndex(beat => beat.id === 'formation') + 1);
+  const c = GENERATED_CAPTIONS;
+  return [
+    ...upToSphere,
+    { id: 'partition', tick: G.PARTITION, action: control({ type: 'partition' }), caption: c.partition },
+    { id: 'gen-belief', tick: G.PARTITION, action: { kind: 'view', xray: true, beliefColours: true }, caption: '' },
+    { id: 'accept', tick: G.ACCEPT, action: null, caption: c.accept },
+    { id: 'gen-inject', tick: G.INJECT, action: { kind: 'generated', fixture: GENERATED_FIXTURE, droneId: GENERATED_DRONE, at: G.INJECT }, caption: c.inject },
+    // As in the default script: deselect as it lands, so X-ray draws every drone's links, not only the target's (#134).
+    { id: 'gen-deselect', tick: G.INJECT, action: control({ type: 'select', id: null }), caption: '' },
+    { id: 'diverge', tick: G.NEW_MOVEMENT, action: null, caption: c.diverge },
+    { id: 'partition-off', tick: G.PARTITION_OFF, action: control({ type: 'partition' }), caption: c.partitionOff },
+    { id: 'final-layout', tick: T.FINAL, action: { kind: 'layout', view: 'split' }, caption: '' },
+    { id: 'final-view', tick: T.FINAL, action: { kind: 'view', xray: false, beliefColours: false }, caption: c.final },
+    { id: 'final', tick: T.FINAL, action: { kind: 'camera', preset: 'audience' }, caption: '' },
+    { id: 'end', tick: T.END, action: null, caption: 'End of the generated-scene demo. Press D to run it again.' },
+  ];
+}
+
+/** The compiled fixture scene, loaded only when the flag is on (a separate chunk: not in the default bundle). */
+const FIXTURE_LOADERS = import.meta.glob<unknown>('../../../tests/fixtures/scenes/valid-3d-elephant-excerpt-x.json', { import: 'default' });
+let generatedRecipe: Recipe | null = null;
+let generatedLoading: Promise<boolean> | null = null;
+/** Loads and compiles GENERATED_FIXTURE once (makeGeneratedRecipe validates it); resolves whether it is ready. */
+export function preloadGeneratedScene(): Promise<boolean> {
+  generatedLoading ??= (async () => {
+    const load = Object.values(FIXTURE_LOADERS)[0];
+    if (!load) return false;
+    const [scene, score] = await Promise.all([load(), import('../../score')]);
+    const made = score.makeGeneratedRecipe(scene, DEMO_N0, makeParams(DEMO_N0));
+    if (!made.ok) return false;
+    generatedRecipe = made.recipe;
+    return true;
+  })();
+  return generatedLoading;
+}
+/** The compiled scene, or null before preloadGeneratedScene has resolved. */
+export function generatedSceneRecipe(): Recipe | null { return generatedRecipe; }
 
 /** Beats whose caption describes what only the Encore brain shows. While the live Encore world flies another brain
  * (status.brains, the HUD's brainKinds source), the bar marks them; with the Encore brain in the app (#107) the mark
@@ -134,7 +215,7 @@ export function brainNote(status: Pick<ControlStatus, 'brains'> | undefined, cap
 
 /** When the runner sends a beat's action: timed world events LEAD_TICKS early, everything else on its tick. */
 export function dispatchTick(beat: DemoBeat): number {
-  const timed = beat.action?.kind === 'control' && 'at' in beat.action.intent && beat.action.intent.at !== undefined;
+  const timed = (beat.action?.kind === 'control' && 'at' in beat.action.intent && beat.action.intent.at !== undefined) || beat.action?.kind === 'generated';
   return timed ? beat.tick - LEAD_TICKS : beat.tick;
 }
 
@@ -182,6 +263,7 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
     if (action.kind === 'camera') { host.camera(action.preset); return; }
     if (action.kind === 'view') { setView(action.xray, action.beliefColours); return; }
     if (action.kind === 'layout') { host.layout?.(action.view); return; }
+    if (action.kind === 'generated') { runGenerated(action, tick, late); return; }
     let intent = action.intent;
     if (late && 'at' in intent) {
       // Its exact tick has passed (the show stalled or ran fast): land it next tick and say this run is off-script.
@@ -189,6 +271,17 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
       problems.push(`${beatName(beat)} was due at ${((beat?.tick ?? 0) / SECOND).toFixed(1)} s but went out at ${(tick / SECOND).toFixed(1)} s, so this run is off-script.`);
     }
     const result = host.send(intent);
+    if (result && !result.ok) problems.push(`${beatName(beat)} failed: ${result.message}`);
+  }
+
+  /** E5: the same two intents as injectGeneratedRecipe, through the one controller (it re-validates the recipe). */
+  function runGenerated(action: Extract<DemoAction, { kind: 'generated' }>, tick: number, late: boolean) {
+    const recipe = generatedSceneRecipe();
+    if (!recipe) { problems.push(`${beatName(beat)} failed: the committed fixture scene ${action.fixture} is not loaded, so nothing was sent.`); return; }
+    if (late) problems.push(`${beatName(beat)} was due at ${((beat?.tick ?? 0) / SECOND).toFixed(1)} s but went out at ${(tick / SECOND).toFixed(1)} s, so this run is off-script.`);
+    const selected = host.send({ type: 'select', id: action.droneId });
+    if (selected && !selected.ok) { problems.push(`${beatName(beat)} failed: ${selected.message}`); return; }
+    const result = host.send({ type: 'inject', recipe, at: late ? undefined : action.at });
     if (result && !result.ok) problems.push(`${beatName(beat)} failed: ${result.message}`);
   }
 

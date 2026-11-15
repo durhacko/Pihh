@@ -14,6 +14,7 @@ import { createWorld, idsInSphere } from '../../src/sim';
 import { bindControls } from '../../src/app/actions';
 import { readViewMode, resetViewMode, setViewMode } from '../../src/app/render/colourModes/viewMode';
 import { createCascadeLayer } from '../../src/app/render/layers/CascadeLayer';
+import { versionKey } from '../../src/observer/measure';
 import { controlContext, createWorlds, DEFAULT_N0, viewModeDisplay, type Pair, type ShellHooks, type Worlds } from '../../src/app/worlds';
 import { createSelectionArm } from '../../src/app/ui/popovers';
 import { armPhase } from '../../src/app/armPhase';
@@ -21,6 +22,8 @@ import { readoutItems, type ArmPhase, type ReadoutItem } from '../../src/app/ui/
 import {
   activeDemoBeats, BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoBeatsFor, demoViewAt, dispatchTick,
   REPAIR_TRAIL_CAPTION, TRAIL_OFF,
+  GENERATED_CAPTIONS, GENERATED_DRONE, GENERATED_FIXTURE, GENERATED_TICKS, generatedDemoBeats, generatedDemoOptIn, generatedSceneRecipe,
+  preloadGeneratedScene, type DemoAction,
   INJECT_DRONE, INJECT_RECIPE, JAM_CENTRE, JAM_RADIUS, KILL_CENTRE, KILL_RADIUS, LEAD_TICKS, type DemoBeat,
 } from '../../src/app/ui/DemoScript';
 
@@ -413,6 +416,102 @@ describe('scripted demo problems reach the panel over the browser path', () => {
     expect(r.controls.getEventLog().map(event => [event.type, event.tick])).toEqual([['KILL', 121]]);
     expect(r.runner.problems[0]).toMatch(/off-script/);
   }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
+});
+
+describe('generated-scene demo (E5, ?p2=generated-demo)', () => {
+  it('is opt-in: only ?p2=generated-demo switches to it; the default and ?p2=cascade schedules stay what they were', () => {
+    expect(generatedDemoOptIn('?p2=generated-demo')).toBe(true);
+    expect(generatedDemoOptIn('?q=low&p2=cascade, generated-demo')).toBe(true);
+    expect(generatedDemoOptIn('?p2=generated')).toBe(false);
+    expect(generatedDemoOptIn('?p2=generated-demos')).toBe(false);
+    for (const search of ['', '?seed=101', '?p2=generated', '?p2=inv']) {
+      vi.stubGlobal('location', { search });
+      expect(activeDemoBeats(), search).toBe(DEMO_BEATS);
+    }
+    vi.stubGlobal('location', { search: '?p2=cascade' });
+    expect(activeDemoBeats()).toEqual(demoBeatsFor({ cascade: true }));
+    for (const search of ['?p2=generated-demo', '?p2=cascade,generated-demo']) {
+      vi.stubGlobal('location', { search });
+      expect(activeDemoBeats(), search).toEqual(generatedDemoBeats());   // it takes precedence over cascade
+    }
+    expect(createHash('sha256').update(JSON.stringify(DEMO_BEATS)).digest('hex')).toBe(BEATS_SHA256_6B6BFBA);
+  });
+
+  it('keeps the default script up to the sphere, then partition, one generated injection, divergence, merge, honest end', () => {
+    const beats = generatedDemoBeats();
+    const formation = DEMO_BEATS.findIndex(beat => beat.id === 'formation');
+    expect(beats.slice(0, formation + 1)).toEqual(DEMO_BEATS.slice(0, formation + 1));
+    expect(beats.slice(formation + 1).map(beat => beat.id)).toEqual(['partition', 'gen-belief', 'accept', 'gen-inject', 'gen-deselect', 'diverge', 'partition-off', 'final-layout', 'final-view', 'final', 'end']);
+    for (let i = 1; i < beats.length; i++) expect(dispatchTick(beats[i])).toBeGreaterThanOrEqual(dispatchTick(beats[i - 1]));
+    const inject = beats.find(beat => beat.id === 'gen-inject')!;
+    expect(inject.action).toEqual({ kind: 'generated', fixture: GENERATED_FIXTURE, droneId: GENERATED_DRONE, at: GENERATED_TICKS.INJECT });
+    expect(dispatchTick(inject)).toBe(GENERATED_TICKS.INJECT - LEAD_TICKS);   // timed, like the other world events
+    expect(GENERATED_TICKS.NEW_MOVEMENT).toBe(GENERATED_TICKS.INJECT + makeParams(DEMO_N0).scoreLead);
+    expect(beats.find(beat => beat.id === 'accept')!.caption).toContain('committed fixture scene, not Gemini');
+    // World changes: the default kill, the operator partition on and off, and the one generated injection. No beat
+    // positions a drone: there is no such intent.
+    const world = beats.filter(beat => beat.action?.kind === 'control' || beat.action?.kind === 'generated')
+      .map(beat => beat.action!.kind === 'generated' ? 'generated-inject' : (beat.action as Extract<DemoAction, { kind: 'control' }>).intent.type);
+    expect(world).toEqual(['kill-region', 'partition', 'generated-inject', 'select', 'partition']);
+    expect(demoViewAt(GENERATED_TICKS.INJECT, beats)).toEqual({ xray: true, beliefColours: true });   // gossip visible
+    expect(demoViewAt(DEMO_TICKS.FINAL, beats)).toEqual({ xray: false, beliefColours: false });
+  });
+
+  it('the scene reaches ONE drone at its exact tick through the controller; adoption rises only by gossip, partition respected', async () => {
+    expect(await preloadGeneratedScene()).toBe(true);
+    const recipe = generatedSceneRecipe()!;
+    expect(recipe).toMatchObject({ kind: 'generated' });
+    const r = rig(DEMO_SEED, generatedDemoBeats());
+    expect(r.runner.start()).toBe(true);
+    const G = GENERATED_TICKS, END = G.PARTITION_OFF + 160;
+    let key: string | null = null, targetSide: number | null = null;
+    const heard = new Set<number>(), adopters = new Map<number, number>(), unexplained: string[] = [];
+    let holdersAcrossBeforeMerge = 0, holdersAcrossAfterMerge = 0;
+    const observer: [number, number, number][] = [];   // tick, Encore count, static count (observer samples only)
+    play(r, END, 1, snapshots => {
+      const s = snapshots.encore, tick = s.tick;
+      if (tick === G.INJECT) {
+        const event = r.controls.getEventLog().find(e => e.type === 'INJECT_SCORE') as Extract<EnvEvent, { type: 'INJECT_SCORE' }>;
+        key = versionKey(event.score.version);
+        targetSide = s.drones[GENERATED_DRONE].partitionSide;
+      }
+      if (!key) return;
+      // Gossip evidence: a SCORE broadcast from a drone already holding the new score, delivered to this drone.
+      for (const e of s.radio) if (e.type === 'SCORE' && versionKey(s.drones[e.from].belief.version) === key) for (const d of e.delivered) heard.add(d);
+      for (const d of s.drones) {
+        if (!d.alive || versionKey(d.belief.version) !== key || adopters.has(d.id)) continue;
+        adopters.set(d.id, tick);
+        if (d.id !== GENERATED_DRONE && !heard.has(d.id)) unexplained.push(`${d.id}@${tick}`);
+        if (d.partitionSide !== targetSide) { if (tick < G.PARTITION_OFF) holdersAcrossBeforeMerge++; else holdersAcrossAfterMerge++; }
+      }
+      if (tick % 10 === 0) {
+        const samples = r.worlds.samples();
+        observer.push([tick, samples.encore?.versions[key] ?? 0, samples.static?.versions[key] ?? 0]);
+      }
+    });
+    const injects = r.controls.getEventLog().filter(e => e.type === 'INJECT_SCORE') as Extract<EnvEvent, { type: 'INJECT_SCORE' }>[];
+    expect(injects).toHaveLength(1);                                     // exactly one uplink...
+    expect(injects[0]).toMatchObject({ tick: G.INJECT, droneId: GENERATED_DRONE });   // ...into the one drone, on its exact tick
+    expect(injects[0].score.movements.at(-1)!.recipe).toMatchObject({ kind: 'generated', sceneHash: (recipe as { sceneHash: string }).sceneHash });
+    expect(r.runner.problems).toEqual([]);
+    expect(adopters.get(GENERATED_DRONE)).toBeLessThanOrEqual(G.INJECT + 2);   // the uplink lands on its tick
+    expect(unexplained).toEqual([]);                                     // every other adopter heard it on the radio first
+    expect(holdersAcrossBeforeMerge).toBe(0);                            // the partition held the score on one side
+    expect(holdersAcrossAfterMerge).toBeGreaterThan(0);                  // and gossip carried it across after
+    const at = (tick: number) => observer.filter(([t]) => t <= tick).at(-1)!;
+    const [, early] = at(G.INJECT), [, beforeMerge] = at(G.PARTITION_OFF - 1), [, end] = at(END);
+    const live = r.worlds.latest()!.encore.drones.filter(d => d.alive).length;
+    const series = observer.filter(([t]) => t >= G.INJECT && t % 40 === 0).map(([t, n]) => `t${t} ${n}`).join(', ');
+    console.log(`E5 generated demo (seed ${DEMO_SEED}): drone ${GENERATED_DRONE} on side ${targetSide}; observer adoption (live Encore drones on the scene's version): ${series}; end ${end} of ${live} live; static max ${Math.max(...observer.map(([, , st]) => st))}`);
+    for (let i = 1; i < observer.length; i++) expect(observer[i][1], `t${observer[i][0]}`).toBeGreaterThanOrEqual(observer[i - 1][1]);   // never falls
+    expect(early).toBe(1);                                               // at its tick only the one drone holds it...
+    expect(beforeMerge).toBeGreaterThan(early);                          // ...it fills the injected side...
+    expect(beforeMerge).toBe([...adopters.values()].filter(t => t < G.PARTITION_OFF).length);   // observer count = belief holders
+    expect(end).toBeGreaterThan(beforeMerge);                            // ...and crosses once the partition is off
+    expect(end).toBe(live);
+    expect(observer.every(([, , st]) => st === 0)).toBe(true);          // the static arm ignores uplinks by design
+    expect(r.captions.find(c => c.caption === GENERATED_CAPTIONS.accept)?.tick).toBe(G.ACCEPT);
+  }, 180_000);
 });
 
 describe('injection target and brain note', () => {
