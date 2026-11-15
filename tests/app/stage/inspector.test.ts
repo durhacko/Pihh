@@ -103,6 +103,40 @@ describe('observer box', () => {
     expect(rowsOf(truthRows(observerTruth(snap, reading, { rRadio: 15, rOcc: 0.6 }, 2)!))['Slot 2, per observer']).toMatch(/^not comparable/);
   });
 
+  it('a dead drone whose frozen target still IS the reference slot shows that slot\'s observer status and when it froze', () => {
+    const snap = makeFakeSnapshot(50, 20);
+    for (const drone of snap.drones) drone.belief.slot = drone.id;
+    snap.drones[2].alive = false; snap.drones[2].diedTick = 30;
+    const vacant = observerTruth(snap, readingFor(snap, 'vacant'), { rRadio: 15, rOcc: 0.6 }, 2)!;
+    expect(vacant.sameFormation).toBe(true);
+    const rows = rowsOf(truthRows(vacant));
+    expect(rows['Slot 2, per observer']).toBe('vacant (t45); its target frozen since t30');
+    expect(rows['True state']).toBe('dead since t30');   // the slot row no longer repeats the True state row
+    // Another (live) drone may hold the slot now: still true, still shown.
+    expect(rowsOf(truthRows(observerTruth(snap, readingFor(snap, 'occupied'), { rRadio: 15, rOcc: 0.6 }, 2)!))['Slot 2, per observer'])
+      .toBe('occupied by a live drone (t45); its target frozen since t30');
+    // Without a reading tick the status is still shown, just undated.
+    expect(rowsOf(truthRows({ ...vacant, slotStatusTick: null }))['Slot 2, per observer']).toBe('vacant; its target frozen since t30');
+  });
+
+  it('a drone killed in a real world, while the score holds the same movement, reads its slot\'s real observer status', () => {
+    const worlds = createWorlds({ seed: 9, n0: 30 });
+    for (let i = 0; i < 40; i++) worlds.stepBoth();
+    const killTick = worlds.tick + 1;
+    worlds.scheduleBoth({ type: 'KILL', tick: killTick, ids: [11] });
+    let snapshot = worlds.stepBoth().encore;
+    for (let i = 0; i < 5; i++) snapshot = worlds.stepBoth().encore;
+    expect(snapshot.drones[11].alive).toBe(false);
+    expect(snapshot.drones[11].diedTick).toBe(killTick);
+    const feed = createSlotStatusFeed(() => worlds.observers.encore);
+    const slots = feed.read(snapshot);
+    const truth = observerTruth(snapshot, feed.latest(), worlds.params, 11)!;
+    expect(truth.sameFormation).toBe(true);   // one preloaded score, same movement: the frozen target IS the reference slot
+    const status = slots.status[snapshot.drones[11].belief.slot];
+    expect(truth.believedSlotStatus).toBe(status);
+    expect(rowsOf(truthRows(truth))[`Slot ${truth.believedSlot}, per observer`]).toMatch(new RegExp(`\\(t${snapshot.tick}\\); its target frozen since t${killTick}$`));
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
+
   it('matches the real observer for a real drone', () => {
     const worlds = createWorlds({ seed: 9, n0: 30 });
     let snapshot = worlds.stepBoth().encore;
