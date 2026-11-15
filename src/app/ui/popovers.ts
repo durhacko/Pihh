@@ -37,6 +37,21 @@ export interface Popover { readonly el: HTMLElement; render(): void }
 // ---------- Picks and the J key (pure, so the rules are tested without a DOM) ----------
 /** Whether a stage click answers a pending pick. A pick without a radius, or an inject / select pick, names a drone,
  *  so a click that hits no drone does not answer it; a region pick (kill, jam) takes any point. */
+/**
+ * The world a selection is made in, kept in one place. A selection is made in the static world only inside
+ * within('static', ...) (a static-pane click, `inspect N --static`, or the static inspector's own links); every
+ * other selection (controller, demo, console --at/--drone/--pick, inject --pick) and every deselect is Encore.
+ * The pending arm never outlives the call, even when the selection is refused.
+ */
+export function createSelectionArm() {
+  let pending: 'encore' | 'static' = 'encore';
+  return {
+    within<T>(arm: 'encore' | 'static', select: () => T): T { pending = arm; try { return select(); } finally { pending = 'encore'; } },
+    /** The arm of the selection being made now (display.setSelected). */
+    current(id: number | null): 'encore' | 'static' { return id === null ? 'encore' : pending; },
+  };
+}
+
 export function pickAnswered(pick: { purpose: string; radius?: number }, droneId: number | null): boolean {
   return droneId !== null || !(pick.radius === undefined || pick.purpose === 'inject' || pick.purpose === 'select');
 }

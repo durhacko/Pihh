@@ -19,6 +19,8 @@ export interface LegendInput {
   partitions: number;
   /** Ghost-slot counts from the observer's slot status (Observer.slotStatus), or null while the lens is off. */
   ghosts: { vacant: number; inTransit: number; contested: number; inHold: boolean } | null;
+  /** The arm the counts are from, named on every title when both arms are on stage (split view). */
+  arm?: string;
 }
 export type LegendItem =
   | { kind: 'title'; text: string }
@@ -30,8 +32,9 @@ const css = (c: RGB): string => `rgb(${c.map(v => Math.round(v * 255)).join(',')
 
 export function legendItems(input: LegendInput): LegendItem[] {
   const items: LegendItem[] = [];
+  const of = (text: string) => (input.arm ? `${input.arm} · ${text}` : text);
   if (input.xray) {
-    items.push({ kind: 'title', text: 'Radio · real log' },
+    items.push({ kind: 'title', text: of('Radio · real log') },
       { kind: 'line', text: 'Heartbeat (sampled)', colour: 'var(--hb)' },
       { kind: 'line', text: 'Heartbeat carrying a claim', colour: 'var(--claim)' },
       { kind: 'line', text: 'SCORE message', colour: 'var(--score)' },
@@ -39,7 +42,7 @@ export function legendItems(input: LegendInput): LegendItem[] {
       { kind: 'honest', text: input.radio ? `radio drawn ${input.radio.drawn} / ${input.radio.observed.toLocaleString('en-GB')} logged · last 1 s` : 'radio: nothing logged yet' });
   }
   if (input.belief) {
-    items.push({ kind: 'title', text: 'Score version held' });
+    items.push({ kind: 'title', text: of('Score version held') });
     const entries = Object.entries(input.versions ?? {});
     if (entries.length === 0) items.push({ kind: 'honest', text: 'Waiting for the first observer sample' });
     for (const [key, count] of entries) {
@@ -48,12 +51,12 @@ export function legendItems(input: LegendInput): LegendItem[] {
     }
   }
   if (input.ghosts) {
-    items.push({ kind: 'title', text: `Slots · observer truth${input.ghosts.inHold ? '' : ' (in transition)'}` },
+    items.push({ kind: 'title', text: of(`Slots · observer truth${input.ghosts.inHold ? '' : ' (in transition)'}`) },
       { kind: 'ring', text: 'In transit (thin ring)', colour: 'var(--transit)', count: input.ghosts.inTransit },
       { kind: 'ring', text: 'Vacant (thick ring)', colour: 'var(--vacant)', count: input.ghosts.vacant },
       { kind: 'ring', text: 'Contested (double ring)', colour: 'var(--contested)', count: input.ghosts.contested });
   }
-  if (input.deaf > 0) items.push({ kind: 'ring', text: 'Deaf: heard no radio for 2 s', colour: '#ffffff', count: input.deaf });
+  if (input.deaf > 0) items.push({ kind: 'ring', text: of('Deaf: heard no radio for 2 s'), colour: '#ffffff', count: input.deaf });
   if (input.partitions > 0 && input.xray) items.push({ kind: 'line', text: 'Partition active (groups fixed at split)', colour: 'var(--partition)' });
   return items;
 }

@@ -27,7 +27,7 @@ import { connectInspector, createPanel as createInspectorPanel, type InspectorSo
 import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend } from './ui/Legend';
-import { createDisrupt, createHelp, createLenses, createMetrics, jamKeyAction, stageClick, type PopoverContext } from './ui/popovers';
+import { createDisrupt, createHelp, createLenses, createMetrics, createSelectionArm, jamKeyAction, stageClick, type PopoverContext } from './ui/popovers';
 import { createReadout } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
@@ -139,16 +139,24 @@ const hudModel = new HudModel();
 
 // ---------- controls: the one action API ----------
 // Selection and lenses are presentation state (the store); the render layers' view mode follows the store.
-/** The world the current selection was made in: the pane clicked, or `inspect N --static`. */
-let selectedArm: Arm = 'encore';
+// The selection's world is kept in one place: every selection, from any source, sets the store and the inspector
+// together, so the inspector never shows a different world from store.selected.
+const selectionArm = createSelectionArm();
+let inspectorSource: InspectorSource | null = null;   // set once the observer feeds exist (below)
 const display = {
-  setSelected(id: number | null) { setViewMode({ selectedDroneId: id }); store.set({ selected: id === null ? null : { id, arm: selectedArm } }); if (id === null) selectedArm = 'encore'; },
+  setSelected(id: number | null) {
+    const arm = selectionArm.current(id);
+    setViewMode({ selectedDroneId: id });
+    store.set({ selected: id === null ? null : { id, arm } });
+    if (inspectorSource) connectInspector(inspectorSource, { arm });
+  },
   toggleXray() { store.lens('xray', !store.state.lenses.xray); },
   toggleBelief() { store.lens('colour', store.state.lenses.colour === 'belief' ? 'show' : 'belief'); },
 };
 let loopError: string | null = null;
 const controls = bindControls(root, controlContext(worlds, {
   getSnapshots: snapshots,
+  selectionWorld: () => store.state.selected?.arm ?? 'encore',
   getTransport: () => ({ ...transport, seed: worlds.seed }),
   setPlaying,
   setSpeed,
@@ -268,7 +276,7 @@ const onPointerUp = (e: PointerEvent) => {
     const point = pointAt(e.clientX, e.clientY);
     if (point) pick.resolve({ droneId: action.droneId, point });
   } else if (action.kind === 'pick-in-encore') toaster.toast('Picks are answered in the Encore pane (the top one in split view).', 'info');
-  else if (action.kind === 'select') { selectedArm = action.arm; connectInspector(inspectorSource, { arm: action.arm }); controls.selectDrone(action.id); }
+  else if (action.kind === 'select') selectionArm.within(action.arm, () => controls.selectDrone(action.id));
   else if (action.kind === 'deselect' && store.state.selected) controls.selectDrone(null);
   refreshChrome();
 };
@@ -451,7 +459,7 @@ const compose = { controller: controls, store, surfaces, drafts, params, host: r
 const composer = connectComposer(compose);   // also connects the stage preview to the store
 const consoleTray = connectConsole({ ...compose, hooks: {
   step: () => { run({ type: 'step' }, true); },
-  inspect: (id, arm) => { selectedArm = arm; connectInspector(inspectorSource, { arm }); controls.selectDrone(id); },
+  inspect: (id, arm) => selectionArm.within(arm, () => controls.selectDrone(id)),
   demo: action => {
     if (action === 'stop') { demo.runner.stop(); refreshChrome(); return 'Demo stopped.'; }
     const problem = startDemo();
@@ -504,10 +512,11 @@ function frameFor(arm: Arm, alpha: number, dtReal: number): LayerFrame {
   return store.state.lenses.ghosts || store.state.selected ? { ...frame, slots: slotFeeds[arm].read(frame.curr) } : frame;
 }
 // The inspector's agent section gets only inspect() + Belief; the observer box a pre-labelled truth object.
-const inspectorSource: InspectorSource = {
+inspectorSource = {
   agent: (id, arm) => { const drone = snapshots()[arm].drones[id]; return drone ? { id, inspect: worlds.worlds[arm].inspect(id), belief: drone.belief } : null; },
   truth: (id, arm) => observerTruth(snapshots()[arm], slotFeeds[arm].latest(), params, id),
-  select: id => { controls.selectDrone(id); },
+  // The inspector's own links stay in the world it is showing.
+  select: id => { selectionArm.within(store.state.selected?.arm ?? 'encore', () => controls.selectDrone(id)); },
 };
 connectInspector(inspectorSource);
 
@@ -537,7 +546,7 @@ function refreshChrome(): void {
     xray: store.state.lenses.xray, belief: store.state.lenses.colour === 'belief',
     versions: samples[legendArm]?.versions ?? null, radio: radioTally(legendArm),
     deaf: snaps[legendArm].drones.filter(d => d.alive && d.belief.deaf).length, partitions: snaps[legendArm].partitions.length,
-    ghosts: ghostCounts(legendArm),
+    ghosts: ghostCounts(legendArm), arm: view === 'split' ? 'Encore' : undefined,
   });
   const label = (name: string, desc: string, sample: MetricsSample | null) => [h('span', { class: 'name' }, name), h('span', { class: 'desc' }, desc), h('span', { class: 'num' }, `nPWC ${sample?.npwc === null || sample?.npwc === undefined ? '—' : sample.npwc.toFixed(3)}`)];
   if (view === 'split') {
