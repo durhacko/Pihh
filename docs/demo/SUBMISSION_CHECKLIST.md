@@ -22,7 +22,7 @@ An agent can't log in to Devpost, change repo visibility, record the screen or p
 | H10 | Paste the text into Devpost, attach links and images, and press **Submit** (not draft). Screenshot the confirmation | Arnav | 10:15 |
 | H11 | Run three full rehearsals, each by a different person, and record them in the [demo plan](DEMO_PLAN.md#rehearsal-record--none-completed) | Team | 09:00 |
 | H12 | Present at judging | Team | After 11:00 |
-| H13 | Supply Haris's surname for the README team line, and have William and Haris confirm the Codex credit | Haris, William | 10:00 |
+| H13 | ~~Supply Haris's surname~~ (done: Mohammed, in README); have William and Haris confirm the Codex credit | Haris, William | 10:00 |
 
 ## Before 08:00 Sun
 - [ ] Devpost form fields checked and a draft saved (H1)
@@ -36,7 +36,7 @@ An agent can't log in to Devpost, change repo visibility, record the screen or p
 - [x] **"Built with"**: every public library at its exact pinned version, plus Node.js, Python and the GitHub Actions used in CI ([R3](../competition/BRIEF.md#4-submission-and-rules))
 - [x] **"AI use"**: Claude Code, OpenAI Codex and GitHub Copilot, with what each was used for ([R4](../competition/BRIEF.md#4-submission-and-rules))
 - [ ] "AI use" confirmed by a human, including any hand-written code (H9)
-- [x] Team members named (Haris's surname still to add: H13)
+- [x] Team members named (Haris Mohammed, surname supplied by Arnav at 05:30 Sun)
 - [x] "Where Encore ties or loses" section with the pre-registered cases
 - [ ] Results filled in from `results/RESULTS.md`. S0–S3 and S5 are filled from the evaluation run (#122), with S5's collision cost (#123).
 - [ ] Status box and `[IF G1]` / `[IF G4]` lines resolved at feature freeze (08:30)
