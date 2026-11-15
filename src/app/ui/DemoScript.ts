@@ -69,18 +69,21 @@ export const DEMO_BEATS: readonly DemoBeat[] = [
   // Selected again in the same poll that sends the injection, so a presenter's click since 54 s cannot retarget it.
   { id: 'target', tick: T.INJECT - LEAD_TICKS, action: control({ type: 'select', id: INJECT_DRONE }), caption: '' },
   { id: 'inject', tick: T.INJECT, action: control({ type: 'inject', recipe: INJECT_RECIPE, at: T.INJECT }), caption: 'A new score, a helix, goes to one drone below the jam. Encore arm: it spreads along real SCORE messages, and the jam stops it at the cap.' },
+  // The injection's target was fixed when it was sent (LEAD_TICKS early), so deselect as it lands: with a drone
+  // selected X-ray draws only that drone's links, and the spread (and later the jam-off crossing) would not show (#134).
+  { id: 'deselect', tick: T.INJECT, action: control({ type: 'select', id: null }), caption: '' },
   { id: 'slow', tick: T.INJECT, action: control({ type: 'speed', speed: 0.5 }), caption: '' },
   { id: 'new-movement', tick: T.NEW_MOVEMENT, action: control({ type: 'speed', speed: 1 }), caption: 'The new movement starts. Encore drones that heard it fly the helix; drones still cut off keep the old score. Static baseline: sphere. The Encore headline dips while that arm flies to the new formation.' },
   { id: 'jam-off', tick: T.JAM_OFF, action: control({ type: 'jam', at: T.JAM_OFF }), caption: 'Jam off. Encore arm: the new score crosses into the drones that were cut off, and they join it by the clock.' },
   { id: 'final-layout', tick: T.FINAL, action: { kind: 'layout', view: 'split' }, caption: '' },
-  { id: 'final-view', tick: T.FINAL, action: { kind: 'view', xray: false, beliefColours: false }, caption: 'Audience view, still split: the readout shows nPWC for both arms (Encore / static), measured by the observer. Same seed, same failures.' },
+  { id: 'final-view', tick: T.FINAL, action: { kind: 'view', xray: false, beliefColours: false }, caption: 'Audience view, still split: the observer measures each arm against its own formation (Encore: the injected helix; static: its preloaded sphere), so the readout marks the two as not comparable. Same seed, same failures.' },
   { id: 'final', tick: T.FINAL, action: { kind: 'camera', preset: 'audience' }, caption: '' },
   { id: 'end', tick: T.END, action: null, caption: 'End of the 90-second demo. Press D to run it again.' },
 ];
 /** Beats whose caption describes what only the Encore brain shows. While the live Encore world flies another brain
  * (status.brains, the HUD's brainKinds source), the bar marks them; with the Encore brain in the app (#107) the mark
  * goes by itself, and these beats are the ones to re-check on screen. */
-export const BRAIN_DEPENDENT_BEATS: readonly string[] = ['xray', 'repair', 'jam', 'inject', 'new-movement', 'jam-off'];
+export const BRAIN_DEPENDENT_BEATS: readonly string[] = ['xray', 'repair', 'jam', 'inject', 'new-movement', 'jam-off', 'final-view'];
 
 /**
  * The note under an Encore-only caption, from the brains the live worlds actually fly (status.brains, the same

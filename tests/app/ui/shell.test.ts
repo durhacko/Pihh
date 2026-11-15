@@ -305,6 +305,8 @@ describe('static-pane selections (#113 re-review)', () => {
     const final = DEMO_BEATS.filter(b => b.tick === DEMO_TICKS.FINAL);
     expect(final[0]).toMatchObject({ id: 'final-layout', action: { kind: 'layout', view: 'split' } });
     expect(final.find(b => b.id === 'final-view')!.caption).toMatch(/still split/);
+    expect(final.find(b => b.id === 'final-view')!.caption).toMatch(/not comparable/);   // what the readout says above it (#127)
+    expect(final.find(b => b.id === 'final-view')!.caption).not.toMatch(/shows nPWC for both arms/);
   });
 });
 

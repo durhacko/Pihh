@@ -105,6 +105,7 @@ describe('scripted demo run', () => {
   const firstClaim: Pair<number | null> = { encore: null, static: null };
   const firstCommit: Pair<number | null> = { encore: null, static: null };
   let previous: Pair<WorldSnapshot> | null = null;
+  const selectedAt: Record<string, number | null> = {};
   const watched = [DEMO_TICKS.KILL - 1, DEMO_TICKS.KILL, DEMO_TICKS.JAM_ON, DEMO_TICKS.INJECT, DEMO_TICKS.JAM_OFF - 1, DEMO_TICKS.JAM_OFF];
   beforeAll(() => {
     r = rig();
@@ -123,6 +124,10 @@ describe('scripted demo run', () => {
       // Kill ids resolve from positions when the beat is sent, up to LEAD_TICKS early: they must not drift.
       if (tick >= DEMO_TICKS.KILL - LEAD_TICKS && tick < DEMO_TICKS.KILL) leadIds.push(idsInSphere(snapshots.encore, KILL_CENTRE, KILL_RADIUS));
       if (tick === DEMO_TICKS.JAM_ON) jammedAtOn = snapshots.encore.drones.filter(d => d.alive && dist(d.pos, JAM_CENTRE) <= JAM_RADIUS).length;
+      // The selection right after the injection is sent (still its target) and while it spreads (cleared, #134).
+      if (tick === DEMO_TICKS.INJECT - LEAD_TICKS + 2) selectedAt.send = readViewMode().selectedDroneId;
+      if (tick === DEMO_TICKS.INJECT + 2) selectedAt.spread = readViewMode().selectedDroneId;
+      if (tick === DEMO_TICKS.JAM_OFF + 2) selectedAt.jamOff = readViewMode().selectedDroneId;
       if (tick === DEMO_TICKS.INJECT) {
         const has = (arm: 'encore' | 'static') => r.worlds.worlds[arm].inspect(INJECT_DRONE)!.input.inbox.some(m => m.type === 'SCORE' && m.from === OPERATOR);
         injected = { encore: has('encore'), static: has('static') };
@@ -179,9 +184,19 @@ describe('scripted demo run', () => {
       expect(dist(target.pos, JAM_CENTRE)).toBeGreaterThan(JAM_RADIUS);
     }
     // View beats went through the display intents; the run ends on the audience view with overlays off.
-    expect(viewAtEnd).toMatchObject({ xray: false, beliefColours: false, selectedDroneId: INJECT_DRONE });
+    expect(viewAtEnd).toMatchObject({ xray: false, beliefColours: false, selectedDroneId: null });
     expect(r.cameras).toEqual(['audience', 'audience']);
     expect(r.transport.speed).toBe(1);
+  });
+
+  it('deselects as the injection lands, so X-ray draws the whole spread; the injection still goes to its target (#134)', () => {
+    expect(first.log.find(event => event.type === 'INJECT_SCORE')).toMatchObject({ tick: DEMO_TICKS.INJECT, droneId: INJECT_DRONE });
+    expect(selectedAt.send).toBe(INJECT_DRONE);   // selected while the injection is sent, so it targets 151
+    expect(selectedAt.spread).toBeNull();          // nothing selected while the new score spreads ...
+    expect(selectedAt.jamOff).toBeNull();          // ... or when it crosses into the drones that were cut off
+    const order = DEMO_BEATS.map(beat => beat.id);
+    expect(order.indexOf('deselect')).toBeGreaterThan(order.indexOf('inject'));
+    expect(dispatchTick(DEMO_BEATS.find(beat => beat.id === 'deselect')!)).toBeGreaterThan(dispatchTick(DEMO_BEATS.find(beat => beat.id === 'inject')!));
   });
 
   it('shows each caption on its own beat tick, never early, even for events sent ahead', () => {
