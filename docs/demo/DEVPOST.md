@@ -24,9 +24,9 @@ Encore
 
 ## Tagline
 
-A simulated drone light show with no conductor mid-show: 200 drones each decide from what they sense and hear, and refill important gaps after failures.`[IF G4: …and pass new scores drone to drone.]`
+A simulated drone light show with no conductor mid-show: 200 drones each decide from what they sense and hear, refill important gaps after failures and pass new scores drone to drone.
 
-**NOTE:** G1 passed, so "try to" was dropped. Repair is partial, so putting it back is defensible. Append the `[IF G4]` clause only if G4 passed. Confirm the tagline length limit on the Devpost form (H1); it is not documented in the brief.
+**NOTE:** G1 passed, so "try to" was dropped; repair is partial, so putting it back is defensible. G4 is met (#21), so the clause about passing scores is in. The tagline is 183 characters. Confirm the tagline length limit on the Devpost form (H1); it is not documented in the brief.
 
 ## Inspiration
 
@@ -51,8 +51,7 @@ You can:
 
 1. **Watch the score.** The swarm forms text, then 3D shapes, on a shared clock.
 2. **Break it.** Click a drone and remove the region around it, or kill 10% of the drones at random. In the Encore world, nearby survivors infer a vacancy when a slot they can see is empty and they hear no heartbeat holding it. They can be wrong, and then they yield. The winners move into more important slots and give up less important detail, so the image thins instead of keeping a hole. The static world keeps the hole until its next formation.
-3. **Jam the radio, or split the swarm, and send a new composition to one drone.** `[IF G4]` The new score spreads along real radio messages as far as the radio allows, and no further. Drones that are cut off keep flying the score they have and catch up when the jam lifts. The static world can't adopt a new score at all.
-   **FALLBACK:** "You can jam the radio, split the swarm and send a new composition to one drone; spreading it drone to drone is designed but not demonstrated in this build."
+3. **Jam the radio, or split the swarm, and send a new composition to one drone.** The new score spreads along real radio messages as far as the radio allows, and no further. Drones that are cut off keep flying the score they have and catch up when the radio returns. The static world can't adopt a new score at all.
 4. **Look inside.** An X-ray view draws the radio messages actually sent. A belief view colours each drone by the score version it believes.
 
 Both worlds are measured by identical observers, which show:
@@ -67,11 +66,11 @@ Both worlds are measured by identical observers, which show:
 - **TypeScript end to end.** Vite builds it and Three.js draws the 3D view. Everything runs in the browser or in Node, with no backend and no network at runtime.
 - **The world** steps every drone at 20 Hz. It owns the physics, idealised short-range sensing and a disc radio model with packet loss, latency, jamming spheres and fixed partitions. Collisions and near-misses are counted from true positions and have no physical effect.
 - **Each drone's brain** is a function from its own inputs to an action. An import-boundary test fails CI if any brain file imports world code or uses `Math.random`, `Date` or `performance`. A differential test kills a drone beyond radio and sensing range and checks that a distant drone's inputs, outputs and state stay unchanged. It runs against the Encore brain, the static baseline and a probe brain.
-- **Healing is a local priority claim, implemented and tested headless.** Three pre-registered tests on 40 drones with 20% packet loss pass on ten seeds. The clumped-kill result depends on where the kill lands:
-  - In a sweep of all 40 kill centres × 5 seeds (at PR #103, before pacing and gossip), 183 of 200 runs met all five conditions. The other 17 finished their last repair 0.2–1.7 s after the 20 s window.
-  - After pacing and gossip, 38 of 40 centres met them on seed 1.
-  - At 200 drones, the evaluation run (5 seeds) is summarised under Accomplishments. Slots are ordered so that any prefix is an even thinning of the shape. A drone that senses an empty, more important slot nearby, and has heard nobody holding it, announces a claim in its heartbeat for one second. Among rival claimants, the drone whose own slot matters least wins, which moves holes outward and down in priority. When two drones hold the same slot, it is settled over the radio (the earlier holder keeps it) or by one drone yielding when it sees the slot taken. A drone that hears no radio never claims.
-- **Scores spread by gossip.** This is implemented, and a three-drone relay test passes on the real world model: the middle drone passes a new score on to a drone the injected drone cannot reach. `[IF G4: It is also tested across jams and partitions.]` A drone rebroadcasts a new score when it adopts it, plus a rate-limited refresh when it hears a stale heartbeat. Versions are ordered by issue time.
+- **Healing is a local priority claim, implemented and tested headless.** Slots are ordered so that any prefix is an even thinning of the shape. A drone that senses an empty, more important slot nearby, and has heard nobody holding it, announces a claim in its heartbeat for one second. Among rival claimants, the drone whose own slot matters least wins, which moves holes outward and down in priority. When two drones hold the same slot, it is settled over the radio (the earlier holder keeps it) or by one drone yielding when it sees the slot taken. A drone that hears no radio never claims.
+  - Three pre-registered tests on 40 drones with 20% packet loss pass on ten seeds.
+  - The clumped-kill result depends on where the kill lands. In a sweep of all 40 kill centres × 5 seeds (at PR #103, before pacing and gossip), 183 of 200 runs met all five conditions; the other 17 finished their last repair 0.2–1.7 s after the 20 s window. After pacing and gossip, 38 of 40 centres met them on seed 1.
+  - The evaluation run at 200 drones is summarised under Accomplishments.
+- **Scores spread by gossip.** This is implemented, and a three-drone relay test passes on the real world model: the middle drone passes a new score on to a drone the injected drone cannot reach. It is also tested across a partition: a new score reaches every drone on its own side and none on the other until the partition lifts. A drone rebroadcasts a new score when it adopts it, plus a rate-limited refresh when it hears a stale heartbeat. Versions are ordered by issue time.
 - **A headless batch runner** replays fixed scenarios with explicit failure ids. It writes one JSON run record per scenario, arm and seed, and records replay to the same state hash. The scenarios are a null run, a random kill, a regional kill, a radio cut, a partition with failures, and an injection during a partition. We wrote down the thresholds and the win/tie/loss rule before any evaluation seed ran.
 - **Built by a three-person team directing AI coding agents.** Claude Code and OpenAI Codex wrote most of the code and documents under our direction, one GitHub issue and pull request at a time. GitHub Copilot co-authored the initial scaffold. We reviewed every pull request and decided what to merge. Details are in the README's "AI use" section: https://github.com/durhacko/Pihh#ai-use
 
@@ -81,8 +80,13 @@ Encore invents no new algorithm. It combines known ideas (gossip, local failure 
 
 - **Repair is local and greedy by design.** Only drones near a hole compete for it, so the loss spreads over the neighbourhood, not the whole formation. We expect priority-weighted coverage to stay below what a global reassignment would reach; we have not run that comparison. A wiped region with no survivor close enough to sense it is never noticed.
 - **Nothing is repaired inside a jam.** A drone that hears no radio never claims a slot, because radio silence alone is not evidence that a neighbour died. So jammed drones that can see a hole leave it until the jam lifts. We chose fewer false repairs over faster repair.
-- **Partitions are expected to cause churn.** By design, two drones that can't hear each other can both claim the same slot until they meet or reconnect. A group cut off during a formation change would treat the departed drones as dead and repair its old formation, then unwind on reconnection. `[RESULT: S5 slot changes and duplicate-slot seconds, and collisions, both arms (#123), or delete this sentence]`
-- **Collisions in formation changes.** Our own batch runner found collisions even in the static baseline, which has no coordination at all. In one deterministic run of the no-event scenario, the static arm recorded about 60 collisions and 310 near-misses. They come from crossing traffic in the shared motion code during transitions ([#80](https://github.com/durhacko/Pihh/issues/80)). Pacing each drone's target along its path cut this to 14 collisions and 250 near-misses (200 drones; the run is identical for seeds 1–5; counts are lower bounds at a 20 Hz sample rate). Depth lanes and an earlier sidestep were measured and did not help. We report collisions for both worlds rather than hide them. In the evaluation run (200 drones, 5 seeds, medians), static vs Encore recorded 14 vs 14 collisions with no failures, 14 vs 17 after a random kill and 14 vs 16 after a regional kill. `[RESULT: S5 collisions, both arms (#123)]`
+- **Partitions are expected to cause churn.** By design, two drones that can't hear each other can both claim the same slot until they meet or reconnect. A group cut off during a formation change would treat the departed drones as dead and repair its old formation, then unwind on reconnection. In our partition-and-inject scenario at 200 drones this stayed small: a median of 6 slot changes per run and no duplicated slot at the end. Its real cost was collisions; see "Late joiners sprint".
+- **Collisions in formation changes.** Our own batch runner found collisions even in the static baseline, which has no coordination at all. In one deterministic run of the no-event scenario, the static arm recorded about 60 collisions and 310 near-misses. They come from crossing traffic in the shared motion code during transitions ([#80](https://github.com/durhacko/Pihh/issues/80)). Pacing each drone's target along its path cut this to 14 collisions and 250 near-misses (200 drones; the run is identical for seeds 1–5; counts are lower bounds at a 20 Hz sample rate). Depth lanes and an earlier sidestep were measured and did not help. We report collisions for both worlds rather than hide them. In the evaluation run (200 drones, 5 seeds, medians), static vs Encore recorded 14 vs 14 collisions with no failures, 14 vs 17 after a random kill and 14 vs 16 after a regional kill. In the partition-and-inject scenario it was 14 vs 103: see the next point.
+- **Late joiners sprint.**
+  - **What happens:** when a partition heals, the 97 drones that were cut off adopt the new score about 12 s into the new movement. Our clock-paced steering then aims them at a point already 61% of the way to their new slot, so they cross the formation at about 7.8 m/s (top speed 8 m/s).
+  - **What it costs:** about 80% of these collisions happen in the 10 s after the heal, between drones that adopted the new score late and crossed at close to full speed. That gives a median of 103 collisions per run for Encore, against 14 for the static baseline, which never adopts the new score at all.
+  - **What we tried:** pacing them from the moment they adopt halves the collisions (103 → 51), but only by making them land about 9 s after the hold begins. To a neighbour, a drone that is late and out of radio range looks exactly like a dead one, so false heals followed: 24 slot changes instead of 6, and 7.5 slot·s of duplicates. Variants that arrive on time cut collisions by only 7–15%.
+  - **What we chose:** to keep healing correct and report the collision cost instead ([#123](https://github.com/durhacko/Pihh/issues/123)).
 - **Keeping the comparison fair.** Both worlds share the seed, score, physics, steering and an identical list of failures with explicit drone ids. Only the brain differs.
 - `[HUMAN: optional, one real moment from the night, in your own words]`
 
@@ -90,15 +94,21 @@ Encore invents no new algorithm. It combines known ideas (gossip, local failure 
 
 - **Locality is tested, not just claimed.** A test rejects any brain file that imports world code or reads randomness or the clock. A differential test checks that a distant failure leaves a drone's inputs unchanged, for the Encore brain and the static baseline.
 - **Deterministic replay.** The same seed and events give the same state hash, so every number taken from a run record can be regenerated.
-- **A pre-registered evaluation that keeps its ties and costs.** In simulation, with 200 drones and 5 paired seeds per scenario:
+- **A pre-registered evaluation that keeps its ties and costs.** In simulation, with 200 drones; values are medians over 5 paired seeds per scenario. Numbers: [results/RESULTS.md](https://github.com/durhacko/Pihh/blob/main/results/RESULTS.md) (PR #122, commit 571c8e4).
   - **Regional kill:** median final nPWC 0.997 for Encore vs 0.909 for static. Encore was ahead on all 5 seeds and behind on none.
-  - **Regional kill, during the hold:** worst-case shape error 2.39 m vs 7.03 m.
+  - **Regional kill, during the hold:** median worst-case shape error 2.39 m vs 7.03 m.
   - **Regional kill, recovery:** Encore reached nPWC ≥ 0.95 in a median of 9.25 s, flight time included, on every seed; static never did.
-  - **Random kill:** 0.997 vs 0.912, ahead on all 5.
+  - **Random kill:** median 0.997 vs 0.912, ahead on all 5.
   - **Null run and radio cut:** level on every seed.
-  - **The other side of the ledger:** plain coverage ties at 0.900 in both kill scenarios, because the same drones die in both worlds. nPWC uses our own priority order. Encore spends 4 messages per drone per second, and 25–33 slot changes per run, where static spends none.
-- `[IF G4]` **Score dissemination across a partition.** `[RESULT: S5 share of drones on the injected side that adopted by tick 600; no adoption on the far side before reconnection; median time to one version after reconnection (tVersion); and collisions, both arms (#123)]`
-  **FALLBACK:** delete this item.
+  - **The other side of the ledger:**
+    - Plain coverage ties at 0.900 in both kill scenarios, because the same drones die in both worlds. nPWC uses our own priority order.
+    - Encore spends 4 messages per drone per second, where static spends none.
+    - It makes a median of 25 (random kill) and 33 (regional kill) slot changes per run (21–38 across runs).
+    - It has 17 / 16 collisions per run vs 14 for static (random / regional kill medians).
+- **Score dissemination across a partition.**
+  - **Spread:** in the partition-and-inject scenario, all 200 Encore drones end on the injected score; static adopts none. No drone on the far side adopts before the partition lifts, and one version remains 0.4 s after it does, on 5 of 5 seeds and on seed 101.
+  - **Timing:** the median adoption time is 0.8 s across all drones, because the injected side holds 103 of 200. The last drone adopts at 15.4 s, 0.4 s after the partition lifts.
+  - **Cost:** 103 collisions (IQR 101–103) and 809 near-misses per run, against 14 and 250 for static (see "Late joiners sprint").
 - `[HUMAN: optional, e.g. "three people, one night, N merged pull requests"]`
 
 ## What we learned
@@ -112,10 +122,11 @@ Encore invents no new algorithm. It combines known ideas (gossip, local failure 
 ## What's next
 
 - Cut the remaining transition collisions (14 per no-event run after pacing (200 drones), [#80](https://github.com/durhacko/Pihh/issues/80)) further, for example by sidestepping on time to contact.
+- Slow late joiners without making them look dead to their neighbours. A 3 m sideways arc, measured on two seeds only, gave 31 and 28 collisions; it is untested on 3D formations ([#123](https://github.com/durhacko/Pihh/issues/123)).
 - Let a jammed drone repair holes it can see without hearing radio, and measure whether that causes more false repairs.
 - Model drones that fail in place as obstacles, along with sensing noise and clock drift. All three are idealised now.
 - Compare against an oracle global reassignment as an upper bound.
-- `[IF only the 5-seed minimum ran]` Run the full matrix of 20 seeds per scenario.
+- Run the full matrix: 20 seeds per scenario, the partition-with-failures scenario (S4), and 100 drones. Only the 5-seed minimum ran.
 - Real flight would first need a safety layer and a hardware-in-the-loop simulator. This is a proof of concept, not flight software.
 
 ## Built with

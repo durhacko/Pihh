@@ -38,7 +38,7 @@ An agent can't log in to Devpost, change repo visibility, record the screen or p
 - [ ] "AI use" confirmed by a human, including any hand-written code (H9)
 - [x] Team members named (Haris's surname still to add: H13)
 - [x] "Where Encore ties or loses" section with the pre-registered cases
-- [ ] Results filled in from `results/RESULTS.md`. S0–S3 are filled from the evaluation run (#122). S5 waits for #123.
+- [ ] Results filled in from `results/RESULTS.md`. S0–S3 and S5 are filled from the evaluation run (#122), with S5's collision cost (#123).
 - [ ] Status box and `[IF G1]` / `[IF G4]` lines resolved at feature freeze (08:30)
 
 ## Repo

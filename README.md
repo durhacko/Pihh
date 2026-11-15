@@ -1,6 +1,6 @@
 # Encore
 
-**A drone light show with no conductor during the performance.** About 200 simulated drones each decide from their own state, what they sense nearby and what they hear on short-range radio. The score and the roster are written beforehand and loaded onto every drone. After failures, nearby survivors move into the more important parts of the picture. This is tested headless, and how much it helps is measured, not assumed (see "Where Encore ties or loses"). New compositions are meant to spread from drone to drone by radio. A conventional pre-programmed show runs beside it from the same seed, so you can compare the two.
+**A drone light show with no conductor during the performance.** About 200 simulated drones each decide from their own state, what they sense nearby and what they hear on short-range radio. The score and the roster are written beforehand and loaded onto every drone. After failures, nearby survivors move into the more important parts of the picture. This is tested headless, and how much it helps is measured, not assumed (see "Where Encore ties or loses"). New compositions spread from drone to drone by radio, and stop at a jam or partition until the radio returns. The cost of that is reported too: late joiners cause collisions. A conventional pre-programmed show runs beside it from the same seed, so you can compare the two.
 
 Built at DurHack 2026 by Arnav Chitriv, Haris `[HUMAN: Haris's surname]` and William Pimentel. The theme, as reported to the team, is Composition: drones compose an image, and a timed score composes images into a show. The theme wording and the Neptune North challenge brief are not verified online ([#1](https://github.com/durhacko/Pihh/issues/1)).
 
@@ -10,7 +10,14 @@ Built at DurHack 2026 by Arnav Chitriv, Haris `[HUMAN: Haris's surname]` and Wil
 > - 183 of 200 runs met all five conditions in the full sweep (all 40 kill centres × seeds 1–5, at PR #103, before pacing and gossip); the misses finished their last repair 0.2–1.7 s after the 20 s window;
 > - 38 of 40 on seed 1 at `571c8e4`, after pacing and gossip.
 >
-> It is also exercised through the app by `tests/app/encoreArm.test.ts`. At 200 drones, the evaluation run ([`results/RESULTS.md`](results/RESULTS.md), #122, seeds 1–5) has Encore ahead on the random and regional kills on 5 of 5 seeds each, and level on the null run and the radio cut, with no losses. Score gossip is merged and its relay test (T18) passes. Dissemination evidence (S5) is not yet claimed here. `[UPDATE AT FREEZE: replace this box with the build's real status, the frozen revision and a link to results/RESULTS.md, and resolve every bracketed placeholder below; legend in docs/demo/DEVPOST.md]`
+> It is also exercised through the app by `tests/app/encoreArm.test.ts`. At 200 drones, the evaluation run ([`results/RESULTS.md`](results/RESULTS.md), #122, seeds 1–5):
+> - **Kills:** Encore is ahead on end nPWC (our own priority labels) on 5 of 5 seeds in the random and regional kills. Plain coverage ties at 0.900.
+> - **Null run and radio cut:** level.
+> - **Costs:** Encore spends 4 messages per drone-second, a median of 25 and 33 slot changes per run in the two kills, and a few more collisions (17 and 16 vs 14).
+>
+> Score dissemination (G4) is met:
+> - **Spread:** the relay test passes. In the partition scenario (S5) all 200 Encore drones end on the injected score (static: none). Nothing crosses the partition before it lifts, and one version remains 0.4 s after it does.
+> - **Cost:** in S5, Encore records a median of 103 collisions against 14 ([#123](https://github.com/durhacko/Pihh/issues/123)). `[UPDATE AT FREEZE: replace this box with the build's real status, the frozen revision and a link to results/RESULTS.md, and resolve every bracketed placeholder below; legend in docs/demo/DEVPOST.md]`
 
 ## Run the demo (30 seconds)
 
@@ -54,8 +61,7 @@ On WSL, run npm from a Linux path inside WSL (`cd ~/...`), not on a `\\wsl.local
 1. **Which brain each world runs.** The caption under the title and the HUD's arm labels say which brain each world flies (the badge reads LIVE SIMULATION). Trust them over this README.
 2. **Two worlds, one difference.** The top world is Encore and the bottom is the static baseline. Both run from the same seed and get the same failures; only the brain differs.
 3. **Kill a region.** In the Encore world, survivors next to the hole infer a vacancy and move into more important slots. They give up less important detail, so the image thins instead of keeping a hole. The static world keeps the hole until its next formation. Repair is local and greedy, so it isn't complete, and a hole that no survivor can sense is never noticed.
-4. **Jam the radio, then send a new composition to one drone.** `[IF G4]` The new score spreads along real radio messages, stops at the jam, and crosses when the jam lifts. The static world can't adopt it.
-   **FALLBACK until G4 passes:** the jam and inject controls work, but neither world adopts the new score.
+4. **Jam the radio, then send a new composition to one drone.** The new score spreads along real radio messages, stops at the jam, and crosses when the jam lifts. The static world can't adopt it.
 5. **The numbers.**
    - The readout at the bottom right shows each world's live drones and the frame rate.
    - The comparison panel above the readout shows nPWC, plain coverage, shape error, message rate, collisions and more for each world.
@@ -65,7 +71,7 @@ On WSL, run npm from a Linux path inside WSL (`cd ~/...`), not on a `\\wsl.local
 
 ## Where Encore ties or loses
 
-These cases were written down before any evaluation run, in [evaluation and tests §3](docs/validation/evaluation-and-tests.md#3-scenarios). The Measured column comes from [`results/RESULTS.md`](results/RESULTS.md) (#122: commit `571c8e4`, 200 drones, seeds 1–5, median [IQR]). It keeps ties, losses and unrecovered runs. S5 is pending #123, and S4 was not run.
+These cases were written down before any evaluation run, in [evaluation and tests §3](docs/validation/evaluation-and-tests.md#3-scenarios). The Measured column comes from [`results/RESULTS.md`](results/RESULTS.md) (#122: commit `571c8e4`, 200 drones, seeds 1–5, median [IQR]). It keeps ties, losses, costs and unrecovered runs. S4 was not run.
 
 | Case | What we expect | Measured |
 |---|---|---|
@@ -74,9 +80,9 @@ These cases were written down before any evaluation run, in [evaluation and test
 | **Regional kill (S2)**, the case Encore is built for | Ahead during the hold after the kill, but repair is partial. After the next formation change the dead drones are scattered, so shape error ties. Plain coverage ties. Some seeds may not recover. | **Encore ahead on 5 of 5 seeds** on end nPWC: 0.997 [0.989–0.997] vs 0.909 [0.909–0.916]. Worst shape error during the kill's hold: 2.39 m vs 7.03 m (median paired difference −4.6 m). Encore reaches nPWC ≥ 0.95 in a median of 9.25 s, flight time included, on 5 of 5 seeds; static never does (censored on 5 of 5). Plain coverage ties at 0.900. Costs: 33 slot changes, 16 vs 14 collisions. |
 | **Pure jam or radio cut, no failures (S3)** | Tie at best. Encore only adds blocked messages. A jammed drone never claims a slot, so nothing inside a jam is repaired until it lifts. | **Tie on 5 of 5 seeds.** nPWC 1.000 in both. Encore makes 0 slot changes, so silence was not taken for death. Its radio delivers 73% of messages (95% without the cut). |
 | **Partition with failures (S4, optional)** | Smaller gain than S2. Drones on opposite sides can claim the same slot, so expect duplicates, more slot changes and losses on some seeds. | Not run (optional). |
-| **New composition during a partition (S5)** | Two versions fly at once until reconnection. The group left behind repairs its old formation and then unwinds. The static show can't adopt, which is a capability difference, not a win. | `[RESULT: S5 adoption on the injected side, time to one version, and collisions, both arms (#123)]` |
+| **New composition during a partition (S5)** | Two versions fly at once until reconnection. The group left behind repairs its old formation and then unwinds. The static show can't adopt, which is a capability difference, not a win. | **Spread:**<br>• All 200 Encore drones end on the injected score; static adopts none (a capability difference, not a win).<br>• The injected side (103 of 200 drones) adopts at once. No drone on the far side adopts before the partition lifts, and one version remains 0.4 s after it does.<br>• Median adoption time is 0.8 s across all drones; the last drone adopts at 15.4 s.<br>• Slot changes: 6 per run; no duplicate slot at the end.<br>**Cost:**<br>• Encore records a median of 103 collisions (IQR 101–103) and 809 near-misses, against 14 and 250 for static.<br>• About 80% of these collisions happen in the 10 s after the heal, between drones that adopted the new score late and crossed at close to full speed ([#123](https://github.com/durhacko/Pihh/issues/123)).<br>• Pacing late adopters from the moment of adoption halved collisions but caused false heals, so it was not merged (#129). |
 | **Message cost (all scenarios)** | The static show sends nothing, so it is always cheaper. | Encore sends 4.0 messages per drone-second in every scenario (4.016 in S5, with score gossip); static sends none. |
-| **Collisions (all scenarios)** | Encore ≥ static. The static world collides during formation changes. In one deterministic run of the no-event scenario (200 drones, identical for seeds 1–5), pacing each drone's target along its path (#96) cut its transition collisions from about 60 to 14, and near-misses from 310 to 250 ([#80](https://github.com/durhacko/Pihh/issues/80)). The Encore world shares the same motion code. Counts are lower bounds, sampled at 20 Hz. | Collisions per run, static vs Encore: S0 14 vs 14, S1 14 vs 17, S2 14 vs 16, S3 14 vs 14. Near-misses: 250 vs 250, 239 vs 253, 242 vs 254, 250 vs 250. `[RESULT: S5 collisions, both arms (#123)]` |
+| **Collisions (all scenarios)** | Encore ≥ static. The static world collides during formation changes. In one deterministic run of the no-event scenario (200 drones, identical for seeds 1–5), pacing each drone's target along its path (#96) cut its transition collisions from about 60 to 14, and near-misses from 310 to 250 ([#80](https://github.com/durhacko/Pihh/issues/80)). The Encore world shares the same motion code. Counts are lower bounds, sampled at 20 Hz. | Collisions per run, static vs Encore: S0 14 vs 14, S1 14 vs 17, S2 14 vs 16, S3 14 vs 14. Near-misses: 250 vs 250, 239 vs 253, 242 vs 254, 250 vs 250. **S5: 14 vs 103**, near-misses 250 vs 809, from drones that adopt late after the partition heals ([#123](https://github.com/durhacko/Pihh/issues/123)). |
 
 Design limits to state alongside the results:
 
