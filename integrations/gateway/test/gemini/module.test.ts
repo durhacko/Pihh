@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readGeminiConfig } from '../../src/gemini/config.ts';
 import { createModule, defaultGeminiDeps, geminiModule, GENERATE_FORMATION_ROUTE } from '../../src/gemini/index.ts';
-import { liveGeminiDeps, loadSceneSchemas, type LastUpstream } from '../../src/gemini/module.ts';
+import { liveGeminiDeps, loadSceneSchemas, responseSchemaSetting, type LastUpstream } from '../../src/gemini/module.ts';
 import { readFileSync } from 'node:fs';
 import { fakeProvider, fakeValidator } from './fakes.ts';
 
@@ -40,6 +40,25 @@ test('gemini module (D3): the live deps send the committed scene schemas through
   const sent = JSON.parse(calls[0]!.body) as { generationConfig: { responseJsonSchema: unknown } };
   assert.deepEqual(sent.generationConfig.responseJsonSchema, loadSceneSchemas().scene3d);
   assert.equal(liveGeminiDeps(readGeminiConfig({})).provider, null, 'disabled: no provider is built');
+});
+
+test('GEMINI_RESPONSE_SCHEMA=off sends JSON mode without responseJsonSchema; unset or on sends it; anything else is a problem', async () => {
+  assert.equal(responseSchemaSetting(undefined), true);
+  assert.equal(responseSchemaSetting('on'), true);
+  assert.equal(responseSchemaSetting(' OFF '), false);
+  const problems: string[] = [];
+  assert.equal(responseSchemaSetting('maybe', problems), true);
+  assert.deepEqual(problems, ['GEMINI_RESPONSE_SCHEMA is not "on" or "off"; sending the schema']);
+  const bodies: string[] = [];
+  const transport = async (_url: string, init: { body: string }) => { bodies.push(init.body); return { status: 400, body: null }; };
+  const config = readGeminiConfig({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY });
+  for (const send of [true, false]) {
+    await liveGeminiDeps(config, transport, undefined, send).provider!.generate({ prompt: 'x', mode: 'scene3d', attemptTimeoutMs: 5_000 }, new AbortController().signal);
+  }
+  const [withSchema, without] = bodies.map(b => (JSON.parse(b) as { generationConfig: Record<string, unknown> }).generationConfig);
+  assert.ok('responseJsonSchema' in withSchema!);
+  assert.ok(!('responseJsonSchema' in without!));
+  assert.equal(without!.responseMimeType, 'application/json');
 });
 
 test('gemini module (D3): the sent schemas drop the document-only $id/$schema; everything else is the committed file', () => {
