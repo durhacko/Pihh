@@ -123,7 +123,7 @@ export interface ScoreMsg {
   type: 'SCORE';
   from: number;              // a drone id, or OPERATOR for the uplink
   seq: number; sentTick: number;
-  score: Score;              // the whole score; it is small
+  score: Score;              // the whole score; small, but a generated scene adds up to 16 KB (size is not modelled, above)
 }
 export type Message = Heartbeat | ScoreMsg;
 ```
@@ -313,6 +313,7 @@ makeGeneratedRecipe(scene: unknown, n0: number, params: Params)            // la
   : { ok: true; recipe: GeneratedRecipe; warnings: CompileWarning[] } | { ok: false; code: RejectCode; detail: string }
 copyRecipe(recipe: Recipe): Recipe                                         // shares nothing; a generated scene is deep-frozen
 acceptsRecipe(recipe: Recipe, n0: number, params: Params): boolean         // the brain's adoption check (section 9); pure, total
+sceneHashOf(recipe: GeneratedRecipe): string | null                       // sceneHash recomputed from the scene, never the label; null if invalid
 ```
 
 **Expansion.** (1) Generate a dense candidate cloud for the shape: about `4·n0` points for slot selection, and about 2000 for `dense`. Text uses a built-in 5×7 bitmap font table (no canvas, so Node and browser agree), supersampling each lit cell 3×3. Sphere uses a Fibonacci lattice. Helix samples two strands. (2) Pick `n0` slots by **farthest-point sampling**: slot 0 is the candidate nearest the centroid; each next slot is the candidate farthest from all slots chosen so far (ties: lowest candidate index). (3) Scale the shape uniformly about its centre, up or down, so that the closest pair of slots is `slotSpacingMin` (times 1.001, so rounding cannot leave it below), then translate it so the centre of `bounds` is (0, 30, 0). Local slot density is therefore the same at every `n0`. Choose each shape's proportions so that `bounds.min.y ≥ 2` at `n0` 40 and 200 (a squat helix, not a tall one). (4) Colour each slot from the palette as a gradient along x.
@@ -324,8 +325,8 @@ acceptsRecipe(recipe: Recipe, n0: number, params: Params): boolean         // th
 - (4) Colour comes from the scene's materials or foreground, not a palette.
 
 Two entry points, one rule (spec §7.11):
-- **`expandRecipe` is total.** A scene the compiler rejects gives the frozen fallback `sphere` formation for that `(n0, slotSpacingMin)`, held as its own object so `isFallbackFormation` is true for it. It never throws, because preloaded scores, the observer and paced targets reach it without the adoption check, and `world.step` has no try/catch.
-- **`expandRecipeStrict` is the operator's.** It throws `GeneratedSceneRejected` (with the compiler's code, or `unsupported-compiler` or `hash-mismatch` for a wrong label). `composeNext` and `makeScore` use it, so the operator never composes the fallback as if it were the scene. A generated movement they build carries the `slotsDigest` of the same compile that set its `transitionTicks`.
+- **`expandRecipe` is total.** Every generated recipe the strict path rejects (a rejected compile, a `compilerVersion` that is not `COMPILER_VERSION`, a wrong `sceneHash` label, a missing or malformed `slotsDigest`, or one made for this roster that does not match) gives the frozen fallback `sphere` formation for that `(n0, slotSpacingMin)`, held as its own object so `isFallbackFormation` is true for it. It never throws, because preloaded scores, the observer and paced targets reach it without the adoption check, and `world.step` has no try/catch.
+- **`expandRecipeStrict` is the operator's.** It throws `GeneratedSceneRejected` for the same recipes: the compiler's code for a rejected compile, `unsupported-compiler`, `hash-mismatch` for a wrong `sceneHash` label, or `digest-mismatch` for a `slotsDigest` that is missing, malformed, or made for this `n0` and `slotSpacingMin` and different from the compile. `composeNext` and `makeScore` use it, so the operator never composes the fallback as if it were the scene. A generated movement they build carries the `slotsDigest` of the same compile that set its `transitionTicks`.
 - **`slotsDigest` scope.** Inside one simulation process the shared memo makes it a consistency assertion, not a drift detector. Its purpose is saved scenes (library, MongoDB) and future multi-device use.
 
 For text, sphere and helix, expansion is exactly the four steps above, unchanged.
@@ -362,6 +363,7 @@ interface EncoreState {
   log: string[];
   now: number;                  // tick of my last step (0 before the first)
   canHeal: boolean;             // canHeal as last evaluated, on my last scan tick (false before the first)
+  refused?: { version: ScoreVersion; sceneHash: string }[];   // GF-CC-02: scores I refused (section 9), oldest first, at most 8; ABSENT until the first refusal
 }
 ```
 
@@ -504,11 +506,14 @@ If test 2 cannot be made to pass by about 23:30, use the fallback ladder in [`de
   - a rejected compile;
   - a `sceneHash` label that is not the hash of the scene;
   - `compilerVersion ≠ COMPILER_VERSION`;
+  - a missing or malformed `slotsDigest`;
   - a `slotsDigest` mismatch where the digest's `n0` and `slotSpacingMin` are the drone's own. A digest for another roster is not compared.
 
-  **On refusal** the score is not adopted (so it is not relayed). One log note is written, and `(version, sceneHash)` goes into the optional state field `refused`: at most 8 entries, oldest evicted, and **absent until the first refusal**, so the `stateHash` of every run without a generated recipe is unchanged. A remembered pair is not rechecked on re-send.
+  The labels (`compilerVersion`, `sceneHash`, `slotsDigest`) are compared on every check and never trusted. What the check recomputes from the scene (validator, hash, this roster's compile) is memoised on the scene's exact JSON, so the drones adopting one injection pay for it once per world, not once each (a memo of pure results, section 4).
 
-  **On adoption** each generated recipe in the adopted copy becomes `copyRecipe(recipe)`: the same JSON, with a frozen scene.
+  **On refusal** the score is not adopted (so it is not relayed). One log note is written, and `(version, sceneHash)`, with `sceneHash` recomputed by `sceneHashOf` (never the sender's label), goes into the optional state field `refused`: at most 8 entries, oldest evicted, and **absent until the first refusal**, so the `stateHash` of every run without a generated recipe is unchanged. A remembered pair is not rechecked on re-send. A refused score is never relayed: `scheduleScoreSend` runs only on adoption.
+
+  **On adoption** each generated recipe in the adopted copy becomes `copyRecipe(recipe)`: the same JSON, with a frozen scene. The copies are built before the state changes, so adoption is total: a copy that fails is a refusal, never a throw out of `step`.
 
   A score with no generated movement takes exactly the path above. In one process every brain gets the same compile, so a refusal is uniform: all drones refuse or none does. It becomes partial only where compiles differ between drones (multi-device, mixed compiler versions). This is not a defence against malice (honest senders, §12).
 - **`scheduleScoreSend()`:** if no send is pending, set `scoreSendAt = max(now + 1 + jitter, lastScoreSent + scoreResendMin)`, where `jitter = nextRandom() % scoreJitter` is a fresh draw from the drone's seeded stream (`rng` holds its state), and `jitter = 0` when `scoreJitter = 0` (no jitter). `lastScoreSent` starts at `-scoreResendMin`, so the first send is not delayed. **A scheduled send always fires; it is never cancelled.** Hearing the same version from someone else proves nothing about my other neighbours: with A in range of B, B in range of C, and A out of range of C, only B can reach C, so B must not stand down because it heard A. The rate limit (`scoreResendMin`) bounds the traffic instead: each drone sends at most one `SCORE` per two seconds.
