@@ -1,7 +1,15 @@
 # Phase 2 execution record
 
-> **STATUS: DEVELOPMENT QUEUED — NO PHASE 2 IMPLEMENTATION MERGED.**
-> Created 15 November 2026 after Phase 1 release freeze. This is a short operational register, not a replacement for the canonical specifications.
+> Created 15 November 2026 after the Phase 1 release freeze. This is a short operational register, not a replacement for the canonical specifications. Live status is on GitHub and [#199](https://github.com/durhacko/Pihh/issues/199), not in this file ([queries below](#live-state-on-github)).
+
+## Phase 2 operating override
+
+Until AGENTS.md and [WORKFLOW](../development/WORKFLOW.md) are reconciled after Phase 2, this overrides their Phase 1 "branch from `main`, rebase on `main`, target `main`" lines (AGENTS.md is protected and is not edited here):
+- **Branches:** the base, the worktree source (`git worktree add … origin/phase2/development`) and the PR target are all `phase2/development`. Integration checks run on the merged `phase2/development` tree.
+- **`main`** stays frozen until G6 is confirmed and the release is approved.
+- **Labels:** each issue carries exactly one `status:*` label. The worker id goes in the claim comment, because one human assignee may run several sessions.
+- **Task packets** carry: TASK, ISSUE, WORK PACKAGE, PR BASE, BASE SHA, OWNER/WORKER, ALLOWED FILES, SHARED FILES EXCLUDED, DEPENDENCIES, EXACT SPEC SECTIONS, CONTRACT REFERENCES, ACCEPTANCE TESTS, SUCCESS CONDITION, NEXT HANDOFF.
+- **Test time:** all Track H packages together add at most 15 s to the default suite ([work packages §2.3 item 7](../development/PHASE2_WORK_PACKAGES.md)). Heavy tests go behind `P2_WIDE=1`.
 
 ## Immutable baseline and active branches
 
@@ -16,37 +24,27 @@
 
 Phase 1 engineering G0–G5 is complete and browser-smoke tested; G6 (Devpost submission) is still human-owned and was not confirmed at this kickoff. **No Phase 2 code may merge into `main` or replace the judged-demo build before G6.** The Track H 04:00 latest start was missed; its 07:30 close is not a licence to bypass the submission gate. Agents may begin isolated implementation and tests, with no claim that new features will be judged.
 
-## Active implementation queue
+## Lanes and ownership rules
 
-**Arnav's instruction (about 07:40–07:55 GMT, relayed in the [#199 checkpoint at 07:42](https://github.com/durhacko/Pihh/issues/199#issuecomment-6891191211)):** "maximise parallel lanes; D1, D2, D3 queued; D3 sequential Gemini → MongoDB → TigerData".
+- **One issue, one branch, one worktree, one PR into `phase2/development`.** The orchestrator claims each issue and posts its allowed files before work starts. Only the orchestrator merges, and each merged branch and its worktree are retired.
+- **One writer per file.** A file belongs to exactly one open issue's allowed list. Shared modules have a named single writer, kept on #199. Nobody edits another lane's files without a written handoff on the issue.
+- **Gates:** [roadmap](PHASE2_ROADMAP.md) D1 (the Track H rule, including the P2-WP-09 two-hook exception), D2 (the `[contract]` changes, one by one) and D3 (live networked modules, decided per integration) are human decisions. Silence is not approval. Live D3 modules stay gated, and their order is recorded on #199.
+- **Evidence:** each PR quotes real test output, the `check.sh` result and its open items. Nothing claims an untested result.
 
-Lanes and file locks, as posted on #199 at 07:42 (one owner per file; nothing outside the lock). PR heads were checked when this table was written.
+## Dependency map
 
-| Issue | Work package | Owner | Branch | Locked files | Depends on | State / PR |
-|---|---|---|---|---|---|---|
-| [#200](https://github.com/durhacko/Pihh/issues/200) | P2-WP-01 invariant checker | durhack-5b | `phase2/200-invariant-checker` | `src/observer/invariants.ts`, `src/cli/harness.ts`, tests | Base | In review: PR [#222](https://github.com/durhacko/Pihh/pull/222) (`55bd195`) |
-| [#201](https://github.com/durhacko/Pihh/issues/201) | P2-WP-04 score linter | durhack-77 | `phase2/201-score-linter` | `src/cli/lint.ts`, `src/cli/lintReport.ts`, tests | Base | Merged: PR [#210](https://github.com/durhacko/Pihh/pull/210) (merge `5cff677`) |
-| [#202](https://github.com/durhacko/Pihh/issues/202) | P2-WP-03 repair-cascade trail | durhack-18 | `phase2/202-repair-cascade` | `render/layers/CascadeLayer.ts`, `render/colourModes/cascadeTrail.ts`, tests | Base | Merged: PR [#204](https://github.com/durhacko/Pihh/pull/204) (merge `36e2600`) |
-| [#203](https://github.com/durhacko/Pihh/issues/203) | GF-WP-01 SceneSpec validation (no API) | durhack-48 | `phase2/203-gemini-scene-validation` | `src/score/generated/` schema and validation files, fixtures | Base | Building |
-| [#221](https://github.com/durhacko/Pihh/issues/221) | XI-7 canonicalJson extraction | durhack-0c | `phase2/xi7-canonical-json` | `src/score/canonical.ts`, `src/cli/run.ts` (import only), test | Base | Building |
-| [#206](https://github.com/durhacko/Pihh/issues/206) | GF-WP-03 2D shapes and mask | durhack-01 | `phase2/gf-03-shapes2d` | `src/score/generated/shapes2d.ts`, test | #203 (adapter) | Building (draft; adapter after #203) |
-| [#208](https://github.com/durhacko/Pihh/issues/208) | P2-WP-05 Composer lint warnings | durhack-d1 | `phase2/p2-05-composer-lint` (stacked on #210) | `src/app/ui/Composer.ts`, `draftLint.ts`, test | #201 | Building (draft) |
-| [#217](https://github.com/durhacko/Pihh/issues/217) | P2-WP-09 inspector peer diff (D1 exception) | durhack-77 | `phase2/p2-09-peer-diff` | `src/app/ui/peerDiff.ts`, `Inspector.ts` hook, `inspectorTruth.ts` hook, test | D1 | Building |
-| [#211](https://github.com/durhacko/Pihh/issues/211) | GF-WP-05 3D shapes | durhack-18 | `phase2/gf-05-shapes3d` | §GF-WP-05 files only | #204 tweak | Next for this owner |
-| [#209](https://github.com/durhacko/Pihh/issues/209) | P2-WP-06 live invariant legend | durhack-98 (684fea) | `phase2/p2-06-invariants-legend` | `render/layers/InvariantsLayer.ts`, test | #200 (P2-T02 clean) | Waiting |
-| [#205](https://github.com/durhacko/Pihh/issues/205) | GF-WP-02 hashing and seeded PRNG | durhack-0c | `phase2/gf-02-hashing` | `src/score/generated/hashing.ts`, `prng.ts`, test | #203, #221 | Waiting |
-| [#207](https://github.com/durhacko/Pihh/issues/207) | GF-WP-04 2D sampling | durhack-01 | `phase2/gf-04-sample2d` | `src/score/generated/sample2d.ts`, test | #205, #206 | Waiting |
-| Workstream E | Register and per-PR handoff checks | durhack-fe | — | This queue table only | — | Per-PR checks |
+From the issues and the canonical work packages; an arrow means "must merge before".
+- **Core:** #200 (invariants) → #229 (follow-up) → #236 (P2-T18 cost). #229 and the n0 200 P2-T02 run → #209 (legend). #201 (linter) → #208 (Composer warnings). #202 (cascade) → #232 (demo visibility). #217 (peer diff) needs D1.
+- **Shared:** #221 (`canonicalJson`) → #205 (GF-WP-02), #230 (MDB-WP-02) and #231 (TIG-02); #231 also waits for #229, because it has the same owner.
+- **Gemini (offline):** #203 (GF-WP-01) → #205 (GF-WP-02) → #206 (GF-WP-03) and #211 (GF-WP-05) → #207 (GF-WP-04, after #205 and #206) → #212 (GF-WP-06, after #205, #207 and #211).
+- **Gated on D2:** #212 → #215 (`[contract]` GF-WP-07) → #213 (GF-WP-10, which also needs GF-WP-09) → #214 (GF-WP-11). #216 (Track P choreography) waits until after G6.
+- **Gated on D3, each live module separately:** #218 (Gemini gateway), #219 (MongoDB Atlas), #220 (TigerData).
 
-**Queued, gated in dependency order:**
-- [#212](https://github.com/durhacko/Pihh/issues/212) GF-WP-06 compiler → [#213](https://github.com/durhacko/Pihh/issues/213) GF-WP-10 Composer generated tab → [#214](https://github.com/durhacko/Pihh/issues/214) GF-WP-11 injection and provenance.
-- D2: [#215](https://github.com/durhacko/Pihh/issues/215) [contract] GF-WP-07 generated recipe integration.
-- D3, **strictly sequential**: [#218](https://github.com/durhacko/Pihh/issues/218) #1 Gemini live → [#219](https://github.com/durhacko/Pihh/issues/219) #2 MongoDB Atlas → [#220](https://github.com/durhacko/Pihh/issues/220) #3 TigerData.
-- [#216](https://github.com/durhacko/Pihh/issues/216) Track P animated choreography (D2, after G6).
+## Live state on GitHub
 
-The merge order follows the dependencies, only the orchestrator merges, and each merged branch and its worktree are retired.
-
-**Owners and file locks are in the queue table above, mirroring #199.** The lead orchestrator must claim each issue and reserve the exact allowed-file set before an agent begins. Each agent works from an independent branch/worktree based on `phase2/development`, makes one small PR targeting that branch, and reports measured checks. Do not let agents merge their own PRs without coordinator review.
+- Open PRs into `phase2/development`: [GitHub](https://github.com/durhacko/Pihh/pulls?q=is%3Apr+is%3Aopen+base%3Aphase2%2Fdevelopment), or `gh pr list -R durhacko/Pihh --base phase2/development`.
+- Issues in progress: [GitHub](https://github.com/durhacko/Pihh/issues?q=is%3Aissue+is%3Aopen+label%3Astatus%3Ain-progress), or `gh issue list -R durhacko/Pihh --label status:in-progress`.
+- Owners, worker ids, single writers and checkpoints: [#199](https://github.com/durhacko/Pihh/issues/199).
 
 ## Architecture and acceptance
 
