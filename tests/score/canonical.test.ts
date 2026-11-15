@@ -1,6 +1,7 @@
 // #221 (XI-7): canonicalJson moved byte for byte from src/cli/run.ts into the pure src/score/canonical.ts.
 // Proves the move changed nothing: same function object through src/cli/run.ts, identical output to the
-// pre-move definition on a corpus, the frozen paramsHash, and one committed evidence record's stateHash re-derived.
+// pre-move definition on a corpus, the frozen paramsHash and committed records' paramsHash (n0 200 and 100).
+// Full record re-derivations (stateHash) run under P2_WIDE=1 only (#237).
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -11,6 +12,7 @@ import type { RunRecord } from '../../src/contracts';
 import { BRAINS } from '../../src/cli/brains';
 import { getObserverFactory } from '../../src/cli/observer';
 import { canonicalJson as fromCli, paramsHash, runOne } from '../../src/cli/run';
+import type { ScenarioId } from '../../src/cli/scenarios';
 import { canonicalJson } from '../../src/score/canonical';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -78,15 +80,44 @@ describe('hashes are unchanged by the move', () => {
     expect(createHash('sha256').update(canonicalJson(makeParams(200))).digest('hex')).toBe(FROZEN_PARAMS_HASH);
   });
 
-  // stateHash and paramsHash only: other record fields (summary keys, series) may change in a declared Track P
-  // revision without touching canonicalJson, and must not fail this test.
-  it('re-derives a committed evidence record\'s stateHash and paramsHash: S0, seed 1, static, n0 = 200', () => {
-    const committed = JSON.parse(readFileSync(resolve(root, 'results/S0_n200_static_s1.json'), 'utf8')) as RunRecord;
-    expect(committed.paramsHash).toBe(FROZEN_PARAMS_HASH);
-    const record = runOne({
-      scenario: 'S0', seed: 1, arm: 'static', n0: 200, brains: BRAINS, makeObserver: getObserverFactory(), git: committed.git,
+  it.each([['results/S0_n200_static_s1.json', 200], ['results/full/n100/S2_n100_static_s1.json', 100]] as const)(
+    'paramsHash(makeParams(n0)) equals the committed record\'s paramsHash: %s', (file, n0) => {
+      const committed = readRecord(file);
+      expect(committed.n0).toBe(n0);
+      expect(paramsHash(makeParams(n0))).toBe(committed.paramsHash);
     });
-    expect(record.stateHash).toBe(committed.stateHash);
-    expect(record.paramsHash).toBe(committed.paramsHash);
+});
+
+// Full committed-record re-derivations are opt-in (P2_WIDE=1; PHASE2_WORK_PACKAGES §2.3 item 7, #237): every committed
+// record is a full 1800-tick run, 3.5 s at the cheapest, and stateHash goes through JSON.stringify
+// (src/sim/world.ts), not canonicalJson, so the byte-for-byte guarantee above does not depend on them.
+// stateHash and paramsHash only: other record fields (summary keys, series) may change in a declared Track P
+// revision without touching canonicalJson, and must not fail these tests.
+const WIDE = process.env.P2_WIDE === '1';
+const S0_N200 = (['static', 'encore'] as const).flatMap((arm) => [1, 2, 3, 4, 5].map((seed) => [arm, seed] as const));
+
+function readRecord(file: string): RunRecord {
+  return JSON.parse(readFileSync(resolve(root, file), 'utf8')) as RunRecord;
+}
+
+function rederive(file: string): void {
+  const committed = readRecord(file);
+  const record = runOne({
+    scenario: committed.scenario as ScenarioId, seed: committed.seed, arm: committed.arm, n0: committed.n0,
+    brains: BRAINS, makeObserver: getObserverFactory(), git: committed.git,
+  });
+  expect(record.stateHash).toBe(committed.stateHash);
+  expect(record.paramsHash).toBe(committed.paramsHash);
+}
+
+describe.runIf(WIDE)('P2_WIDE: committed evidence records re-derive (stateHash and paramsHash)', () => {
+  it('default-size case first: S2, seed 1, static, n0 = 100', () => {
+    rederive('results/full/n100/S2_n100_static_s1.json');
+  }, 120_000);
+
+  it.each(S0_N200)('S0, n0 = 200, %s, seed %i', (arm, seed) => {
+    const file = `results/S0_n200_${arm}_s${seed}.json`;
+    expect(readRecord(file).paramsHash).toBe(FROZEN_PARAMS_HASH);
+    rederive(file);
   }, 120_000);
 });
