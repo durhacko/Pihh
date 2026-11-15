@@ -74,7 +74,7 @@ Startup time, browser fps, offline pass and reset demonstration: **not measured/
 
 **Differences from experience §9:**
 - **Formation change:** it is the preloaded sphere at 48 s, because the default score has no helix before 93 s. The injected score is therefore a helix rather than a sphere.
-- **Split view:** the split beat switches the stage to split view (Encore above, static below) and stays there to the end. Starting or stopping the script returns to the Encore view.
+- **Split view:** the split beat at 16 s switches the stage to split view (Encore above, static below), and the final beat at 82 s sets split view again, in case the presenter changed it. Starting or stopping the script returns to the Encore view.
 - **Ghost slots:** the script has no ghost beat. Ghost slots exist in the app (**G**, or Lenses) and can be shown by hand.
 
 **Beats** (sim seconds at 1×; 20 ticks per second):
@@ -93,7 +93,7 @@ The "Encore arm" column was measured headless on `9f78902`: seed 101, the script
 | 64 | 1280 | `INJECT_SCORE` (helix) into drone 151, selected again as the injection is sent at 61 s, so a presenter's click cannot change the target; 0.5× | Nothing changes; the static brain ignores injection | 162 of 180 drones adopt within 1 s; none of the 18 inside the jam do |
 | 67 | 1340 | 1× (new movement starts) | Still a sphere | Adopters fly the helix; the cut-off cap keeps the sphere |
 | 73 | 1460 | `JAM_OFF` | Jam sphere gone | All 180 hold the new score within 1 s and join the helix by the clock |
-| 82 | 1640 | X-ray and belief colours off; Audience | Final view; the readout shows nPWC for both arms | Helix above, sphere below |
+| 82 | 1640 | X-ray and belief colours off; Audience; split view | Final view; the readout shows nPWC for both arms | Helix above, sphere below |
 | 90 | 1800 | End | "End of the 90-second demo" | |
 
 The brain note in the caption's sub-line follows the brains the live worlds actually fly (their `config.brain.kind`, the same source as the Metrics popover's Brains row). It appears only when the Encore arm is not flying the Encore brain, so with the Encore brain in the app it no longer shows.
@@ -130,7 +130,7 @@ The brain note in the caption's sub-line follows the brains the live worlds actu
 | Repair or spread does not show in this run | Say what the headless tests and the evaluation show (G1; G4 with the relay test and S5; [RESULTS](../../results/RESULTS.md)) and that this run did not show it; never stage it | Quote only the tests and results, with their limits and costs |
 | WebGL or all live paths fail | Play a labelled offline backup only if it exists; otherwise show source and real headless evidence with limits | No video/screenshots supplied by this drafting increment |
 
-**Hand-driven sequence** for the second fallback row:
+**Hand-driven sequence** for the second fallback row. In split view, click drones in the **Encore pane** (the top one): picks are answered only there, and K and J always act around the selected drone's position in the Encore world.
 1. Once the word holds, click a drone in the middle of the first E, then press **K**. With a drone selected, K destroys the 8 m region around it; with none selected, it asks for a click on the centre.
 2. After the sphere forms, click a drone at its top and press **J**. This jams 12 m around it.
 3. Press **F** (or **Compose** in the dock) and choose **Double helix**. Under Transmit, press **Pick in stage** and click a drone at the bottom, or type its id. Then press **Inject … into drone N**. The console does the same with `form helix` then `inject --pick`.
