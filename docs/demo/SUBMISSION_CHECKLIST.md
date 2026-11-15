@@ -32,13 +32,13 @@ An agent can't log in to Devpost, change repo visibility, record the screen or p
 ## README (rules R2–R4)
 - [x] What it is, how the reported theme Composition fits, and that it is a simulation with no hardware
 - [x] A 30-second run path for judges (`npm ci`, then `npm run build`, then `npm run preview`)
-- [ ] Run path verified on a fresh clone by a second person (H6). An agent check passed on a fresh WSL clone at `9f78902` (15 Nov, about 00:00), with networking off for the preview. The human run on the demo laptop is still needed.
+- [ ] Run path verified on a fresh clone by a second person (H6). An agent check passed on a fresh WSL clone at `9f78902` (15 Nov, about 00:00), with networking off for the preview ([log in #8](https://github.com/durhacko/Pihh/issues/8#issuecomment-6886715532)). The human run on the demo laptop is still needed.
 - [x] **"Built with"**: every public library at its exact pinned version, plus Node.js, Python and the GitHub Actions used in CI ([R3](../competition/BRIEF.md#4-submission-and-rules))
 - [x] **"AI use"**: Claude Code, OpenAI Codex and GitHub Copilot, with what each was used for ([R4](../competition/BRIEF.md#4-submission-and-rules))
 - [ ] "AI use" confirmed by a human, including any hand-written code (H9)
 - [x] Team members named (Haris's surname still to add: H13)
 - [x] "Where Encore ties or loses" section with the pre-registered cases
-- [ ] Results filled in from `results/RESULTS.md`. Waits for the evaluation run (#26). The brain (#16), G1 (#17) and the CLI's Encore arm (#116) are done.
+- [ ] Results filled in from `results/RESULTS.md`. S0–S3 are filled from the evaluation run (#122). S5 waits for #123.
 - [ ] Status box and `[IF G1]` / `[IF G4]` lines resolved at feature freeze (08:30)
 
 ## Repo
