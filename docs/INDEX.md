@@ -41,6 +41,7 @@ The map of the canonical documentation for **Encore**. One fact lives in one pla
 | [demo/DEMO_PLAN.md](demo/DEMO_PLAN.md) | Pitch, known-good demo path, fallbacks, judging traceability |
 | [demo/SUBMISSION_CHECKLIST.md](demo/SUBMISSION_CHECKLIST.md) | Devpost and README requirements |
 | [demo/DEVPOST.md](demo/DEVPOST.md) | Paste-ready Devpost text with marked placeholders for results |
+| [demo/PITCH.md](demo/PITCH.md) | Timed spoken demo script and judge Q&A with linked evidence |
 | [demo/QA.md](demo/QA.md) | Performance and screenshot harness: how to run it, what the numbers mean, targets, the demo-laptop record |
 
 ## History
