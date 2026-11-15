@@ -202,7 +202,7 @@ describe('#203 fixtures: every valid 3D scene, validated by validateScene, sampl
   const files = readdirSync(dir).filter(f => /^valid-3d-.*\.json$/.test(f)).sort();
   it('finds the 3D fixtures', () => expect(files.length).toBeGreaterThanOrEqual(5));
   for (const file of files) {
-    it(`${file}: SceneSpec3D in, candidates and dense out (n0 40 and 200)`, () => {
+    it(`${file}: SceneSpec3D in, candidates and dense out (n0 40; also 200 with P2_WIDE)`, () => {
       const verdict = validateScene(JSON.parse(readFileSync(`${dir}/${file}`, 'utf8')));
       expect(verdict.ok).toBe(true);
       if (!verdict.ok || verdict.scene.mode !== 'scene3d') throw new Error(`${file} is not a valid 3D scene`);
@@ -211,7 +211,7 @@ describe('#203 fixtures: every valid 3D scene, validated by validateScene, sampl
       const mirrored = scene.parts.filter(p => p.symmetry === 'mirror-x').length;
       expect(solids.length).toBeGreaterThanOrEqual(scene.parts.length);
       expect(solids.length).toBeLessThanOrEqual(scene.parts.length + mirrored);
-      for (const n0 of [40, 200]) {
+      for (const n0 of WIDE ? [40, 200] : [40]) {
         const r = sample3d(scene, solids, { n0, referenceView: scene.referenceView, stream: testStream });
         expect(r.candidates.length).toBeGreaterThan(4 * n0);
         expect(r.dense.length).toBeGreaterThanOrEqual(1500);
