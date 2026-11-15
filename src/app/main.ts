@@ -7,7 +7,6 @@
 // layer's own tally or an observer MetricsSample.
 import { Plane, Raycaster, Vector2, Vector3 } from 'three';
 import { DT, type EnvEvent, type MetricsSample, type Vec3, type WorldSnapshot } from '../contracts';
-import { currentMovement } from '../score';
 import { idsInSphere } from '../sim';
 import { bindControls, type ControlIntent, type ControlResult } from './actions';
 import { CameraRig, type CameraPreset } from './render/CameraRig';
@@ -28,7 +27,7 @@ import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend } from './ui/Legend';
 import { createDisrupt, createHelp, createLenses, createMetrics, createSelectionArm, jamKeyAction, stageClick, type PopoverContext } from './ui/popovers';
-import { createReadout } from './ui/Readout';
+import { appPhaseTracker, createReadout, TRANSITION_TITLE, type ArmPhase } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
 import { connectTimeline } from './ui/Timeline';
@@ -527,18 +526,20 @@ function ghostCounts(arm: Arm): { vacant: number; inTransit: number; contested: 
   const count = (status: string) => reading.slots.status.filter(s => s === status).length;
   return { vacant: count('vacant'), inTransit: count('inTransit'), contested: count('contested'), inHold: reading.slots.inHold };
 }
-function feedHud(): void { hudModel.update(hudPayload(worlds, { fps: lastFps, layout: store.state.view })); }
+// Per arm, from the observer (throttled slot feed), not the preloaded score's plan: after an injection the arms differ.
+// The feed's reading (inHold) and the movement name describe ONE observer moment: the reading's own tick.
+function armPhases(): Pair<ArmPhase | null> {
+  const s = worlds.samples(), snaps = snapshots();
+  const at = (arm: Arm) => { slotFeeds[arm].read(snaps[arm]); const r = slotFeeds[arm].latest(); return appPhaseTracker(arm, worlds.observers[arm], r && { tick: r.tick, inHold: r.slots.inHold }, s[arm], worlds.scores()); };
+  return { encore: at('encore'), static: at('static') };
+}
+function feedHud(): void { const p = armPhases(); hudModel.update(hudPayload(worlds, { fps: lastFps, layout: store.state.view, inHold: { encore: p.encore?.inHold ?? null, static: p.static?.inHold ?? null } })); }
 function refreshChrome(): void {
   const samples = worlds.samples();
   const view = store.state.view;
   const snaps = snapshots();
-  let phase: { inHold: boolean; name: string } | null = null;
-  try {
-    const now = currentMovement(worlds.score, worlds.tick);
-    const recipe = now.movement.recipe;
-    phase = { inHold: now.inHold, name: recipe.kind === 'text' ? `“${recipe.text}”` : recipe.kind === 'sphere' ? 'Sphere' : 'Double helix' };
-  } catch { phase = null; }
-  readout.update({ samples, view, n0: params.n0, phase, fps: lastFps, stopped: loopError });
+  const phases = armPhases();
+  readout.update({ samples, view, n0: params.n0, phases, fps: lastFps, stopped: loopError });
   readout.el.dataset.tick = String(worlds.tick);
   dock.update({ playing: transport.playing, tick: worlds.tick, speed: transport.speed, view, stopped: loopError !== null });
   const legendArm: Arm = view === 'static' ? 'static' : 'encore';
@@ -548,11 +549,11 @@ function refreshChrome(): void {
     deaf: snaps[legendArm].drones.filter(d => d.alive && d.belief.deaf).length, partitions: snaps[legendArm].partitions.length,
     ghosts: ghostCounts(legendArm), arm: view === 'split' ? 'Encore' : undefined,
   });
-  const label = (name: string, desc: string, sample: MetricsSample | null) => [h('span', { class: 'name' }, name), h('span', { class: 'desc' }, desc), h('span', { class: 'num' }, `nPWC ${sample?.npwc === null || sample?.npwc === undefined ? '—' : sample.npwc.toFixed(3)}`)];
+  const label = (name: string, desc: string, sample: MetricsSample | null, phase: ArmPhase | null) => [h('span', { class: 'name' }, name), h('span', { class: 'desc' }, desc), h('span', { class: 'num', style: phase && !phase.inHold ? { color: 'var(--text-3)' } : undefined, title: phase && !phase.inHold ? TRANSITION_TITLE : undefined }, `nPWC ${sample?.npwc === null || sample?.npwc === undefined ? '—' : sample.npwc.toFixed(3)}${phase && !phase.inHold ? ' · in transition' : ''}`)];
   if (view === 'split') {
-    vpTop.replaceChildren(...label('▲ ENCORE', 'decentralised, self-healing', samples.encore));
-    vpBottom.replaceChildren(...label('▼ STATIC', 'pre-programmed baseline · sends no radio', samples.static));
-  } else if (view === 'static') vpTop.replaceChildren(...label('STATIC', 'pre-programmed baseline · sends no radio', samples.static));
+    vpTop.replaceChildren(...label('▲ ENCORE', 'decentralised, self-healing', samples.encore, phases.encore));
+    vpBottom.replaceChildren(...label('▼ STATIC', 'pre-programmed baseline · sends no radio', samples.static, phases.static));
+  } else if (view === 'static') vpTop.replaceChildren(...label('STATIC', 'pre-programmed baseline · sends no radio', samples.static, phases.static));
   if (surfaces.isOpen('metrics')) metrics.render();
   if (surfaces.isOpen('timeline')) timeline.update();
   if (surfaces.isOpen('composer')) composer.render();
