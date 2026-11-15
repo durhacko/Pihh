@@ -49,6 +49,9 @@ export class RadioTrace {
       // BEFORE they move this tick, which is where the previous snapshot left them; this snapshot's positions are
       // after the move, and two drones can drift up to 2 · vMax · DT further apart. So the previous snapshot's
       // positions are used when it was the tick just before; otherwise (first tick seen, a gap) this one's.
+      // Guarantee, scoped: with every tick ingested in order (the app: WorldView.ingest on every tick, #46) a link is
+      // never longer than rRadio. In the fallback (a tick with no previous one, e.g. update()-only use that skips
+      // ticks) it can be up to rRadio + 2 · vMax · DT, the drift of one tick.
       const positions = this.lastPositions !== null && snapshot.tick === this.lastTick + 1 ? this.lastPositions : own;
       for (const event of snapshot.radio) this.history.push({ tick: snapshot.tick, event: structuredClone(event), positions, ordinal: this.ordinal++, drawn: new Set() });
     }
