@@ -13,6 +13,9 @@ import type { StoredRunRow, TigerReader, VerificationRow } from '../../src/tiger
 import { createModule, createTigerModule, OFFLINE_FIXTURE_ENV } from '../../src/tiger/module.ts';
 import { readSourceFrom, type RunReadSource } from '../../src/tiger/services/source.ts';
 import { listRuns, parseListQuery } from '../../src/tiger/services/runs.ts';
+import { createFakeRepository } from '../../src/tiger/fakeRepository.ts';
+import { importFiles, operatorDt, type ArtifactFile } from '../../src/tiger/importer.ts';
+import type { ImportManifestV1 } from '../../../../src/telemetry/index.ts';
 import { TigerConfigError } from '../../src/tiger/config.ts';
 
 const RESULTS = new URL('../../../../results/', import.meta.url);
@@ -217,6 +220,43 @@ test('GET /api/runs/:runId/metrics: paging, 404, 400 INVALID_ID, archived runs',
   assert.ok(Object.keys(archived.summary.cells).length > 0);
   assert.equal(body(await get(g, '/api/runs?limit=200')).items.length, 49);
   assert.equal(body(await get(g, '/api/runs?telemetry=archived')).items.length, 1);
+});
+
+test('fed by the TIG-04 importer: results/ -> importFiles -> fake repository -> routes give back every record exactly', async () => {
+  const repo = createFakeRepository(() => '2026-11-15T09:00:00.000Z');
+  const manifests = new Map<string, ImportManifestV1>();
+  let n = 0;
+  const files: ArtifactFile[] = readdirSync(RESULTS).filter(f => /^S\d_n\d+_(encore|static)_s\d+\.json$/.test(f)).sort()
+    .map(f => ({ path: `results/${f}`, bytes: new Uint8Array(readFileSync(new URL(f, RESULTS))) }));
+  const commits = [...new Set(FIXTURES.map(f => f.record.git))];
+  const report = await importFiles(files, {
+    repo,
+    manifests: { read: h => manifests.get(h) ?? null, write: m => { if (manifests.has(m.artifactHash)) throw new Error('exists'); manifests.set(m.artifactHash, m); } },
+    ledger: { append: () => {} },
+    sha256,
+    sha1: (data: Uint8Array) => createHash('sha1').update(data).digest('hex'),
+    now: () => '2026-11-15T09:00:00.000Z',
+    attemptId: () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
+    dtFor: operatorDt(0.05, commits),
+    schema: 'encore',
+    importerVersion: 'routes-test',
+  });
+  assert.equal(report.imported, 50, JSON.stringify(report.results.filter(r => r.state !== 'verified').slice(0, 3)));
+  const g = gatewayWith(readSourceFrom(repo, 'fixture'));
+  const items = body(await get(g, '/api/runs?limit=200')).items;
+  assert.equal(items.length, 50);
+  for (const item of items) {
+    assert.equal(item.provenance.source, 'fixture');
+    const stored = await repo.readBack(item.runId);
+    assert.ok(stored);
+    const record = rowsToRecord(stored.rows);
+    const original = FIXTURES.find(f => f.stored.artifact_hash === item.provenance.artifactHash)!.record;
+    assert.deepEqual(record, original);
+    const m = body(await get(g, `/api/runs/${item.runId}/metrics`));
+    assert.deepEqual(m.samples.map((s: any) => s.tick), original.series.map(x => x.tick));   // eslint-disable-line @typescript-eslint/no-explicit-any
+    assert.deepEqual(m.events.map((e: any) => e.details), original.events);   // eslint-disable-line @typescript-eslint/no-explicit-any
+    assert.equal(m.samples.at(-1).totals.collisions, original.summary.collisions);
+  }
 });
 
 test('a Tiger-kind source maps verification as Q17 says (list: verified-at-import; metrics: verified / mismatch / not-checked)', async () => {
