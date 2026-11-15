@@ -209,7 +209,7 @@ The baseline is the floor for message cost (zero) and is immune to radio faults 
 
 ## Evidence
 
-Fifty headless runs: five scenarios × seeds 1–5 × both brains, 200 drones, 90 s of simulated time each. Every run starts from commit `571c8e4` with a frozen parameter set (SHA-256 `6342c662…`). Main has since changed details of the simulation (for example the geometric sensing order, #82), so numbers from current main differ in detail; to reproduce them exactly, use `571c8e4`. The full generated table, per-seed rows and hand-written notes are in [`results/RESULTS.md`](results/RESULTS.md).
+Fifty headless runs: five scenarios × seeds 1–5 × both brains, 200 drones, 90 s of simulated time each. Every run starts from the evidence freeze, commit `0b2f8f3`, with a frozen parameter set (SHA-256 `6342c662…`), and a replay of one record per scenario gave identical results. The generated tables are identical to those of the earlier run at `571c8e4`, whose records are kept in [`results/superseded-571c8e4/`](results/superseded-571c8e4/RESULTS.md): 14 of its 50 records differ in state hash, and some shape metrics in the last floating-point digits (#82, #115). The evidence commit is not the final app release. The commits after `0b2f8f3` change only the app's interface, its tests, docs and results. They make no change to the simulation, brains, score, contracts, observer or CLI (`src/sim`, `src/agent`, `src/score`, `src/contracts`, `src/observer`, `src/cli`; checked up to `f37ef47`). The full generated table, per-seed rows and hand-written notes are in [`results/RESULTS.md`](results/RESULTS.md).
 
 **nPWC** (normalised priority-weighted coverage) is the share of the picture's importance covered by live drones, divided by the best the surviving drones could achieve. It uses our own priority order, so the table also gives plain coverage and the largest gap in metres (sfMax). sfMax needs no labels, but our farthest-point slot order is built to keep sfMax small, so it is not fully independent of our choices; plain coverage, which ties at 0.900, is the only metric that cannot favour Encore. The win rule and pass lines were registered in the [evaluation plan](docs/validation/evaluation-and-tests.md#3-scenarios) before the run.
 
@@ -225,6 +225,15 @@ Fifty headless runs: five scenarios × seeds 1–5 × both brains, 200 drones, 9
 | **S2** 20 neighbouring drones killed at 20 s | 0.909 → 0.997 | **5 / 0 / 0** | Largest gap in the picture 7.03 m → 2.39 m (median, 40–45 s). Encore recovers in a median 9.25 s, flight included |
 | **S3** partition for 30 s, then a 15 s jam, no failures | 1.000 → 1.000 | 0 / 5 / 0 | Encore makes 0 slot changes; 27% of its per-receiver deliveries fail (blocked or lost), against 5% with no radio faults |
 | **S5** partition, new score injected on one side, reconnect | no verdict | — | All 200 Encore drones adopt the new score; static cannot (a capability difference, not a win). All live Encore drones agree on one score 0.30–0.45 s after reconnection. **Cost: 103 collisions against 14**, though the two worlds fly different formation changes here ([#123](https://github.com/durhacko/Pihh/issues/123)) |
+
+The full matrix, from the same commit, adds seeds 6–20 and the partition-plus-kill scenario S4 at 200 drones, and S1 and S2 at 100 drones ([`results/full/`](results/full/n200/RESULTS.md)). At 200 drones:
+- **Ahead on end nPWC on 20 of 20 seeds:** S1 (20 distinct kill sets), S2 (18 distinct) and S4. S4 has only 10 distinct kill sets, because its kill centre is drawn from the few slots near the partition plane.
+- **Level on every seed:** S0 and S3. Their events are the same on all 20 seeds, so they are one scenario repeated, not 20 samples.
+- **Largest gap during the kill's hold:** 2.39 m for Encore against 7.60 m for static in S2, and 2.99 m against 9.24 m in S4 (medians).
+- **Recovery:** S4 is slower, a median of 18.25 s (max 20.75 s). The slowest S2 seed (seed 8, 46.25 s) only partly closes its hole before the next formation.
+- **Collisions:** Encore is higher on 19 of 20 seeds in S1 and on 20 of 20 in S2, S4 and S5. In S5 the median is 102 (95–110) against 14, again with the two worlds flying different formation changes.
+
+At 100 drones, S1 and S2 are both 20 / 0 / 0. The full results and their caveats are in [`results/full/n200/RESULTS.md`](results/full/n200/RESULTS.md) and [`results/full/n100/RESULTS.md`](results/full/n100/RESULTS.md).
 
 <details>
 <summary><b>How these numbers are defined and computed</b></summary>
@@ -331,17 +340,17 @@ CI runs `scripts/check.sh` on every pull request and on pushes to `main` (Node 2
 | **Observer, scenarios and runner.** Metric definitions, read-only observer, replayable run records, fair-pair rule | [`tests/observer`](tests/observer), [`tests/cli`](tests/cli) |
 | **App.** Controls, readout and Metrics, X-ray, belief colours, inspector, composer, console, timeline and scripted demo, against a fake DOM in Node | [`tests/app`](tests/app) |
 
-To re-run the evidence, check out the evidence commit and write to a new directory (about 10 minutes for all five scenarios in one process):
+To re-run the evidence, check out the evidence commit and write to a new directory (about 6 minutes for all five scenarios in one process on the freeze machine; 10 at `571c8e4`):
 
 ```bash
-git checkout 571c8e4 && npm ci
+git checkout 0b2f8f3 && npm ci
 npm run eval -- --scenario min --seeds 1-5 --arms static,encore --n0 200 --out rerun/
 npm run eval -- --report rerun/    # compare with the generated part of results/RESULTS.md
 ```
 
 Don't write into `results/`: it holds the committed records and hand-written notes, and the runner refuses to overwrite a record from a different commit or parameter set. From the same commit, a re-run gives an identical state hash. In the browser, `window.encore.stateHashes()` returns each world's state hash, so two loads with the same seed and the same actions can be compared.
 
-**Not covered:** there are no browser, GPU or end-to-end tests. The isolation mutation check ([`tests/isolation/check-mutations.mjs`](tests/isolation/check-mutations.mjs)) runs by hand, not in CI. Repair is gated at 40 drones; at 200 drones it is measured by the evidence run but not asserted in a test. Across all 40 kill centres of seed 1 at `571c8e4`, 38 of 40 meet every G1 condition; 2 finish their last repair just after the 20 s quiet limit (20.2 s).
+**Not covered:** there are no browser, GPU or end-to-end tests. The isolation mutation check ([`tests/isolation/check-mutations.mjs`](tests/isolation/check-mutations.mjs)) runs by hand, not in CI. Repair is gated at 40 drones; at 200 drones it is measured by the evidence run but not asserted in a test. Across all 40 kill centres of seed 1 at `0b2f8f3` (the same result as at `571c8e4`), 38 of 40 meet every G1 condition; 2 finish their last repair just after the 20 s quiet limit (20.2 s).
 
 ## Neptune North challenge and sponsor tools
 
@@ -399,7 +408,7 @@ src/cli/         headless scenarios, batch runner, results table
 - **Drones are assumed honest.** Any drone can inject a score, and messages are not authenticated. Drones that fail vanish; a drone that fails but stays in place is not modelled.
 - **The evidence is small.** Five seeds per scenario at one swarm size and one parameter set.
 
-**Next steps.** Fix the reconnection collisions ([#123](https://github.com/durhacko/Pihh/issues/123)). Run the full matrix: S4, seeds 6–20 and 100 drones. Add a central-controller baseline beside the static one.
+**Next steps.** Fix the reconnection collisions ([#123](https://github.com/durhacko/Pihh/issues/123)). Widen the evaluation beyond the full matrix (S0 at 100 drones, more seeds, other drone counts). Add a central-controller baseline beside the static one.
 
 ## Team and credits
 

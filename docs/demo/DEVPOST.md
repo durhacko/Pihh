@@ -95,7 +95,7 @@ Encore invents no new algorithm. It combines known ideas (gossip, local failure 
 
 - **Locality is tested, not just claimed.** A test rejects any brain file that imports world code or reads randomness or the clock. A differential test checks that a distant failure leaves a drone's inputs unchanged, for the Encore brain and the static baseline.
 - **Deterministic replay.** The same seed and events give the same state hash, so every number taken from a run record can be regenerated.
-- **A pre-registered evaluation that keeps its ties and costs.** In simulation, with 200 drones; values are medians over 5 paired seeds per scenario. Numbers: [results/RESULTS.md](https://github.com/durhacko/Pihh/blob/main/results/RESULTS.md) (PR #122, commit 571c8e4).
+- **A pre-registered evaluation that keeps its ties and costs.** In simulation, with 200 drones; values are medians over 5 paired seeds per scenario. Numbers: [results/RESULTS.md](https://github.com/durhacko/Pihh/blob/main/results/RESULTS.md) (evidence freeze, commit 0b2f8f3, PR #190; the tables are identical to the first run at 571c8e4, PR #122). The commits after 0b2f8f3 change only the app's interface, its tests, docs and results, not the simulation, brains, score, contracts, observer or CLI. A full matrix at the same commit, with 20 seeds per scenario, keeps every verdict below. Encore is ahead on 20 of 20 seeds in both kill scenarios, which have 20 and 18 distinct kill sets. It is level on every seed in the null run and the radio cut, but their events are the same on every seed, so that is one scenario repeated. Its slowest regional-kill seed (seed 8, 46.25 s) only partly closes the hole before the next formation (results/full/). The numbers below are the 5-seed medians; at 20 seeds some differ slightly.
   - **Regional kill:** median final nPWC 0.997 for Encore vs 0.909 for static. Encore was ahead on all 5 seeds and behind on none.
   - **Regional kill, end of the kill's hold:** median worst-case shape error 2.39 m vs 7.03 m. This is `sfMax`, the largest distance from the target shape to the nearest drone, averaged over ticks 800–899.
   - **Regional kill, recovery:** Encore reached nPWC ≥ 0.95 in a median of 9.25 s, flight time included, on every seed; static never did.
@@ -108,7 +108,7 @@ Encore invents no new algorithm. It combines known ideas (gossip, local failure 
     - It has 17 / 16 collisions per run vs 14 for static (random / regional kill medians).
 - **Score dissemination across a partition.**
   - **Spread:** in the partition-and-inject scenario, all 200 Encore drones end on the injected score; static adopts none.
-  - **Isolation:** on 5 of 5 seeds, and on seed 101 (#21, main 4c41f75), no drone on the far side adopts before the partition lifts, and one version remains at the end. The time to one version after the partition lifts is a median of 0.4 s (0.30–0.45 s per seed).
+  - **Isolation:** on 5 of 5 seeds, and on seed 101 (#21, at 4c41f75), no drone on the far side adopts before the partition lifts, and one version remains at the end. A seed-101 re-run at the freeze (0b2f8f3, reported in PR #190; its records are not committed) again ended on one version 0.4 s after the lift, with all 200 Encore drones adopted. The time to one version after the partition lifts is a median of 0.4 s (0.30–0.45 s per seed).
   - **Timing:** the median adoption time is 0.8 s after injection across all drones, because the injected side holds 103 of 200. The last drone adopts a median of 15.4 s after injection (0.4 s after the partition lifts).
   - **Cost:** 103 collisions (IQR 101–103) and 809 near-misses per run, against 14 and 250 for static. That is not like-for-like: Encore flies the injected BRAVO change, while static flies its preloaded sphere change (see "Late joiners collide").
 - `[HUMAN: optional, e.g. "three people, one night, N merged pull requests"]`
@@ -128,7 +128,7 @@ Encore invents no new algorithm. It combines known ideas (gossip, local failure 
 - Let a jammed drone repair holes it can see without hearing radio, and measure whether that causes more false repairs.
 - Model drones that fail in place as obstacles, along with sensing noise and clock drift. All three are idealised now.
 - Compare against an oracle global reassignment as an upper bound.
-- Run the full matrix: 20 seeds per scenario, the partition-with-failures scenario (S4), and 100 drones. Only the 5-seed minimum ran.
+- Widen the evaluation beyond the full matrix (20 seeds per scenario, S4, and S1 and S2 at 100 drones). It has not yet covered S0 at 100 drones, more seeds or other drone counts.
 - Real flight would first need a safety layer and a hardware-in-the-loop simulator. This is a proof of concept, not flight software.
 
 ## Built with
