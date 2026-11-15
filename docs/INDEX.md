@@ -39,6 +39,17 @@ Enhancements for after the base gates. **Every doc here is STATUS: PROPOSED — 
 | [development/PHASE2_WORK_PACKAGES.md](development/PHASE2_WORK_PACKAGES.md) | Issue-ready work packages P2-WP-01–31 (not to be opened before their gate) |
 | [demo/PHASE2_JUDGING_STORYBOARD.md](demo/PHASE2_JUDGING_STORYBOARD.md) | Proposed judging beats; does not replace the demo plan |
 
+## Sponsor integrations (proposed, not implemented)
+
+William's sponsor designs, kept as received under `handoffs/`, and the canonical Encore specs built from them. **Every spec here is STATUS: PROPOSED — NOT IMPLEMENTED.** None is wired into the app, and the default build makes no external requests ([NFR-04](specification/requirements.md)). Network use needs decision D3, approved per integration ([boundaries §9](design/OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3)). All three share one optional gateway ([boundaries §6.2](design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard)).
+
+| Doc | What |
+|---|---|
+| [integrations/gemini-generated-formations.md](integrations/gemini-generated-formations.md) | Gemini generated formations (#117): canonical spec, scene schema, compiler, gateway module, conflict records, decisions |
+| [planning/gemini-integration-work-packages.md](planning/gemini-integration-work-packages.md) | Gemini work packages GF-WP-01–15 (not to be opened without approval) |
+| [validation/gemini-formation-evaluation.md](validation/gemini-formation-evaluation.md) | Gemini metrics, fixtures, tests GF-T01–GF-T41, gates |
+| [handoffs/Encore_Gemini_Flash_Lite_Architecture.md](handoffs/Encore_Gemini_Flash_Lite_Architecture.md) | William's Gemini handoff, preserved unmodified |
+
 ## Context
 
 | Doc | What |
