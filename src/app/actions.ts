@@ -1,5 +1,6 @@
 import type { EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from '../contracts';
 import { idsInSphere, randomIds } from '../sim';
+import { generatedRecipeProblem } from '../cli/generated';
 
 /**
  * `at` and `centre` exist for the scripted demo (#27), which drives these same intents from the DOM: `at` lands
@@ -193,6 +194,10 @@ export function createActionController(context: ControlContext) {
           if (log.some(event => event.type === 'INJECT_SCORE' && event.tick === tick)) throw new Error('A composition is already scheduled for this tick. Advance the show before injecting another.');
           const id = centreDrone(snapshots.encore).id;
           if (intent.recipe.kind === 'text' && (!intent.recipe.text.trim() || !/^[A-Z0-9 ]{1,20}$/i.test(intent.recipe.text))) throw new Error('Use 1–20 letters, digits or spaces.');
+          // GF-WP-11 step 1, defence in depth: a generated scene is re-validated and re-hashed here, whatever the
+          // caller, before composeScore's strict compile. A tampered or other-compiler recipe is never scheduled.
+          const generatedProblem = generatedRecipeProblem(intent.recipe);
+          if (generatedProblem) throw new Error(`The generated scene was refused: ${generatedProblem}.`);
           const recipe = intent.recipe.kind === 'text' ? { ...intent.recipe, text: intent.recipe.text.toUpperCase() } : intent.recipe;
           event = { type: 'INJECT_SCORE', tick, droneId: id, score: context.composeScore(authoredScore, tick, recipe, id, context.params.n0, context.params) };
         }
