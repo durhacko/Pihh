@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { makeParams, type Formation, type Vec3 } from '../../../src/contracts';
 import { farthestPointOrder } from '../../../src/score/fps';
 import {
-  COMPILER_VERSION, compileGeneratedScene, colourWarningsFor, linearLuminance, MAX_N0, MIN_SLOT_SPACING, repairReport, sceneHash, sfc32, slotsDigest,
+  COMPILER_VERSION, compileGeneratedScene, colourWarningsFor, denseCoverage, linearLuminance, MAX_N0, MIN_SLOT_SPACING, repairReport, sceneHash, sfc32, slotsDigest,
   validateScene, type CompileResult, type SceneSpec,
 } from '../../../src/score/generated';
 import { checkPlacement, placeP1, WORLD_LIMIT } from '../../../src/score/generated/placement';
@@ -165,6 +165,35 @@ describe('GF-T18: bounds, altitude and caps as validation, never clamps', () => 
     expect(at(line(40, 1, 1))).toMatchObject({ ok: false, code: 'below-floor' });
     expect(at(line(Math.ceil(WORLD_LIMIT / 1.5) + 2, 1, 2))).toMatchObject({ ok: false, code: 'too-large-world' });
   });
+});
+
+describe('§7.9 post-placement checks: never a breached ok', () => {
+  it('denseCoverage finds the slot farthest from dense', () => {
+    expect(denseCoverage([[0, 0, 0], [10, 0, 0]], [[0, 0, 1], [9, 0, 0], [11, 0, 0]])).toEqual({ slot: 0, distance: 1 });
+    expect(denseCoverage([[0, 0, 0]], [])).toEqual({ slot: 0, distance: Infinity });
+  });
+
+  it('a tiny protected part keeps dense nearby (sample3d gives every kept original some dense draws)', () => {
+    // The review's repro: before the sample3d fix the eye's one slot was 2.36 m from dense at n0 = 200.
+    for (const r of [0.012, 0.015]) {
+      const scene: SceneSpec = {
+        version: 1, mode: 'scene3d', title: 'Eye', referenceView: 'front', materials: [{ id: 'm', rgb: [0.6, 0.6, 0.6] }],
+        parts: [
+          { id: 'body', shape: { type: 'ellipsoid', center: [0, 0, 0], radii: [1, 1, 1] }, materialId: 'm', importance: 3 },
+          { id: 'eye', shape: { type: 'ellipsoid', center: [0, 0, 1.3], radii: [r, r, r] }, materialId: 'm', importance: 5 },
+        ],
+      };
+      const res = ok(compileGeneratedScene(scene, makeParams(200), 200));
+      expect(res.stats.perPart.eye, `r = ${r}`).toBeGreaterThan(0);
+      expect(denseCoverage(res.formation.slots.map((s) => s.pos), res.formation.dense).distance).toBeLessThan(1.5);
+    }
+  });
+
+  it.runIf(WIDE)('P2_WIDE: a sphere at n0 = 1000 outgrows the fixed ~2000-point dense band: a typed dense-coverage rejection', () => {
+    const r = compileGeneratedScene(sphereScene([0.9, 0.6, 0.2]), makeParams(1000), 1000);
+    if (r.ok) expect(denseCoverage(r.formation.slots.map((s) => s.pos), r.formation.dense).distance).toBeLessThan(1.5);
+    else expect(r.code).toBe('dense-coverage');
+  }, 120_000);
 });
 
 describe('GF-T19: determinism', () => {
@@ -398,6 +427,7 @@ describe('GF-T41: totality', () => {
         if (r!.ok) {
           expect(r!.formation.slots).toHaveLength(n0);
           if (n0 > 1) expect(closest(r!.formation.slots.map((s) => s.pos))).toBeGreaterThanOrEqual(1.5);
+          expect(denseCoverage(r!.formation.slots.map((s) => s.pos), r!.formation.dense).distance).toBeLessThan(1.5);
         }
       }
     }

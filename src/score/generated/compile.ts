@@ -41,13 +41,14 @@ export const MAX_N0 = 1250;
 export const MIN_SLOT_SPACING = 0.1;
 
 /**
- * §7.11 codes, plus the validation codes a non-V3-valid input can produce (parse, schema, too-large) and
- * unsupported-mode for the 2D path until GF-WP-04 lands (spec differences, approved on #212).
+ * §7.11 codes, plus the validation codes a non-V3-valid input can produce (parse, schema, too-large),
+ * unsupported-mode for the 2D path until GF-WP-04 lands, and dense-coverage for a result that would breach §7.8's
+ * slot-to-dense rule (spec differences, approved on #212).
  */
 export type RejectCode =
   | 'parse' | 'schema' | 'too-large' | 'unsupported-version' | 'unsupported-mode' | 'reference' | 'range' | 'geometry'
   | 'complexity' | 'empty-geometry' | 'too-few-candidates' | 'infeasible-count' | 'below-floor' | 'too-large-world'
-  | 'internal';
+  | 'dense-coverage' | 'internal';
 
 export interface CompileWarning { code: string; partId?: string; detail: string }   // William used string[]
 
@@ -143,6 +144,14 @@ function compile3D(
   const check = checkPlacement(placed);
   warnings.push(...check.warnings);
   if (!check.ok) return reject(check.code, check.detail);
+  // §7.9 correctness requirements, checked on the result so the compiler never returns a breached ok: the closest
+  // pair is at least slotSpacingMin (P1 makes it slotSpacingMin·1.001, so a breach is a bug: internal), and every
+  // slot lies within slotSpacingMin of dense (§7.8; a breach is the typed rejection dense-coverage).
+  if (placed.closestPair < spacing) return reject('internal', `closest pair ${placed.closestPair} m is below slotSpacingMin ${spacing} m after placement`);
+  const coverage = denseCoverage(placed.slots, placed.dense);
+  if (!(coverage.distance < spacing)) {
+    return reject('dense-coverage', `slot ${coverage.slot} is ${Math.round(coverage.distance * 100) / 100} m from the nearest dense point; every slot must lie within slotSpacingMin = ${spacing} m of dense (§7.8, §7.9)`);
+  }
 
   const slots = order.map((c, index) => ({ index, pos: placed.slots[index], colour: clampColour(cands[c].colour) }));
   const formation = freeze({ slots, dense: placed.dense, bounds: placed.bounds }) as GeneratedFormation;
@@ -173,6 +182,28 @@ function compile3D(
     closestPair: placed.closestPair, simplifications, hiddenFraction: sampled.stats.hiddenFraction,
   };
   return { ok: true, formation, warnings, sceneHash: hash, compilerVersion: COMPILER_VERSION, slotsDigest: slotsDigest(formation, n0, spacing), stats };
+}
+
+/**
+ * The slot farthest from the dense cloud and that distance (Infinity with no dense points); §7.8's rule is that it
+ * stays below slotSpacingMin. Squared distances, one square root at the end.
+ */
+export function denseCoverage(slots: readonly Vec3[], dense: readonly Vec3[]): { slot: number; distance: number } {
+  let worst = -1;
+  let worst2 = -Infinity;
+  for (let s = 0; s < slots.length; s++) {
+    const p = slots[s];
+    let near2 = Infinity;
+    for (const q of dense) {
+      const dx = p[0] - q[0];
+      const dy = p[1] - q[1];
+      const dz = p[2] - q[2];
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < near2) near2 = d2;
+    }
+    if (near2 > worst2) { worst2 = near2; worst = s; }
+  }
+  return { slot: worst, distance: worst < 0 ? 0 : Math.sqrt(worst2) };
 }
 
 /**
