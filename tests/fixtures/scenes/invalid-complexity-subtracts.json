@@ -1,0 +1,13 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Swiss Cheese", "view": "front", "foreground": [1, 0.9, 0.3],
+  "parts": [
+    { "id": "slab", "operation": "union", "geometry": { "type": "ellipse", "center": [0, 0], "radii": [1, 1] }, "priority": 5 },
+    { "id": "h1", "operation": "subtract", "geometry": { "type": "ellipse", "center": [-0.6, -0.6], "radii": [0.1, 0.1] }, "priority": 1 },
+    { "id": "h2", "operation": "subtract", "geometry": { "type": "ellipse", "center": [0, -0.6], "radii": [0.1, 0.1] }, "priority": 1 },
+    { "id": "h3", "operation": "subtract", "geometry": { "type": "ellipse", "center": [0.6, -0.6], "radii": [0.1, 0.1] }, "priority": 1 },
+    { "id": "h4", "operation": "subtract", "geometry": { "type": "ellipse", "center": [-0.6, 0], "radii": [0.1, 0.1] }, "priority": 1 },
+    { "id": "h5", "operation": "subtract", "geometry": { "type": "ellipse", "center": [0, 0], "radii": [0.1, 0.1] }, "priority": 1 },
+    { "id": "h6", "operation": "subtract", "geometry": { "type": "ellipse", "center": [0.6, 0], "radii": [0.1, 0.1] }, "priority": 1 },
+    { "id": "h7", "operation": "subtract", "geometry": { "type": "ellipse", "center": [-0.6, 0.6], "radii": [0.1, 0.1] }, "priority": 1 },
+    { "id": "h8", "operation": "subtract", "geometry": { "type": "ellipse", "center": [0, 0.6], "radii": [0.1, 0.1] }, "priority": 1 },
+    { "id": "h9", "operation": "subtract", "geometry": { "type": "ellipse", "center": [0.6, 0.6], "radii": [0.1, 0.1] }, "priority": 1 }
+  ] }

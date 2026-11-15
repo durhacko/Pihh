@@ -8,6 +8,7 @@ import type { AgentInput, AgentOutput, Belief, SlotStatus } from '../../contract
 import { versionColour, versionKey } from '../render/colourModes/belief';
 import { readViewMode } from '../render/colourModes/viewMode';
 import type { PanelContext } from './index';
+import { peerDiff, referenceTSuspect, type PeerTruth } from './peerDiff';
 
 export type InspectorArm = 'encore' | 'static';
 /** World.inspect(id): that drone's last step, deep-copied by the world. */
@@ -28,6 +29,8 @@ export interface ObserverTruth {
   jammedBy: string[];
   partitionSide: 0 | 1 | null;
   inRadioRange: { live: number; dead: number };
+  /** P2-WP-09: every other drone by id, for the peer diff. Optional: absent truth hides the section. */
+  peers?: PeerTruth;
 }
 export interface InspectorSource {
   agent(id: number, arm: InspectorArm): AgentView | null;
@@ -118,6 +121,33 @@ export function truthRows(truth: ObserverTruth): Row[] {
   ];
 }
 
+export interface PeerSection {
+  /** The drone's own tSuspect, shown as a reference value only; never compared with any age here. */
+  reference: string;
+  rows: { id: string; heard: string; truth: string }[];
+}
+
+/**
+ * P2-WP-09 peer diff rows: each peer's "last heard" age from the drone's own state, beside the observer's truth label.
+ * No label is derived from brain rules (P2-ADR-07). null hides the section: no step yet, no peer truth, or no
+ * well-formed peer table in the state (the static brain has none). Ages are in ticks, the drone's own clock unit: the
+ * contract allowlist of isolation.test.ts keeps DT out of the Inspector's import graph.
+ */
+export function peerSection(view: AgentView | null, truth: ObserverTruth | null): PeerSection | null {
+  if (!view?.inspect || !truth?.peers) return null;
+  const rows = peerDiff(view.inspect.state, truth.peers, view.inspect.input.tick);
+  if (rows === null) return null;
+  const tSuspect = referenceTSuspect(view.inspect.state);
+  return {
+    reference: tSuspect === null ? 'tSuspect not in state' : `its tSuspect: ${tSuspect} ticks (reference)`,
+    rows: rows.map(row => ({
+      id: `#${row.id}`,
+      heard: row.heardAgo === null ? 'no entry' : `${row.heardAgo} ticks ago`,
+      truth: row.truth,
+    })),
+  };
+}
+
 export interface TreeNode { key: string; summary: string; children?: TreeNode[]; more?: number }
 
 /** A generic tree of the brain's private state: no field names hard-coded, bounded in width and depth. */
@@ -157,6 +187,14 @@ const STYLE = `
 .encore-inspector .tree{max-height:220px;overflow:auto;margin-top:6px;font:11px/1.6 ui-monospace,Menlo,monospace;color:#a9bec8}
 .encore-inspector .tree details{padding-left:12px}.encore-inspector .tree .leaf{padding-left:12px;white-space:nowrap}
 .encore-inspector .observer{padding:10px 12px;border:1px dashed #3a5260;border-radius:8px;background:repeating-linear-gradient(135deg,#8fa3ad14 0 6px,transparent 6px 12px)}
+.encore-inspector .peers-scroll{max-height:220px;overflow:auto}
+.encore-inspector .peers{width:100%;table-layout:fixed;border-collapse:collapse;font:10.5px/1.5 ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.encore-inspector .peers col.id{width:3.2em}.encore-inspector .peers col.heard{width:7.8em}
+.encore-inspector .peers td.truth{font:10.5px/1.5 system-ui}
+.encore-inspector .peers th{position:sticky;top:0;background:#06121d;text-align:left;vertical-align:bottom;font:600 10px/1.4 system-ui;letter-spacing:.02em;color:#7f99a6;padding:2px 4px}
+.encore-inspector .peers td{padding:1px 4px;color:#c4d9e2;overflow-wrap:anywhere}
+.encore-inspector .peers td.truth,.encore-inspector .peers th.truth{border-left:1px dashed #3a5260;background:repeating-linear-gradient(135deg,#8fa3ad14 0 6px,transparent 6px 12px);color:#a9bec8}
+.encore-inspector .peers th.truth{background:repeating-linear-gradient(135deg,#8fa3ad14 0 6px,transparent 6px 12px),#06121d}
 .encore-inspector .tag{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#a9bec8;padding:1px 6px;border:1px solid #4a6270;border-radius:4px}
 `;
 
@@ -201,6 +239,7 @@ export function createPanel({ host }: PanelContext) {
       <section data-agent-section aria-label="Agent knowledge"><div class="sec-title"><span class="eyebrow">Agent knowledge</span><span class="src">Belief · inspect()</span></div><dl data-agent></dl><div class="label">Recent decisions</div><ol data-log aria-label="Recent decisions, newest first"></ol></section>
       <details data-tree-section><summary>Raw private state <span class="hint">· generic tree</span></summary><div class="tree" data-tree></div></details>
       <section class="observer" data-truth-section aria-label="Observer information, not visible to this drone"><div class="sec-title"><span style="display:flex;gap:6px;align-items:center"><span class="tag">Observer</span><span data-truth-pills style="display:flex;gap:4px"></span></span><span class="hint">not visible to this drone</span></div><dl data-truth></dl></section>
+      <section data-peers-section aria-label="Peers: last heard from this drone's state, beside observer truth"><div class="sec-title"><span class="eyebrow">Peers</span><span class="hint" data-peers-ref></span></div><div class="peers-scroll"><table class="peers"><colgroup><col class="id"><col class="heard"><col></colgroup><thead><tr><th scope="col">Peer</th><th scope="col">Last heard · from drone state</th><th scope="col" class="truth">Observer · not visible to this drone</th></tr></thead><tbody data-peers></tbody></table></div></section>
     </div>`;
   host.append(panel);
   const q = <T extends Element>(selector: string) => panel.querySelector<T>(selector)!;
@@ -216,6 +255,9 @@ export function createPanel({ host }: PanelContext) {
   const truthSection = q<HTMLElement>('[data-truth-section]');
   const truthList = q<HTMLDListElement>('[data-truth]');
   const truthPills = q<HTMLElement>('[data-truth-pills]');
+  const peersSection = q<HTMLElement>('[data-peers-section]');
+  const peersRef = q<HTMLElement>('[data-peers-ref]');
+  const peersBody = q<HTMLTableSectionElement>('[data-peers]');
   let lastKey = '';
   let lastRender = 0;
   let renderedId: number | null = null;
@@ -276,6 +318,17 @@ export function createPanel({ host }: PanelContext) {
       }
     }
     if (truth) fillRows(truthList, truthRows(truth));
+    // P2-WP-09: raw peer ages from drone state beside observer truth; hidden when the state has no peer table.
+    const peers = peerSection(view, truth);
+    peersSection.hidden = peers === null;
+    if (peers) {
+      peersRef.textContent = peers.reference;
+      peersBody.replaceChildren(...peers.rows.map(row => {
+        const tr = element('tr');
+        tr.append(element('td', undefined, row.id), element('td', undefined, row.heard), element('td', 'truth', row.truth));
+        return tr;
+      }));
+    }
   }
 
   const onToggle = () => { treeAt = -Infinity; if (treeSection.open) render(true); };

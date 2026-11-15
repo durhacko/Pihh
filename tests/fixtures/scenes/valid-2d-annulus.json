@@ -1,0 +1,5 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Annulus", "view": "front", "foreground": "#ffcc00",
+  "parts": [
+    { "id": "outer", "operation": "union", "geometry": { "type": "ellipse", "center": [0, 0], "radii": [1, 1] }, "priority": 5 },
+    { "id": "hole", "operation": "subtract", "geometry": { "type": "ellipse", "center": [0, 0], "radii": [0.5, 0.5] }, "priority": 4 }
+  ] }

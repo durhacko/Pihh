@@ -1,0 +1,106 @@
+{
+  "$id": "encore/scene3d/v1",
+  "title": "SceneSpec3D",
+  "description": "A coloured 3D scene in normalised space (x right, y up, z towards the audience; the subject faces +z). Model-facing schema: syntax only; validateScene re-checks every constraint.",
+  "type": "object",
+  "properties": {
+    "version": { "type": "integer", "enum": [1] },
+    "mode": { "type": "string", "enum": ["scene3d"] },
+    "title": { "type": "string", "description": "1 to 60 printable characters; display only." },
+    "referenceView": { "type": "string", "enum": ["front", "side", "three-quarter"] },
+    "materials": { "type": "array", "minItems": 1, "maxItems": 12, "items": { "$ref": "#/$defs/material" } },
+    "parts": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/part" } }
+  },
+  "required": ["version", "mode", "title", "referenceView", "materials", "parts"],
+  "additionalProperties": false,
+  "$defs": {
+    "coord": { "type": "number", "minimum": -1.5, "maximum": 1.5 },
+    "size": { "type": "number", "minimum": 0.005, "maximum": 1 },
+    "vec3": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/coord" } },
+    "rotation": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": -360, "maximum": 360 } },
+    "material": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Lower-case letter, then up to 31 of a-z, 0-9, _ or -; unique." },
+        "rgb": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": 0, "maximum": 1 } }
+      },
+      "required": ["id", "rgb"],
+      "additionalProperties": false
+    },
+    "part": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Lower-case letter, then up to 31 of a-z, 0-9, _ or -; unique." },
+        "shape": { "anyOf": [
+          { "$ref": "#/$defs/ellipsoid" }, { "$ref": "#/$defs/capsule" }, { "$ref": "#/$defs/cylinder" },
+          { "$ref": "#/$defs/cone" }, { "$ref": "#/$defs/taperedTube" }
+        ] },
+        "materialId": { "type": "string", "description": "The id of a declared material." },
+        "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "symmetry": { "type": "string", "enum": ["none", "mirror-x"] }
+      },
+      "required": ["id", "shape", "materialId", "importance"],
+      "additionalProperties": false
+    },
+    "ellipsoid": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["ellipsoid"] },
+        "center": { "$ref": "#/$defs/vec3" },
+        "radii": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/size" } },
+        "rotationDeg": { "$ref": "#/$defs/rotation" }
+      },
+      "required": ["type", "center", "radii"],
+      "additionalProperties": false
+    },
+    "capsule": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["capsule"] },
+        "center": { "$ref": "#/$defs/vec3" },
+        "radius": { "$ref": "#/$defs/size" },
+        "length": { "$ref": "#/$defs/size" },
+        "rotationDeg": { "$ref": "#/$defs/rotation" }
+      },
+      "required": ["type", "center", "radius", "length"],
+      "additionalProperties": false
+    },
+    "cylinder": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["cylinder"] },
+        "center": { "$ref": "#/$defs/vec3" },
+        "radius": { "$ref": "#/$defs/size" },
+        "height": { "$ref": "#/$defs/size" },
+        "rotationDeg": { "$ref": "#/$defs/rotation" }
+      },
+      "required": ["type", "center", "radius", "height"],
+      "additionalProperties": false
+    },
+    "cone": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["cone"] },
+        "center": { "$ref": "#/$defs/vec3" },
+        "baseRadius": { "$ref": "#/$defs/size" },
+        "topRadius": { "type": "number", "minimum": 0, "maximum": 1 },
+        "height": { "$ref": "#/$defs/size" },
+        "rotationDeg": { "$ref": "#/$defs/rotation" }
+      },
+      "required": ["type", "center", "baseRadius", "topRadius", "height"],
+      "additionalProperties": false
+    },
+    "taperedTube": {
+      "type": "object",
+      "description": "Cubic Bezier centreline in scene coordinates: 3k+1 points, k = 1..5.",
+      "properties": {
+        "type": { "type": "string", "enum": ["taperedTube"] },
+        "points": { "type": "array", "minItems": 4, "maxItems": 16, "items": { "$ref": "#/$defs/vec3" } },
+        "startRadius": { "$ref": "#/$defs/size" },
+        "endRadius": { "$ref": "#/$defs/size" }
+      },
+      "required": ["type", "points", "startRadius", "endRadius"],
+      "additionalProperties": false
+    }
+  }
+}
