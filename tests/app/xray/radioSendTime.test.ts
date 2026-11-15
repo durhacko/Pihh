@@ -3,6 +3,7 @@
 // message was sent (the previous snapshot), never at the post-move positions of the same tick. So no drawn link is
 // longer than rRadio.
 import { describe, expect, it } from 'vitest';
+import { DT } from '../../../src/contracts';
 import type { RadioEvent, Vec3, WorldSnapshot } from '../../../src/contracts';
 import { makeFakeSnapshot } from '../../fixtures/fakeSnapshot';
 import { RadioTrace } from '../../../src/app/render/colourModes/radioTrace';
@@ -63,5 +64,34 @@ describe('radio links use send-time positions (#149)', () => {
     }
     expect(drawn).toBeGreaterThan(1000);
     expect(longest).toBeLessThanOrEqual(rRadio + 1e-5);   // Float32 rounding only; was 15.0035 m before #149
+  }, 60_000);
+
+  it('the gap fallback (ticks skipped, update()-only use) stays within rRadio + 2 · vMax · DT, the drift of one tick', () => {
+    const worlds = createWorlds({ seed: 101 });
+    const { rRadio, vMax } = worlds.params;
+    const bound = rRadio + 2 * vMax * DT;
+    const trace = new RadioTrace();
+    let drawn = 0;
+    let fallback = 0;
+    let longest = 0;
+    let prev = worlds.stepBoth().encore;
+    for (let tick = 2; tick <= 360; tick++) {
+      const snap = worlds.stepBoth().encore;
+      if (tick % 3 !== 0) continue;                 // only every third tick is seen: every recorded tick follows a gap
+      trace.update(prev, snap);
+      prev = snap;
+      if (snap.tick < 300) continue;
+      const own = new Map(snap.drones.map(d => [d.id, d.pos]));
+      for (const s of trace.plan(snap.tick, 0).segments) {
+        const a = new Float32Array(s.from), b = new Float32Array(s.to);
+        longest = Math.max(longest, Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]));
+        drawn++;
+        const o = own.get(s.sender)!;
+        if (o[0] === s.from[0] && o[1] === s.from[1] && o[2] === s.from[2]) fallback++;   // drawn at this tick's own positions
+      }
+    }
+    expect(drawn).toBeGreaterThan(100);
+    expect(fallback).toBeGreaterThan(0);            // the fallback path really ran
+    expect(longest).toBeLessThanOrEqual(bound + 1e-5);
   }, 60_000);
 });
