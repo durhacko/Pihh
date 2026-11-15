@@ -16,7 +16,7 @@
 # Steps:
 #   0. refuse unless the tree is clean and HEAD equals origin/main; refuse if results/ (top level) holds records outside
 #      the minimum matrix (they belong in results/full/), or if results/RESULTS.md has content but no notes section;
-#   1. npm ci and scripts/check.sh;
+#   1. npm ci (before any helper, which needs tsx) and scripts/check.sh;
 #   2. results/PARAMS.md must hold the paramsHash of the params in the code (a change is a new revision, §5 step 5);
 #   3. run the matrix into a staging directory; check every record carries HEAD and that paramsHash;
 #   4. replay one Encore record per scenario (seed 3): equal stateHash, summary and series;
@@ -54,14 +54,25 @@ echo "origin/main $MAIN_SHA"
 [ -z "$(git status --porcelain)" ] || { git status --short >&2; die "the working tree is not clean (see above)"; }
 [ "$HEAD_SHA" = "$MAIN_SHA" ] || die "HEAD is not origin/main: check out origin/main (git switch --detach origin/main) and run again"
 [ -f results/PARAMS.md ] || die "results/PARAMS.md is missing: freeze the params first (evaluation doc §5 step 2)"
-helper extras results "$MIN_SPEC" || die "results/ (top level) may hold only the minimum matrix; move the records above to results/full/ (or elsewhere) and run again"
+if [ "$FULL" = 1 ]; then echo "mode: minimum matrix + full matrix (FREEZE_FULL=1); at most $JOBS processes"; else echo "mode: minimum matrix; at most $JOBS processes"; fi
+# The helpers below need tsx, so install first (a fresh checkout has no node_modules).
+npm ci --no-audit --no-fund
+set +e; helper extras results "$MIN_SPEC"; rc=$?; set -e
+case "$rc" in
+  0) ;;
+  7) die "results/ (top level) may hold only the minimum matrix; move the records above to results/full/ (or elsewhere) and run again" ;;
+  *) die "checking results/ for records outside the minimum matrix failed (status $rc)" ;;
+esac
 # Read the notes now, so a missing marker stops the run before any work rather than losing the notes after it.
 cp results/RESULTS.md "$WORK/RESULTS.old.md" 2>/dev/null || : > "$WORK/RESULTS.old.md"
-helper split "$WORK/RESULTS.old.md" "$WORK/generated.old.md" "$WORK/notes.md" --require-notes || die "results/RESULTS.md: no notes section found (see above)"
-if [ "$FULL" = 1 ]; then echo "mode: minimum matrix + full matrix (FREEZE_FULL=1); at most $JOBS processes"; else echo "mode: minimum matrix; at most $JOBS processes"; fi
+set +e; helper split "$WORK/RESULTS.old.md" "$WORK/generated.old.md" "$WORK/notes.md" --require-notes; rc=$?; set -e
+case "$rc" in
+  0) ;;
+  6) die "results/RESULTS.md: no notes section found (see above); nothing was run" ;;
+  *) die "reading results/RESULTS.md failed (status $rc)" ;;
+esac
 
-step "1. npm ci and scripts/check.sh"
-npm ci --no-audit --no-fund
+step "1. scripts/check.sh"
 bash scripts/check.sh
 
 step "2. Frozen params"
@@ -145,7 +156,8 @@ helper replay "$STAGE" "$REPLAY" "$MIN_SPEC" "$REPLAY_SEED"
 
 step "5. Install the minimum matrix in results/"
 install_set "$STAGE" results "$MIN_SPEC"
-helper top-git results "$HEAD_SHA" || die "results/ (top level) holds records from another commit (listed above): not one frozen revision"
+set +e; helper top-git results "$HEAD_SHA"; rc=$?; set -e
+[ "$rc" = 0 ] || die "results/ (top level) holds records from another commit (listed above): not one frozen revision (status $rc)"
 
 step "6. results/RESULTS.md: regenerate the generated section, keep the hand-written notes"
 results_md results "$WORK/RESULTS.old.md" 1
@@ -175,14 +187,19 @@ if [ "$FULL" = 1 ]; then
     helper check "$fstage" "$HEAD_SHA" "$code_hash" "$spec"
     cp "$dir/RESULTS.md" "$WORK/full-n$n0.RESULTS.old.md" 2>/dev/null || : > "$WORK/full-n$n0.RESULTS.old.md"
     install_set "$fstage" "$dir" "$spec"
-    helper top-git "$dir" "$HEAD_SHA" || die "$dir holds records from another commit (listed above)"
+    set +e; helper top-git "$dir" "$HEAD_SHA"; rc=$?; set -e
+    [ "$rc" = 0 ] || die "$dir holds records from another commit (listed above), or the check failed (status $rc)"
     helper params-md "$n0" "$HEAD_SHA" "$dir/PARAMS.md"
     results_md "$dir" "$WORK/full-n$n0.RESULTS.old.md" 0
   done
   # Cross-check: the default full matrix re-runs the minimum one; both must agree byte for byte apart from nothing.
   if [ -z "${FREEZE_FULL_SPECS:-}" ]; then
-    helper compare results results/full/n200 "$MIN_SPEC" >/dev/null || die "results/full/n200 disagrees with results/ on the minimum matrix: the runs are not reproducible"
-    echo "cross-check: results/full/n200 seeds 1-5 equal the minimum matrix in results/"
+    set +e; helper compare results results/full/n200 "$MIN_SPEC" >/dev/null; rc=$?; set -e
+    case "$rc" in
+      0) echo "cross-check: results/full/n200 seeds 1-5 equal the minimum matrix in results/" ;;
+      3) die "results/full/n200 disagrees with results/ on the minimum matrix: the runs are not reproducible" ;;
+      *) die "the cross-check of results/full/n200 against results/ failed (status $rc)" ;;
+    esac
   fi
   echo "full matrix wall-clock: $(( $(date +%s) - FT0 )) s"
 fi
