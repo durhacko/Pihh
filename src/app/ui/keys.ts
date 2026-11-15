@@ -1,29 +1,41 @@
-import type { ControlIntent, ControlStatus } from '../actions';
+// src/app/ui/keys.ts
+// Global keyboard shortcuts (research/ui-prototype DESIGN.md §2.3). One map, one listener. Typing never
+// triggers a shortcut (§2.2), modified keys are left to the browser, and Space on a focused button is left to
+// the button (it activates it natively). Escape is handled by the caller (handleEscape in ./surfaces).
+// Shared module: no createPanel export, so the panel loader skips it.
+import { isTyping } from './dom';
 
-export function bindKeyboard(host: HTMLElement, readStatus: () => ControlStatus | undefined, injection: () => ControlIntent) {
-  function onKey(event: KeyboardEvent) {
-    const status = readStatus();
-    if (!status?.available || event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
-    if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable=true]')) return;
-    const key = event.key.toLowerCase();
-    // Space activates a focused button natively; only there would a shortcut double up. Every other key must
-    // keep working after a panel click leaves focus on a button.
-    if (key === ' ' && event.target instanceof Element && event.target.closest('button')) return;
-    let intent: ControlIntent | undefined;
-    if (key === ' ') intent = { type: 'play' };
-    else if (key === 'r') intent = { type: 'reset', seed: status.seed };
-    else if (key === 'k') intent = { type: 'kill-region' };
-    else if (key === 'j' && status.radioFaults) intent = { type: 'jam' };
-    else if (key === 'p' && status.radioFaults) intent = { type: 'partition' };
-    else if (key === 'i' && status.composition) intent = injection();
-    else if (key === 'x' && status.display) intent = { type: 'xray' };
-    else if (key === 'c' && status.display) intent = { type: 'belief' };
-    else if (key === '[' || key === ']') {
-      const speeds = [0.25, 0.5, 1, 2, 4];
-      const index = Math.max(0, speeds.indexOf(status.speed));
-      intent = { type: 'speed', speed: speeds[Math.max(0, Math.min(speeds.length - 1, index + (key === ']' ? 1 : -1)))] };
-    }
-    if (intent) { event.preventDefault(); host.dispatchEvent(new CustomEvent('encore:control', { detail: intent })); }
+export type ShortcutAction =
+  | 'play' | 'step' | 'slower' | 'faster' | 'reset' | 'camera-audience' | 'camera-quarter' | 'camera-top'
+  | 'kill-region' | 'jam' | 'partition' | 'xray' | 'belief' | 'ghosts' | 'view' | 'metrics' | 'hide' | 'help'
+  | 'compose' | 'inject' | 'timeline' | 'console' | 'demo';
+
+const MAP: Record<string, ShortcutAction> = {
+  ' ': 'play', '.': 'step', '[': 'slower', ']': 'faster', r: 'reset',
+  '1': 'camera-audience', '2': 'camera-quarter', '3': 'camera-top',
+  k: 'kill-region', j: 'jam', p: 'partition', x: 'xray', c: 'belief', g: 'ghosts', b: 'view', m: 'metrics',
+  h: 'hide', '?': 'help', f: 'compose', i: 'inject', t: 'timeline', '/': 'console', '`': 'console', d: 'demo',
+};
+
+export interface KeyLike { key: string; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean; repeat?: boolean }
+
+/** The shortcut for a key press, or null. `typing`: the event comes from a text field. `onButton`: from a button. */
+export function shortcutFor(event: KeyLike, typing: boolean, onButton = false): ShortcutAction | null {
+  if (typing || event.ctrlKey || event.altKey || event.metaKey || event.repeat) return null;
+  if (event.key === ' ' && onButton) return null;
+  return MAP[event.key.toLowerCase()] ?? MAP[event.key] ?? null;
+}
+
+/** Listens on window; returns the unbind function. Escape goes to `onEscape` before the typing check, so it
+ *  also closes a surface whose input has focus. */
+export function bindShortcuts(handlers: Partial<Record<ShortcutAction, () => void>>, onEscape: () => void): () => void {
+  function onKey(event: KeyboardEvent): void {
+    if (event.key === 'Escape') { onEscape(); return; }
+    // Space on a button or a switch / checkbox / radio activates that control natively; it is not play / pause.
+    const onButton = event.target instanceof Element && event.target.closest('button, input[type=checkbox], input[type=radio], [role=switch], [role=radio]') !== null;
+    const action = shortcutFor(event, isTyping(event.target), onButton);
+    const run = action ? handlers[action] : undefined;
+    if (run) { event.preventDefault(); run(); }
   }
   window.addEventListener('keydown', onKey);
   return () => window.removeEventListener('keydown', onKey);

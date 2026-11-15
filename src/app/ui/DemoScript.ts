@@ -43,7 +43,9 @@ export const LEAD_TICKS = 3 * SECOND;
 export type DemoAction =
   | { kind: 'control'; intent: ControlIntent }
   | { kind: 'camera'; preset: CameraPreset }
-  | { kind: 'view'; xray: boolean; beliefColours: boolean };
+  | { kind: 'view'; xray: boolean; beliefColours: boolean }
+  /** Which world(s) the stage shows (#92 shell: Encore · Split · Static). A page without that control ignores it. */
+  | { kind: 'layout'; view: 'encore' | 'split' | 'static' };
 /** An empty caption keeps the one on screen. */
 export interface DemoBeat { id: string; tick: number; action: DemoAction | null; caption: string }
 
@@ -52,7 +54,7 @@ const control = (intent: ControlIntent): DemoAction => ({ kind: 'control', inten
 export const DEMO_BEATS: readonly DemoBeat[] = [
   { id: 'launch', tick: T.LAUNCH, action: { kind: 'camera', preset: 'audience' }, caption: '200 drones and no central controller: each flies a preloaded score on a shared clock, steering by what it senses nearby.' },
   { id: 'xray', tick: T.XRAY, action: { kind: 'view', xray: true, beliefColours: false }, caption: 'X-ray on. Each line is a real heartbeat from the radio log, sampled. The static baseline sends none.' },
-  { id: 'split', tick: T.SPLIT, action: null, caption: 'In split view, the static baseline flies below: same seed, same physics, same failures, no radio.' },
+  { id: 'split', tick: T.SPLIT, action: { kind: 'layout', view: 'split' }, caption: 'In split view, the static baseline flies below: same seed, same physics, same failures, no radio.' },
   { id: 'kill', tick: T.KILL, action: control({ type: 'kill-region', centre: KILL_CENTRE, radius: KILL_RADIUS, at: T.KILL }), caption: 'Knock out part of one letter in both worlds: about 10% of the swarm, the same drones on the same tick.' },
   { id: 'repair', tick: T.REPAIR, action: null, caption: 'Encore arm: neighbours sense the gap and claim its most important slots by heartbeat, so part of the hole refills from its rim. Static baseline: the hole stays.' },
   { id: 'formation', tick: T.FORMATION, action: null, caption: 'Next movement: the survivors re-form as a sphere by the shared clock; no message is needed to do it.' },
@@ -65,7 +67,8 @@ export const DEMO_BEATS: readonly DemoBeat[] = [
   { id: 'slow', tick: T.INJECT, action: control({ type: 'speed', speed: 0.5 }), caption: '' },
   { id: 'new-movement', tick: T.NEW_MOVEMENT, action: control({ type: 'speed', speed: 1 }), caption: 'The new movement starts. Encore drones that heard it fly the helix; drones still cut off keep the old score. Static baseline: sphere.' },
   { id: 'jam-off', tick: T.JAM_OFF, action: control({ type: 'jam', at: T.JAM_OFF }), caption: 'Jam off. Encore arm: the new score crosses into the drones that were cut off, and they join it by the clock.' },
-  { id: 'final-view', tick: T.FINAL, action: { kind: 'view', xray: false, beliefColours: false }, caption: 'Audience view. The HUD compares both arms on the observer’s measurements: same seed, same failures.' },
+  { id: 'final-layout', tick: T.FINAL, action: { kind: 'layout', view: 'split' }, caption: '' },
+  { id: 'final-view', tick: T.FINAL, action: { kind: 'view', xray: false, beliefColours: false }, caption: 'Audience view, still split: the readout shows nPWC for both arms (Encore / static), measured by the observer. Same seed, same failures.' },
   { id: 'final', tick: T.FINAL, action: { kind: 'camera', preset: 'audience' }, caption: '' },
   { id: 'end', tick: T.END, action: null, caption: 'End of the 90-second demo. Press D to run it again.' },
 ];
@@ -97,6 +100,8 @@ export interface DemoHost {
   status(): ControlStatus | undefined;
   view(): { xray: boolean; beliefColours: boolean };
   camera(preset: CameraPreset): void;
+  /** Sets the stage layout (#92). Optional: a host without layouts ignores 'layout' beats. */
+  layout?(view: 'encore' | 'split' | 'static'): void;
   /** Called whenever the runner's state or caption changes. */
   changed(): void;
 }
@@ -122,6 +127,7 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
   function run(action: DemoAction, tick: number, late: boolean) {
     if (action.kind === 'camera') { host.camera(action.preset); return; }
     if (action.kind === 'view') { setView(action.xray, action.beliefColours); return; }
+    if (action.kind === 'layout') { host.layout?.(action.view); return; }
     let intent = action.intent;
     if (late && 'at' in intent) {
       // Its exact tick has passed (the show stalled or ran fast): land it next tick and say this run is off-script.
@@ -166,6 +172,7 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
     host.send({ type: 'speed', speed: 1 });
     if (!host.status()?.playing) host.send({ type: 'play' });
     setView(false, false);
+    host.layout?.('encore');
   }
 
   function start(): boolean {
@@ -213,7 +220,7 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
  * Connects a runner to a page's controls over DOM events only, exactly as the control panel talks to them: it sends
  * `encore:control` intents and reads `encore:control-status`, including the result reported right after each intent.
  */
-export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPreset): void; changed(): void }, beats: readonly DemoBeat[] = DEMO_BEATS) {
+export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPreset): void; changed(): void; layout?(view: 'encore' | 'split' | 'static'): void }, beats: readonly DemoBeat[] = DEMO_BEATS) {
   let status: ControlStatus | undefined;
   let result: ControlResult | undefined;
   const runner = createDemoRunner({
@@ -225,6 +232,7 @@ export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPre
     status: () => status,
     view: () => readViewMode(),
     camera: hooks.camera,
+    layout: hooks.layout,
     changed: hooks.changed,
   }, beats);
   const onStatus = (event: Event) => {
@@ -242,8 +250,13 @@ export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPre
   };
 }
 
-/** The bar: Run / Stop, Restart, the D key, progress and the caption. Hidden below 860 px wide; D still works. */
-export function createPanel({ host }: PanelContext) {
+/**
+ * The bar: Run / Stop, Restart, the D key, progress and the caption. Hidden below 860 px wide; D still works.
+ * Opt-in (#92): not named createPanel, so the panel loader does not mount it. The app shell drives the same runner
+ * from its dock (Show, D) and shows the captions itself; a page without that shell can mount this bar explicitly.
+ * `camera` moves the camera for the demo's camera beats; without it, the bar presses a [data-preset] page button.
+ */
+export function createDemoBar({ host }: PanelContext, options: { camera?(preset: CameraPreset): void } = {}) {
   const panel = document.createElement('aside');
   panel.className = 'encore-demo';
   panel.setAttribute('aria-label', 'Scripted demo');
@@ -283,7 +296,7 @@ export function createPanel({ host }: PanelContext) {
     if (output.textContent !== problems) output.textContent = problems;
   }
   // Camera presets are page buttons (main.ts): press the same one a person would.
-  const connected = connectDemo(host, { camera: preset => host.querySelector<HTMLButtonElement>(`[data-preset="${preset}"]`)?.click(), changed: render });
+  const connected = connectDemo(host, { camera: options.camera ?? (preset => host.querySelector<HTMLButtonElement>(`[data-preset="${preset}"]`)?.click()), changed: render });
   ref.demo = connected;
   const onToggle = () => { if (connected.runner.state === 'running') connected.runner.stop(); else connected.runner.start(); };
   const onRestart = () => { connected.runner.restart(); };
@@ -305,4 +318,21 @@ export function createPanel({ host }: PanelContext) {
       panel.remove();
     },
   };
+}
+
+// ---------- for a shell that drives the runner itself (#92): refuse honestly, and never hide a failed beat ----------
+
+/** Why the scripted demo must not start on this page, or null. Its beats (drone ids, the kill region) assume DEMO_N0. */
+export function demoStartProblem(n0: number): string | null {
+  return n0 === DEMO_N0 ? null : `The scripted demo is written for ${DEMO_N0} drones; this page runs ${n0} (?n0=${n0}). Reload without ?n0= to run it.`;
+}
+
+/** The line under a demo caption: progress, the brain note, and every problem so far (a failed or late beat). */
+export function demoSubline(input: { running: boolean; seconds: number; note: string; problems: readonly string[] }): string {
+  const parts: string[] = [];
+  if (input.running) parts.push(`Scripted show · ${Math.min(90, Math.floor(input.seconds))} s`);
+  else parts.push('Scripted show');
+  if (input.note) parts.push(input.note);
+  if (input.problems.length) parts.push(`${input.problems.length === 1 ? '1 problem' : `${input.problems.length} problems`}: ${input.problems[input.problems.length - 1]}`);
+  return parts.join(' · ');
 }
