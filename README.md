@@ -403,7 +403,7 @@ src/cli/         headless scenarios, batch runner, results table
 
 ## Team and credits
 
-Built at DurHack 2026 by **Arnav Chitriv** ([@reverez](https://github.com/reverez)), **William Pimentel** ([@wpimento](https://github.com/wpimento)) and **Haris** ([@sirahmo](https://github.com/sirahmo)). Who did what is recorded in the [issues](https://github.com/durhacko/Pihh/issues?q=is%3Aissue) and [pull requests](https://github.com/durhacko/Pihh/pulls?q=is%3Apr).
+Built at DurHack 2026 by **Arnav Chitriv** ([@reverez](https://github.com/reverez)), **William Pimentel** ([@wpimento](https://github.com/wpimento)) and **Haris Mohammed** ([@sirahmo](https://github.com/sirahmo)). Who did what is recorded in the [issues](https://github.com/durhacko/Pihh/issues?q=is%3Aissue) and [pull requests](https://github.com/durhacko/Pihh/pulls?q=is%3Apr).
 
 **AI use** (credited as required by the event rules, [BRIEF R4](docs/competition/BRIEF.md#4-submission-and-rules)). Most of the code and documentation in this repository was written by AI coding agents, directed by the team. The team chose the idea, made the design decisions, split the work into GitHub issues and decided what to merge.
 - **Claude Code** (Anthropic; Claude Opus 5.5 and Claude Fable 5.2 models) ran in Arnav's sessions, including an orchestrator session that handed issues to parallel worker sessions. It did the contracts, score, steering and baseline, the Encore brain and its G1 tests, score gossip, the app integration, the scripted demo, the interface modules, the evaluation runner and the evidence run, and most of the documentation. Commits carry a `Co-Authored-By: Claude …` trailer.
