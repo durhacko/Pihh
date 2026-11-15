@@ -16,28 +16,11 @@
 // Exit code 1 if any beat reported a problem, the page threw, the frame loop stopped or the demo did not finish.
 // How to run it and read the sidecar: scripts/demo/README.md.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { syncBuiltinESMExports } from 'node:module';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launch, openPage, sleep } from '../perf/cdp.mjs';
-
-// Windows: cdp.mjs's launch() reads DevToolsActivePort as soon as it exists, while Chrome may still hold it locked.
-// The read then throws EBUSY and the orphaned Chrome keeps Node alive. Until launch() retries itself, retry that one
-// read here (bounded: 100 × 50 ms). Only reads of a file named DevToolsActivePort are affected.
-{
-  const read = fs.readFileSync;
-  const pause = new Int32Array(new SharedArrayBuffer(4));
-  fs.readFileSync = function readWithRetry(path, ...rest) {
-    if (!String(path).endsWith('DevToolsActivePort')) return read.call(this, path, ...rest);
-    for (let i = 0; ; i++) {
-      try { const text = read.call(this, path, ...rest); if (String(text).trim() || i >= 100) return text; } catch (error) { if (error.code !== 'EBUSY' || i >= 100) throw error; }
-      Atomics.wait(pause, 0, 0, 50);
-    }
-  };
-  syncBuiltinESMExports();
-}
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const argv = process.argv.slice(2);
@@ -56,6 +39,16 @@ const SOFTWARE = /swiftshader|llvmpipe|softpipe|software|basic render/i;
 const WINDOWS = platform() === 'win32';
 const npm = WINDOWS ? 'npm.cmd' : 'npm';
 const SHELL = { shell: WINDOWS };
+// page.eval has no timeout of its own: a hung renderer would never answer. Every call to the page races a Node timer.
+const EVAL_MS = 5_000;
+const APP_MS = 35_000;   // WAIT_FOR_APP gives up in the page after 30 s
+
+function within(promise, ms, what) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not answer within ${ms / 1000} s (renderer hung?)`)), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+const ask = (page, expression, what, ms = EVAL_MS) => within(page.eval(expression), ms, what);
 
 // ------------------------------------------------------------------------------------ the page side
 
@@ -123,10 +116,11 @@ const COLLECT = `(() => { const rec = window.__demoRecord; rec.done = true; clea
 async function serve() {
   const url = option('url');
   if (url) return { url: url.endsWith('/') ? url : `${url}/`, stop: () => {} };
-  if (WINDOWS) console.log('Note: on Windows the preview server this starts may outlive the run; prefer --url (see scripts/demo/README.md).');
+  if (WINDOWS && ROOT.startsWith('\\\\')) throw new Error('This checkout is on a network path (e.g. \\\\wsl.localhost), where npm cannot build. Build and serve it in WSL and pass --url (see scripts/demo/README.md).');
   console.log('Building (npm run build)...');
   execFileSync(npm, ['run', 'build'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'], ...SHELL });
-  const child = spawn(npm, ['run', 'preview', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], { cwd: ROOT, stdio: 'ignore', ...SHELL });
+  // vite itself, not `npm run preview`: npm does not pass a kill on to the vite it started, so the server outlived the run.
+  const child = spawn(process.execPath, [join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), 'preview', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], { cwd: ROOT, stdio: 'ignore' });
   const base = `http://127.0.0.1:${PORT}/`;
   for (let i = 0; i < 100; i++) {
     try { if ((await fetch(base)).ok) return { url: base, stop: () => child.kill() }; } catch { /* not up yet */ }
@@ -180,46 +174,51 @@ async function main() {
   const ffmpeg = findFfmpeg();
   if (!ffmpeg) throw new Error('ffmpeg not found on PATH (or $FFMPEG_PATH). It is needed to encode the captured frames.');
   const server = await serve();
-  const chrome = await launch({ ...VIEWPORT, gl: GL });
+  let chrome;
   const frameDir = mkdtempSync(join(tmpdir(), 'encore-demo-frames-'));
   const problems = [];
   const pageErrors = [];
   const frames = [];   // { file, timestamp (s, Chrome's paint time) }
   let report;
   try {
+    chrome = await launch({ ...VIEWPORT, gl: GL });
     const page = await openPage(chrome.browser, VIEWPORT);
     page.on('Runtime.exceptionThrown', p => pageErrors.push(p.exceptionDetails?.exception?.description ?? p.exceptionDetails?.text ?? 'exception'));
     page.on('Runtime.consoleAPICalled', p => { if (p.type === 'error') pageErrors.push(`console.error: ${p.args.map(a => a.value ?? a.description ?? '').join(' ')}`); });
+    // Before the recording starts there is nothing to save, so a failure here throws (exit 1, no video or sidecar).
     await page.goto(`${server.url}?seed=${SEED}`);
-    await page.eval(WAIT_FOR_APP);
-    const gl = await page.eval(GL_INFO);
+    await ask(page, WAIT_FOR_APP, 'The app (window.encore)', APP_MS);
+    const gl = await ask(page, GL_INFO, 'The WebGL probe');
     const software = !gl.webgl || SOFTWARE.test(`${gl.vendor} ${gl.renderer}`);
     console.log(`WebGL: ${gl.webgl ? `${gl.vendor} / ${gl.renderer}` : 'unavailable'} (${software ? 'SOFTWARE' : 'hardware'})`);
     if (software && !flag('allow-software')) throw new Error('WebGL is a software rasteriser here, so the video would not show the app at its real frame rate. Run on the hardware GL path (on Windows: Windows Node and Chrome with --url), or pass --allow-software.');
-    const n0 = await page.eval('window.encore.snapshots().encore.drones.length');
+    const n0 = await ask(page, 'window.encore.snapshots().encore.drones.length', 'The roster probe');
     if (n0 !== 200) throw new Error(`The demo needs n0 = 200; this page has ${n0} drones.`);
-    const before = await page.eval(STATE);
+    const before = await ask(page, STATE, 'The page');
     if (!before.hasShowButton) throw new Error('No Show button (aria-pressed) found: this build is not the app shell the recorder expects (#113).');
     await sleep(1000);   // let the first frames settle before the screencast starts
 
+    let capturing = true;
     page.on('Page.screencastFrame', ({ data, metadata, sessionId }) => {
       page.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
+      if (!capturing) return;
       const file = join(frameDir, `f${String(frames.length).padStart(6, '0')}.jpg`);
       writeFileSync(file, Buffer.from(data, 'base64'));
       frames.push({ file, timestamp: metadata.timestamp });
     });
-    await page.eval(INSTALL);
-    await page.send('Page.startScreencast', { format: 'jpeg', quality: QUALITY, maxWidth: VIEWPORT.width, maxHeight: VIEWPORT.height, everyNthFrame: 1 });
+    await ask(page, INSTALL, 'Installing the page recorder');
+    await within(page.send('Page.startScreencast', { format: 'jpeg', quality: QUALITY, maxWidth: VIEWPORT.width, maxHeight: VIEWPORT.height, everyNthFrame: 1 }), EVAL_MS, 'Page.startScreencast');
     await sleep(1000);   // one second of the page before the show starts
     const pressAt = Date.now() / 1000;
-    await page.key('d');
+    await within(page.key('d'), EVAL_MS, 'The D key press');
     console.log('Pressed D; recording until the app says the demo has finished...');
 
+    // From here on a failure is a problem in the sidecar, and whatever was captured is still encoded.
     // Started: the Show button is pressed. Finished: released again with the end caption on screen.
-    let started = false, finishedAt = null, lastLog = 0, last = before;
+    let started = false, finishedAt = null, lastLog = 0, last = before, hung = false;
     const deadline = Date.now() + 240_000;
     while (Date.now() < deadline) {
-      last = await page.eval(STATE);
+      try { last = await ask(page, STATE, 'The page'); } catch (error) { problems.push(`Polling the page failed at tick ${last.tick}: ${error.message}`); hung = true; break; }
       if (last.loopError) { problems.push(`Frame loop stopped: ${last.loopError}`); break; }
       if (!started && last.showPressed) started = true;
       if (started && !last.showPressed) { finishedAt = Date.now() / 1000; break; }
@@ -228,13 +227,18 @@ async function main() {
     }
     const endCaption = /^End of the 90-second demo/.test(last.caption);
     if (!started) problems.push('The demo never started (the Show button was not pressed after D).');
-    else if (finishedAt === null) problems.push(`The demo did not finish within 240 s of real time (last tick ${last.tick}).`);
-    else if (!endCaption) problems.push(`The demo stopped before its end at tick ${last.tick}: "${last.caption}"`);
+    else if (finishedAt === null && !hung) problems.push(`The demo did not finish within 240 s of real time (last tick ${last.tick}).`);
+    else if (finishedAt !== null && !endCaption) problems.push(`The demo stopped before its end at tick ${last.tick}: "${last.caption}"`);
     if (finishedAt !== null) await sleep(TAIL * 1000);   // keep the end caption on screen for a moment
-    await page.send('Page.stopScreencast');
+    try { await within(page.send('Page.stopScreencast'), EVAL_MS, 'Page.stopScreencast'); } catch (error) { problems.push(error.message); }
+    capturing = false;
     await sleep(300);
-    const rec = await page.eval(COLLECT);
-    const final = await page.eval(STATE);
+    let rec = { deltas: [], samples: [], toasts: [], captions: [] };
+    let final = last;
+    try {
+      rec = await ask(page, COLLECT, 'Collecting the page record');
+      final = await ask(page, STATE, 'The page');
+    } catch (error) { problems.push(`${error.message}; the sidecar has no page statistics`); }
 
     // Problems the demo itself reported: toasted ("Demo: ...") and repeated in the caption sub-line.
     for (const toast of rec.toasts) if (toast.err) problems.push(`Toast at tick ${toast.tick}: ${toast.text}`);
@@ -275,9 +279,10 @@ async function main() {
       samples: rec.samples,
     };
   } finally {
-    // On Windows Chrome may still hold its throwaway profile when close() deletes it (EPERM); the recording is unaffected.
-    try { await chrome.close(); } catch (error) { console.warn(`Warning: Chrome's temporary profile was not removed (${error.code ?? error}).`); }
+    // cdp.mjs handles both Windows races since #155; a failed cleanup must still never lose the recording.
+    try { await chrome?.close(); } catch (error) { console.warn(`Warning: closing Chrome failed (${error.code ?? error}).`); }
     server.stop();
+    if (!report) rmSync(frameDir, { recursive: true, force: true });   // failed before recording: nothing to keep
   }
 
   // Encode: each frame lasts until the next one was painted (the last one for one output frame).
