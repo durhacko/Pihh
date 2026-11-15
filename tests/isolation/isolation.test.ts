@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeParams, OPERATOR } from '../../src/contracts';
-import type { AgentBrain, AgentInput, Score, World, WorldConfig, WorldSnapshot } from '../../src/contracts';
+import type { AgentBrain, AgentInput, EnvEvent, Params, Score, World, WorldConfig, WorldSnapshot } from '../../src/contracts';
+import { composeNext } from '../../src/score';
 import { createWorld } from '../../src/sim';
 import { encoreBrain } from '../../src/agent/encoreBrain';
 import { staticBrain } from '../../src/agent/staticBrain';
@@ -16,6 +17,17 @@ const SCORE: Score = {
 
 function config(brain: AgentBrain, seed = 101, n0 = 40): WorldConfig {
   return { seed, params: makeParams(n0), score: structuredClone(SCORE), brain };
+}
+
+const UPLINK_DRONE = 7;
+/** An operator uplink into one drone, built the way the app builds it (composeNext). Brains that ignore it are fine. */
+function injectAt(tick: number, params: Params): Extract<EnvEvent, { type: 'INJECT_SCORE' }> {
+  return { type: 'INJECT_SCORE', tick, droneId: UPLINK_DRONE, score: composeNext(SCORE, tick, { kind: 'text', text: 'HI' }, UPLINK_DRONE, params.n0, params) };
+}
+/** Live drones whose belief holds the injected score's version. */
+function holders(snapshot: WorldSnapshot, event: Extract<EnvEvent, { type: 'INJECT_SCORE' }>): number {
+  const { issuedTick, origin } = event.score.version;
+  return snapshot.drones.filter(d => d.alive && d.belief.version.issuedTick === issuedTick && d.belief.version.origin === origin).length;
 }
 
 function assertDeepFrozen(value: unknown): void {
@@ -63,7 +75,9 @@ const brains: [string, AgentBrain][] = [
   ['real Encore', encoreBrain as AgentBrain],
 ];
 
-describe.each(brains)('%s isolation and replay', (_name, brain) => {
+describe.each(brains)('%s isolation and replay', (name, brain) => {
+  // The real Encore brain adopts and gossips an injected score (#105): T03/T04 must then exercise SCORE traffic.
+  const gossips = name === 'real Encore';
   it('T02: a kill outside radio and sensing range cannot change a local decision at that tick or the next', () => {
     const base = config(checkedBrain(brain), 101, 200);
     base.params = makeParams(200, { loss: 0, latencyMin: 1, latencyMax: 1 });
@@ -96,32 +110,42 @@ describe.each(brains)('%s isolation and replay', (_name, brain) => {
   it('T03: reversing decision order preserves snapshots and stateHash through tick 400', () => {
     const base = config(brain);
     base.params.loss = 0.3;
+    const inject = injectAt(150, base.params);   // SCORE uplink and gossip must be order independent too
+    base.events = [inject];
     const ascending = createWorld(base, { freezeInputs: true });
     const descending = createWorld(structuredCloneConfig(base), { reverseStepOrder: true, freezeInputs: true });
+    let last: WorldSnapshot | undefined;
     for (let tick = 1; tick <= 400; tick++) {
       const first = ascending.step();
       const second = descending.step();
+      last = first;
       if (tick % 100 === 0) {
         expect(second).toEqual(first);
         expect(descending.stateHash()).toBe(ascending.stateHash());
       }
     }
+    if (gossips) expect(holders(last!, inject), 'the injected score must spread by gossip, or SCORE traffic is untested').toBeGreaterThan(1);
   }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('T04: replaying the same seed and event script preserves hashes at every checkpoint', () => {
     const base = config(brain);
     base.params.loss = 0.3;
+    const inject = injectAt(200, base.params);
     base.events = [
       { type: 'KILL', tick: 120, ids: [3, 14, 25] },
       { type: 'JAM_ON', tick: 180, id: 'local', centre: [0, 15, 0], radius: 8 },
+      inject,
       { type: 'JAM_OFF', tick: 260, id: 'local' },
     ];
     const first = createWorld(base, { freezeInputs: true });
     const replay = createWorld(structuredCloneConfig(base), { freezeInputs: true });
+    let last: WorldSnapshot | undefined;
     for (let checkpoint = 100; checkpoint <= 400; checkpoint += 100) {
-      expect(advance(replay, 100)).toEqual(advance(first, 100));
+      last = advance(first, 100);
+      expect(advance(replay, 100)).toEqual(last);
       expect(replay.stateHash(), `checkpoint ${checkpoint}`).toBe(first.stateHash());
     }
+    if (gossips) expect(holders(last!, inject), 'the injected score must spread by gossip, or SCORE traffic is untested').toBeGreaterThan(1);
   }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 

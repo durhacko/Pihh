@@ -38,7 +38,7 @@ const mutants = [
   // #65 hardening: each of these survived the suite before its test fix.
   {
     name: 'T02 radio ignores rRadio', selector: 'T02',
-    from: 'for (const receiver of grid.within(bodies[id].pos, params.rRadio)) {',
+    from: 'for (const receiver of radioGrid.within(bodies[id].pos, params.rRadio)) {',
     to: 'for (const receiver of live) {',
   },
   {
@@ -51,7 +51,15 @@ const mutants = [
     from: 'const rng = createRandom(hashSeed(source.seed, -1));',
     to: 'const rng = createRandom(hashSeed(0, -1));',
   },
+  // #68 follow-up: an identity in a sensed neighbour is caught by checkedBrain's own error, not an assertion.
+  {
+    name: 'T02 sensed neighbour leaks its id', selector: 'T02',
+    from: 'sensed.push({ rel: subtract(bodies[peer].pos, body.pos), vel: subtract(bodies[peer].vel, body.vel) });',
+    to: 'sensed.push({ rel: subtract(bodies[peer].pos, body.pos), vel: subtract(bodies[peer].vel, body.vel), id: peer } as never);',
+  },
 ];
+/** Failures that count as "detected": an assertion, or one of checkedBrain's local-input contract errors. */
+const DETECTION = ['AssertionError', 'AgentInput exposes', 'Sensed neighbour contains an identity'];
 // Optional filter: `node tests/isolation/check-mutations.mjs "radio ignores"` runs only matching mutants.
 const only = process.argv[2];
 const selected = only ? mutants.filter(mutant => mutant.name.includes(only)) : mutants;
@@ -84,8 +92,7 @@ try {
     const result = run(mutant.selector);
     await writeFile(worldPath, original);
     if (result.status === 0) throw new Error(`SURVIVED: ${mutant.name}`);
-    if (!result.stdout.includes('AssertionError') && !result.stderr.includes('AssertionError') &&
-        !result.stdout.includes('AgentInput exposes') && !result.stderr.includes('AgentInput exposes')) {
+    if (!DETECTION.some(text => result.stdout.includes(text) || result.stderr.includes(text))) {
       process.stdout.write(result.stdout + result.stderr);
       throw new Error(`Mutant failed for an unexpected reason: ${mutant.name}`);
     }
