@@ -1,0 +1,2 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Merges When Quantised", "view": "front", "foreground": [1, 1, 1],
+  "parts": [ { "id": "notch", "operation": "union", "geometry": { "type": "polygon", "points": [[-0.5, -0.5], [0.5, -0.5], [0.50002, -0.49999], [0.5, 0.5], [-0.5, 0.5]] }, "priority": 5 } ] }
