@@ -205,7 +205,7 @@ const STATES = [
   // module that is loaded but not connected (the inspector panel stays hidden until main.ts connects it) is not
   // mistaken for the feature. Selectors are exact names, never fragments that the old control panel also matches.
   { name: 'inspector', note: 'drone 100 selected by a click', run: async p => { await selectDrone(p, 100); await sleep(1500); }, shown: visible('[aria-label="Drone inspector"]') },
-  { name: 'composer', note: 'composer panel open', run: async p => { await p.key('f'); await sleep(800); }, shown: visible('[aria-label="Composer"], .composer') },
+  { name: 'composer', note: 'composer panel open', run: async p => { await p.key('f'); await sleep(800); }, shown: visible('[aria-label="Formation composer"], [aria-label="Composer"], .composer') },
   { name: 'console', note: 'console tray open', run: async p => { await p.key('`'); await sleep(800); }, shown: visible('[aria-label="Console"], .console') },
   { name: 'timeline', note: 'Show timeline tray open', run: async p => { await p.key('t'); await sleep(800); }, shown: visible('[aria-label="Show timeline"]') },
   { name: 'scripted-demo', note: 'scripted demo running', run: async p => { await p.key('d'); await sleep(5000); }, shown: `Boolean([...document.querySelectorAll('button')].find(b => /stop demo/i.test(b.textContent ?? '') && b.offsetParent !== null))` },
@@ -231,6 +231,8 @@ async function selectDrone(page, id) {
 async function brainLabel(page) {
   const badge = await page.eval(`document.querySelector('.preview-badge')?.textContent ?? null`);
   if (badge) return badge;
+  // In the console and composer states a text input has focus, so 'm' would be typed into it instead of opening Metrics.
+  await page.eval(`document.activeElement?.blur?.()`);
   await page.key('m');
   await sleep(400);
   const row = await page.eval(`(() => {
@@ -340,7 +342,20 @@ async function probe() {
   }
 }
 
+/** `--only` must name screenshot states that exist, or the run would silently capture nothing. */
+function checkOnly() {
+  if (!argv.includes('--only')) return;
+  const names = STATES.map(s => s.name);
+  const value = option('only');
+  const unknown = !value || value.startsWith('--') ? null : ONLY.filter(name => !names.includes(name));
+  if (unknown && unknown.length === 0) return;
+  console.error(unknown ? `--only: unknown state ${unknown.map(n => `"${n}"`).join(', ')}.` : '--only needs a value.');
+  console.error(`Valid states: ${names.join(', ')}`);
+  process.exit(1);
+}
+
 async function main() {
+  checkOnly();
   if (GL === 'probe') return probe();
   const startedAt = new Date().toISOString();
   const server = await serve();
