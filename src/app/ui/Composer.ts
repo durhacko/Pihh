@@ -16,7 +16,7 @@ import { connectPreview } from '../render/layers/PreviewLayer';
 import type { Pair } from '../worlds';
 import { liveState, NAME_MAX, parse, shouldDispatch, TEXT_MAX, validateText, withRecipe, type ControlPlan, type InjectPlan, type ParseContext } from './commands';
 import { h } from './dom';
-import { lintWarnings, type DraftLintContext } from './draftLint';
+import { lintDraft, type DraftLintContext } from './draftLint';
 import { icon } from './icons';
 import { hexToRgb, rgbToHex, type PickRequest, type Store } from './store';
 import type { Surfaces } from './surfaces';
@@ -80,12 +80,13 @@ export function draftFromRecipe(name: string, recipe: Recipe): DraftInput {
   return { name, kind: recipe.kind, text: recipe.kind === 'text' ? recipe.text : '', palette: recipe.palette ? structuredClone(recipe.palette) : null };
 }
 
-export interface Validation { ok: boolean; errors: string[]; warnings: string[]; recipe: Recipe | null }
+/** `notes`: muted information, not warnings (today: what the linter could not check). */
+export interface Validation { ok: boolean; errors: string[]; warnings: string[]; notes?: string[]; recipe: Recipe | null }
 
 /**
  * Validates a draft against the score package itself (its font table and expandRecipe), not a UI copy of its rules.
  * A valid draft also gets the score linter's findings as warnings (draftLint.ts, #208): the transition checks only with
- * `lint`, the formation checks always. Lint never changes `ok` or `errors`.
+ * `lint`, the formation checks always; what could not be linted is a muted note. Lint never changes `ok` or `errors`.
  */
 export function validateDraft(draft: Draft, params: Params, lint?: DraftLintContext): Validation {
   const errors: string[] = [];
@@ -108,8 +109,9 @@ export function validateDraft(draft: Draft, params: Params, lint?: DraftLintCont
   if (!errors.length) {
     try { expandRecipe(recipe, params.n0, params); } catch (error) { errors.push(`The score package rejected it: ${error instanceof Error ? error.message : String(error)}`); }
   }
-  if (!errors.length) warnings.push(...lintWarnings(recipe, params, lint));
-  return { ok: errors.length === 0, errors, warnings: [...new Set(warnings)], recipe: errors.length ? null : recipe };
+  const linted = errors.length ? null : lintDraft(recipe, params, lint);
+  if (linted) warnings.push(...linted.warnings);
+  return { ok: errors.length === 0, errors, warnings: [...new Set(warnings)], notes: linted?.notes ?? [], recipe: errors.length ? null : recipe };
 }
 
 // ------------------------------------------------------------------------- the shared action path
@@ -443,7 +445,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, h('span', { class: 'label', style: { flex: '1' } }, `Preview · ${params.n0} priority-ordered slots`),
         h('button', { type: 'button', class: 'btn small', 'data-fk': 'preview', 'aria-pressed': String(previewOn()), disabled: !v.ok, onclick: () => { setPreview(ctx, !previewOn()); render(); } }, h('span', { html: icon.eye }), previewOn() ? 'Hide stage preview' : 'Preview in stage')),
       canvas, h('div', { class: 'hint' }, 'Brighter dots are higher-priority slots. The stage preview is drawn locally and sends nothing.'));
-    warningsBox.replaceChildren(...v.warnings.map(warning => h('div', { class: 'hint warn' }, '▲ ', warning)));
+    warningsBox.replaceChildren(...v.warnings.map(warning => h('div', { class: 'hint warn' }, '▲ ', warning)), ...(v.notes ?? []).map(note => h('div', { class: 'hint' }, note)));
     renderTransmit();
   }
 
