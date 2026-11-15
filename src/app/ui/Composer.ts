@@ -17,7 +17,7 @@ import type { Pair } from '../worlds';
 import { liveState, NAME_MAX, parse, shouldDispatch, TEXT_MAX, validateText, withRecipe, type ControlPlan, type InjectPlan, type ParseContext } from './commands';
 import { h } from './dom';
 import { lintDraft, type DraftLintContext } from './draftLint';
-import type { GeneratedSource } from './GeneratedSource';
+import type { AcceptedGeneratedScene, GeneratedSource, injectAccepted as injectAcceptedType } from './GeneratedSource';
 import { icon } from './icons';
 import { hexToRgb, rgbToHex, type PickRequest, type Store } from './store';
 import type { Surfaces } from './surfaces';
@@ -325,7 +325,9 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
   let targetSig = '';
   // GF-WP-10 (#265): the opt-in "Generated" source (committed fixture scenes, preview only). Without ?p2=generated
   // nothing below runs and the panel is exactly as before; with it, the tab and its worker client load lazily.
-  let generated: { source: GeneratedSource; el: HTMLElement; blocked: string } | null = null;
+  // G3: `inject` is GeneratedSource.injectAccepted bound to d1's injectGeneratedRecipe (#214), loaded with the tab;
+  // Accept and the generated Inject are enabled only because that path is actually loaded (injectConnected).
+  let generated: { source: GeneratedSource; el: HTMLElement; inject: (accepted: AcceptedGeneratedScene, droneId: number) => ReturnType<typeof injectAcceptedType>; replayText: (r: Awaited<ReturnType<typeof injectAcceptedType>>['replay']) => string } | null = null;
   let generatedMode = false;
   let composerDisposed = false;
   if (generatedFlag()) {
@@ -333,11 +335,17 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     // and the tab says "live Gemini unavailable (D3 not granted)". The build flag is a static check, so a default
     // build never even loads the live module's client path.
     const wantLive = import.meta.env.VITE_GENERATE_LIVE === '1';
-    void Promise.all([import('./GeneratedSource'), import('../workers/formationClient'), wantLive ? import('../live/generate') : Promise.resolve(null)]).then(([g, c, l]) => {
+    void Promise.all([import('./GeneratedSource'), import('../workers/formationClient'), import('./generatedInject'), wantLive ? import('../live/generate') : Promise.resolve(null)]).then(([g, c, gi, l]) => {
       if (composerDisposed) return;
       const live = l && l.liveGenerationEnabled(import.meta.env.VITE_GENERATE_LIVE, typeof location !== 'undefined' ? location.search : null) ? l.createGenerateClient() : null;
-      const source = g.createGeneratedSource({ params, store, client: c.createFormationClient(c.spawnFormationWorker), live });
-      generated = { source, el: g.renderGeneratedSource(source, params.n0, () => render()), blocked: g.INJECT_BLOCKED };
+      const source = g.createGeneratedSource({
+        params, store, client: c.createFormationClient(c.spawnFormationWorker), live,
+        injectConnected: typeof gi.injectGeneratedRecipe === 'function', onAccept: () => renderTransmit(),
+      });
+      generated = {
+        source, el: g.renderGeneratedSource(source, params.n0, () => render()),
+        inject: (accepted, droneId) => g.injectAccepted(ctx, accepted, droneId, gi.injectGeneratedRecipe), replayText: g.replayText,
+      };
       source.subscribe(() => renderTransmit());
       render();
     }).catch(() => {
@@ -534,15 +542,19 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       parts.push(h('span', {}, `holds score v${versionKey(target.belief.version)}`));
     } else parts.push(h('span', { class: 'hint' }, targetId === null ? 'Choose a drone: the uplink reaches only that one.' : `No drone ${targetId} in this roster.`));
     statusBox.replaceChildren(...parts);
-    // A generated (fixture) preview is never injectable: the generated Recipe kind is GF-WP-07, a D2 contract change.
-    const blocked = generatedMode && generated ? generated.blocked : '';
-    const reason = blocked || (!status.composition ? 'Score injection is not connected to the simulation.' : !v.ok ? 'Fix the draft first.' : !target?.alive ? 'Choose a live drone.' : busy ? 'Sending…' : '');
+    // G3: in generated mode, Inject sends the ACCEPTED scene (never a draft) into the one chosen live drone, through
+    // d1's injectGeneratedRecipe. It is enabled only when the inject path is loaded and a scene is accepted.
+    const gen = generatedMode && generated ? generated : null;
+    const accepted = gen?.source.accepted ?? null;
+    const genReason = gen ? (!gen.source.injectConnected ? 'Injection is not connected on this page.' : !accepted ? 'Accept a compiled scene first.' : '') : '';
+    const reason = genReason || (!status.composition ? 'Score injection is not connected to the simulation.' : !gen && !v.ok ? 'Fix the draft first.' : !target?.alive ? 'Choose a live drone.' : busy ? 'Sending…' : '');
     const command = targetId === null ? `inject --drone <id> --draft ${draft.id}` : injectCommand(draft.id, targetId);
+    const what = gen ? (accepted ? accepted.title : 'the accepted scene') : draft.name;
     fill(actionBox,
-      h('button', { type: 'button', class: 'btn primary', 'data-fk': 'inject', disabled: !!reason, 'aria-describedby': reason ? 'cmp-inject-reason' : undefined, onclick: blocked ? undefined : () => void inject(draft.id, targetId) },
-        h('span', { html: icon.inject }), targetId !== null ? `Inject “${draft.name}” into drone ${targetId}` : 'Inject into one drone'),
+      h('button', { type: 'button', class: 'btn primary', 'data-fk': 'inject', disabled: !!reason, 'aria-describedby': reason ? 'cmp-inject-reason' : undefined, onclick: () => void (gen ? injectGenerated(targetId) : inject(draft.id, targetId)) },
+        h('span', { html: icon.inject }), targetId !== null ? `Inject “${what}” into drone ${targetId}` : 'Inject into one drone'),
       reason && !busy ? h('div', { class: 'hint', id: 'cmp-inject-reason' }, reason) : null,
-      blocked ? null : h('div', { class: 'cmd-echo', title: 'The same action as a console command' }, h('span', {}, `› ${command}`)),
+      gen ? null : h('div', { class: 'cmd-echo', title: 'The same action as a console command' }, h('span', {}, `› ${command}`)),
       feedback ? h('div', { class: `hint ${feedback.ok ? '' : 'err'}`, role: feedback.ok ? 'status' : 'alert' }, feedback.text) : null);
     fill(sentBox, lastSent ? sentCard(lastSent) : null);
     updateAdoption();
@@ -567,6 +579,20 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     busy = false;
     if (outcome.sent) { lastSent = outcome.sent; feedback = { ok: true, text: `${outcome.message} Adoption is measured by the observer below.` }; }
     else feedback = { ok: outcome.status === 'done', text: outcome.message };
+    render();
+  }
+
+  /** G3: the accepted generated scene into ONE live drone (d1's path), then the replay check. Adoption is the sentCard's. */
+  async function injectGenerated(targetId: number | null) {
+    const accepted = generated?.source.accepted ?? null;
+    if (targetId === null || busy || !generated || !accepted) return;
+    busy = true; renderTransmit();
+    const { outcome, replay } = await generated.inject(accepted, targetId);
+    busy = false;
+    if (outcome.sent) {
+      lastSent = outcome.sent;
+      feedback = { ok: true, text: `${outcome.message} Other drones learn it only by radio; adoption is measured by the observer below. ${generated.replayText(replay)}`.trim() };
+    } else feedback = { ok: outcome.status === 'done', text: outcome.message };
     render();
   }
 

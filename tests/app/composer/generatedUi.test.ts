@@ -8,7 +8,7 @@ import type { SceneSpec } from '../../../src/score/generated';
 import { gatewayUnavailable, type GenerateClient, type GenerateOutcome } from '../../../src/app/live/generate';
 import { previewLabel } from '../../../src/app/render/layers/PreviewLayer';
 import {
-  ACCEPT_ENABLED, createGeneratedSource, D3_UNAVAILABLE, INJECT_BLOCKED, OFFLINE_FIXTURE, provenanceText, rejectionReason, sourceText, statusText, type FixtureEntry,
+  createGeneratedSource, D3_UNAVAILABLE, NOT_CONNECTED, OFFLINE_FIXTURE, provenanceText, rejectionReason, sourceText, statusText, type FixtureEntry,
 } from '../../../src/app/ui/GeneratedSource';
 import { Store } from '../../../src/app/ui/store';
 import { createFormationClient, type CompileReply, type WorkerLike } from '../../../src/app/workers/formationClient';
@@ -154,12 +154,13 @@ describe('provenance line (agreed with #214)', () => {
   });
 });
 
-describe('Accept hands off to #214, disabled until GF-WP-07 (D2)', () => {
-  it('refuses with "needs GF-WP-07 (D2)" and never calls the hand-off while ACCEPT_ENABLED is false', async () => {
+describe('Accept is enabled only when the inject path is connected (G3)', () => {
+  it('without the inject path: refuses with NOT_CONNECTED and never calls the hand-off', async () => {
     const { source, accepted } = rig();
     await source.select('3d-sphere');
-    expect(ACCEPT_ENABLED).toBe(false);
-    expect(source.accept()).toEqual({ ok: false, reason: INJECT_BLOCKED });
+    expect(source.injectConnected).toBe(false);
+    expect(source.accept()).toEqual({ ok: false, reason: NOT_CONNECTED });
+    expect(source.accepted).toBe(null);
     expect(accepted).toEqual([]);
   });
 });

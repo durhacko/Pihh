@@ -9,15 +9,20 @@
 // Either way the scene compiles off the main thread in the preview worker through #259's compiler, and the stage
 // previews the slots as a target arrangement, never flown.
 //
-// Accept hands the compiled scene to #214's inject wiring (d1). It stays disabled until GF-WP-07 (D2) adds the
-// generated Recipe kind: nothing here is injected, and Inject in the Composer stays disabled too.
+// G3: Accept re-checks the compiled scene (injectPreflight, #214) and builds its generated recipe (GF-WP-07, #215);
+// the Composer then injects it into ONE chosen live drone through d1's injectGeneratedRecipe, and the observer shows
+// adoption spreading by radio. Accept and Inject are enabled only on a page that loaded that inject path. Nothing
+// here moves a drone: the swarm flies the formation only through that one uplink and the existing gossip.
 // Scene strings (titles, prompts, provider messages) are rendered as text only, never through `h(tag, { html })`
 // (GF-T34).
-import type { Formation, Params, Recipe } from '../../contracts';
+import type { Formation, GeneratedRecipe, Params, Recipe } from '../../contracts';
+import { injectPreflight, provenanceFromCompile, replayFromProvenance, type GeneratedProvenance, type ReplayResult } from '../../cli/generated';
+import { makeGeneratedRecipe } from '../../score';
 import type { CompileResult, CompileWarning, SceneSpec } from '../../score/generated';
 import { validateScene } from '../../score/generated/validation';
 import { D3_UNAVAILABLE, type GenerateClient, type LiveMode } from '../live/generate';
 import type { FormationClient } from '../workers/formationClient';
+import type { ComposeContext, InjectOutcome } from './Composer';
 import { h } from './dom';
 import type { Store } from './store';
 
@@ -28,10 +33,8 @@ export function generatedOptIn(search: string): boolean {
   return value !== null && value.split(',').map(part => part.trim()).includes(GENERATED_FLAG);
 }
 
-/** Why the generated source cannot be injected yet: the generated Recipe kind is GF-WP-07, a D2 contract change. */
-export const INJECT_BLOCKED = 'needs GF-WP-07 (D2)';
-/** Accept hands off to #214 only once GF-WP-07 (D2) lands. Until then the button is disabled and accept() refuses. */
-export const ACCEPT_ENABLED = false;
+/** Why Accept and Inject are off on a page whose inject path is not loaded (d1's generatedInject, #214). */
+export const NOT_CONNECTED = 'Injection is not connected on this page.';
 /** Placeholder recipe carried by a fixture preview (StagePreview.recipe is required); never flown, sent or expanded. */
 export const PLACEHOLDER_RECIPE: Readonly<Recipe> = Object.freeze({ kind: 'sphere' });
 /** The source label of a committed fixture. */
@@ -62,12 +65,39 @@ export type GeneratedStatus =
   | { state: 'ready'; fixtureId: string; title: string; mode: SceneSpec['mode']; requestId: string; result: Extract<CompileResult, { ok: true }>; origin: SceneOrigin; scene: SceneSpec }
   | { state: 'rejected'; fixtureId: string; title: string; mode: SceneSpec['mode'] | null; code: string; detail: string; warnings: CompileWarning[]; origin: SceneOrigin; issues?: string[] };
 
-/** What Accept hands to #214's inject wiring once GF-WP-07 (D2) lands. The hash and digest are recomputed here. */
+/**
+ * An accepted scene, ready to inject (G3): its provenance from the worker's own compile (#214), checked by
+ * injectPreflight at this page's n0, and the generated recipe built by makeGeneratedRecipe (GF-WP-07, #215).
+ */
 export interface AcceptedGeneratedScene {
   scene: SceneSpec; title: string; origin: SceneOrigin;
-  sceneHash: string; slotsDigest: string; compilerVersion: number; n0: number;
+  provenance: GeneratedProvenance; recipe: GeneratedRecipe; warnings: CompileWarning[];
 }
 export type AcceptOutcome = { ok: true; handoff: AcceptedGeneratedScene } | { ok: false; reason: string };
+/** d1's injectGeneratedRecipe (src/app/ui/generatedInject.ts): one INJECT_SCORE into one drone via the controller. */
+export type InjectRecipe = (ctx: ComposeContext, recipe: Recipe, droneId: number, label: string) => Promise<InjectOutcome>;
+
+/**
+ * Injects an accepted scene into the one drone `droneId`: injectPreflight again at the moment of sending (the scene,
+ * hash, compiler and digest must still check out), then `inject` (d1's path: select → inject intent → controller →
+ * one INJECT_SCORE). After a successful injection, `replay` re-derives the formation from the scene and its
+ * provenance alone, so the operator sees the flown formation is reproducible. Never throws.
+ */
+export async function injectAccepted(ctx: ComposeContext, accepted: AcceptedGeneratedScene, droneId: number, inject: InjectRecipe):
+  Promise<{ outcome: InjectOutcome; replay: ReplayResult | null }> {
+  const pre = injectPreflight(accepted.scene, accepted.provenance, ctx.params);
+  if (!pre.ok) return { outcome: { status: 'failed', message: `The scene no longer checks out (${pre.reason}): ${pre.detail}`, results: [] }, replay: null };
+  const outcome = await inject(ctx, accepted.recipe, droneId, accepted.title);
+  return { outcome, replay: outcome.status === 'done' ? replayFromProvenance(accepted.scene, accepted.provenance) : null };
+}
+
+/** The replay line shown after an injection. */
+export function replayText(replay: ReplayResult | null): string {
+  if (!replay) return '';
+  return replay.ok
+    ? `Replay: the scene and its provenance alone re-derive the same formation (slots ${replay.provenance.slotsDigest.slice(0, 12)}…).`
+    : `Replay refused (${replay.reason}): ${replay.detail}`;
+}
 
 export interface GeneratedSourceContext {
   params: Params;
@@ -77,7 +107,9 @@ export interface GeneratedSourceContext {
   fixtures?: FixtureEntry[];
   /** The live generation client; absent unless the build flag and `?p2=generated,live` are both set. */
   live?: GenerateClient | null;
-  /** #214's inject hand-off. Called only once ACCEPT_ENABLED (GF-WP-07, D2). */
+  /** True only when the page has loaded the inject path (d1's injectGeneratedRecipe). Accept is off otherwise. */
+  injectConnected?: boolean;
+  /** Told when a scene is accepted (the Composer re-renders Transmit). */
   onAccept?: (scene: AcceptedGeneratedScene) => void;
 }
 
@@ -96,8 +128,12 @@ export interface GeneratedSource {
   /** Abandons an in-flight selection (its reply is ignored); the status returns to idle if it was in flight. */
   cancel(): void;
   previewOn(): boolean;
-  /** Hands the compiled scene to #214; refuses with INJECT_BLOCKED until GF-WP-07 (D2). */
+  /** Checks the compiled scene again (injectPreflight) and builds its generated recipe; refuses with a reason. */
   accept(): AcceptOutcome;
+  /** The accepted scene, ready to inject; cleared by any new selection or generation. */
+  readonly accepted: AcceptedGeneratedScene | null;
+  /** Whether the page can inject at all (the inject path is loaded). */
+  readonly injectConnected: boolean;
   subscribe(listener: () => void): () => void;
   dispose(): void;
 }
@@ -158,6 +194,8 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
   const live = ctx.live ?? null;
   let status: GeneratedStatus = { state: 'idle' };
   let selection = 0;
+  /** The accepted scene (G3); any new selection or generation clears it, so Inject never sends a stale one. */
+  let accepted: AcceptedGeneratedScene | null = null;
   const listeners = new Set<() => void>();
   const emit = () => { for (const listener of [...listeners]) listener(); };
   const set = (next: GeneratedStatus) => { status = next; emit(); };
@@ -213,6 +251,7 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     get liveAvailable() { return live !== null; },
     async select(fixtureId) {
       const mine = ++selection;
+      accepted = null;
       abortLive();                                    // a fixture pick supersedes any gateway request
       const origin: SceneOrigin = { kind: 'fixture' };
       const entry = fixtures.find(f => f.id === fixtureId);
@@ -232,6 +271,7 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     async generate(prompt, mode, token) {
       if (!live) return;                              // no client: the tab shows D3_UNAVAILABLE and never sends
       const mine = ++selection;
+      accepted = null;
       abortLive();                                    // a newer request supersedes the older one, which is aborted
       const text = prompt.trim();
       if (text === '') { reject(LIVE_ID, 'live request', mode, { kind: 'live', provider: 'gateway', gemini: false }, 'empty-prompt', 'Nothing was sent.'); return; }
@@ -267,15 +307,24 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     cancel,
     previewOn,
     accept() {
-      if (!ACCEPT_ENABLED) return { ok: false, reason: INJECT_BLOCKED };
+      if (!ctx.injectConnected) return { ok: false, reason: NOT_CONNECTED };
       if (status.state !== 'ready') return { ok: false, reason: 'Compile a scene first.' };
-      const handoff: AcceptedGeneratedScene = {
-        scene: status.scene, title: status.title, origin: status.origin, sceneHash: status.result.sceneHash,
-        slotsDigest: status.result.slotsDigest, compilerVersion: status.result.compilerVersion, n0: ctx.params.n0,
-      };
-      ctx.onAccept?.(handoff);
-      return { ok: true, handoff };
+      const st = status;
+      const source = st.origin.kind === 'fixture' ? 'fixture' : 'live';
+      const provenance = provenanceFromCompile(st.scene, st.result, ctx.params, source, source === 'fixture' ? st.fixtureId : undefined);
+      if (!provenance) return { ok: false, reason: 'The compile has no provenance.' };
+      // The same checks the moment before injecting does, at this page's n0 (#214), then the recipe (GF-WP-07).
+      const pre = injectPreflight(st.scene, provenance, ctx.params);
+      if (!pre.ok) return { ok: false, reason: `The scene does not check out (${pre.reason}): ${pre.detail}` };
+      const made = makeGeneratedRecipe(st.scene, ctx.params.n0, ctx.params);
+      if (!made.ok) return { ok: false, reason: `No recipe (${made.code}): ${rejectionReason(made.code)} ${made.detail}`.trim() };
+      accepted = { scene: st.scene, title: st.title, origin: st.origin, provenance: pre.provenance, recipe: made.recipe, warnings: made.warnings };
+      emit();
+      ctx.onAccept?.(accepted);
+      return { ok: true, handoff: accepted };
     },
+    get accepted() { return accepted; },
+    get injectConnected() { return !!ctx.injectConnected; },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     dispose() {
       selection++;
@@ -354,6 +403,7 @@ export function renderGeneratedSource(source: GeneratedSource, n0: number, onPre
     liveBox = h('div', { class: 'hint' }, `Live generation: ${D3_UNAVAILABLE}. Scenes come from offline fixtures.`);
   }
   let lastActive: string | null = null;
+  let acceptError = '';
   const draw = () => {
     const st = source.status;
     if (go) go.disabled = st.state === 'generating';   // one gateway request at a time
@@ -379,11 +429,17 @@ export function renderGeneratedSource(source: GeneratedSource, n0: number, onPre
           onclick: () => { source.preview(!source.previewOn()); onPreviewChange(); },
         }, source.previewOn() ? 'Hide stage preview' : 'Preview in stage'),
         h('button', {
-          type: 'button', class: 'btn small', 'data-fk': 'generated-accept', disabled: !ACCEPT_ENABLED || st.state !== 'ready',
-          'aria-describedby': 'gen-accept-reason', onclick: ACCEPT_ENABLED ? () => { source.accept(); onPreviewChange(); } : undefined,
-        }, 'Accept for injection')),
-      h('div', { class: 'hint', id: 'gen-accept-reason' }, ACCEPT_ENABLED ? 'Accept hands this scene to the inject step.' : `Accept is disabled: ${INJECT_BLOCKED}.`),
-      h('div', { class: 'hint' }, 'The stage shows the target arrangement only: it is not flown, and it cannot be injected yet (', INJECT_BLOCKED, ').'));
+          type: 'button', class: 'btn small', 'data-fk': 'generated-accept', 'aria-pressed': String(source.accepted !== null),
+          disabled: !source.injectConnected || st.state !== 'ready' || source.accepted !== null, 'aria-describedby': 'gen-accept-reason',
+          onclick: source.injectConnected ? () => { const r = source.accept(); acceptError = r.ok ? '' : r.reason; draw(); onPreviewChange(); } : undefined,
+        }, source.accepted ? 'Accepted' : 'Accept for injection')),
+      h('div', { class: acceptError ? 'hint err' : 'hint', id: 'gen-accept-reason', role: acceptError ? 'alert' : undefined },
+        !source.injectConnected ? NOT_CONNECTED
+          : acceptError ? acceptError
+            : source.accepted ? `Accepted: recipe ready (slots ${source.accepted.provenance.slotsDigest.slice(0, 12)}…). Choose a live drone under Transmit, then inject.`
+              : 'Accept checks the scene again and builds its recipe; then choose ONE live drone and inject.'),
+      h('div', { class: 'hint' }, 'The stage shows the target arrangement only. The swarm flies it only after you inject into one drone and the score spreads by radio.'));
+    if (st.state !== 'ready') acceptError = '';
     if (active !== lastActive) {
       lastActive = active;
       const chip = active ? chipsBox.querySelector<HTMLElement>(`[data-fk="fixture-${CSS.escape(active)}"]`) : null;
