@@ -18,10 +18,13 @@ const STOP_MARGIN = 1e-6;
 /**
  * Live drone positions bucketed in cubes of CELL metres, as a flat array over their bounding box. Performance only:
  * it answers exactly the same questions as a scan over every live drone ("is any drone within r of p?", "what is the
- * smallest distanceSquared from p to a drone?"), computing distanceSquared(p, drone.pos) with the same expression,
- * so the results are bit-identical. The nearest search visits rings of cells around p and stops only when every
- * unvisited drone is provably at least as far away as the best found. build() returns null when the box would be too
- * large: the caller then scans every drone, as before.
+ * smallest distanceSquared from p to a drone?"), computing distanceSquared(p, drone.pos) with the same expression.
+ * The nearest search visits rings of cells around p and stops only when every unvisited drone is at least
+ * k * CELL - STOP_MARGIN away. Identical results therefore rest on that bound: a drone whose computed distance differs
+ * from its true distance by more than STOP_MARGIN (1 µm) could in theory be skipped. Rounding at show scales is many
+ * orders of magnitude below that, and the results matched the full scan bit for bit in every test and fingerprint
+ * run, but it is a margin argument, not a proof. build() returns null when the box would be too large: the caller
+ * then scans every drone, as before.
  */
 class DroneGrid {
   private cells: (Vec3[] | undefined)[] = [];

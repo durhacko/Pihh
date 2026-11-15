@@ -4,7 +4,12 @@
 // cell size. Checked against a brute-force reference on seeded random positions, including spreads so wide that the
 // flat layout falls back to the Map.
 import { describe, expect, it } from 'vitest';
-import type { Vec3 } from '../../src/contracts';
+import { makeParams } from '../../src/contracts';
+import type { AgentBrain, Vec3 } from '../../src/contracts';
+import { makeScore } from '../../src/score';
+import { createWorld } from '../../src/sim';
+import { staticBrain } from '../../src/agent/staticBrain';
+import { encoreBrain } from '../../src/agent/encoreBrain';
 import { SpatialGrid } from '../../src/sim/grid';
 import { distanceSquared } from '../../src/sim/math';
 import { createRandom } from '../../src/sim/random';
@@ -52,5 +57,32 @@ describe('SpatialGrid.within equals a brute-force scan', () => {
     const grid = new SpatialGrid(positions, [0, 1], 2);
     expect(grid.within([0, 0, 0], 5)).toEqual([0, 1]);
     expect(grid.within([3, 4, 0], 0)).toEqual([1]);
+  });
+
+  it('a cell size of 0, negative, NaN or Infinity still terminates and returns the brute-force ids', () => {
+    const positions = cloud(6, 60, 20);
+    const live = positions.map((_, id) => id);
+    for (const cellSize of [0, -1, Number.NaN, Infinity]) {
+      const grid = new SpatialGrid(positions, live, cellSize);
+      for (const radius of [0, 0.8, 5]) {
+        expect(grid.within(positions[3], radius), `cell ${cellSize} r ${radius}`).toEqual(reference(positions, live, positions[3], radius));
+      }
+    }
+  });
+});
+
+describe('the world with dCollide = dNear = 0 (contact grid cell size 0; #115 review)', () => {
+  // Expected values computed on origin/main 571c8e4, before the per-radius grids: the run must terminate and
+  // reproduce main's state exactly. With d < 0 never true, there are no collisions and no near-misses.
+  it.each([
+    ['static', staticBrain, '0f12949fd481e213'],
+    ['encore', encoreBrain, '865c98b2951dcbbe'],
+  ] as const)('%s brain: 20 ticks terminate, no contacts, and the stateHash matches main', (_name, brain, mainHash) => {
+    const params = makeParams(30, { dCollide: 0, dNear: 0 });
+    const world = createWorld({ seed: 5, params, score: makeScore([{ kind: 'sphere' }], 30, params), brain: brain as AgentBrain, events: [] });
+    let contacts = 0;
+    for (let t = 0; t < 20; t++) { const s = world.step(); contacts += s.collisions.length + s.nearMisses.length; }
+    expect(contacts).toBe(0);
+    expect(world.stateHash()).toBe(mainHash);
   });
 });

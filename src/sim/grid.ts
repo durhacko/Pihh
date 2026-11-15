@@ -11,6 +11,10 @@ const FLAT_MAX_CELLS = 1 << 20;
  * far apart) the grid falls back to a Map keyed by "x,y,z", as before. Either way within() returns exactly the ids
  * the simple version returned: the same candidate test as math.ts distanceSquared(pos, q), in the same order, over a
  * superset of the qualifying ids, then sorted. Cell size changes speed only, never the result.
+ *
+ * A cell size that is not a positive finite number (e.g. a contact radius of 0 from dCollide = dNear = 0) is replaced
+ * by 1 m: it would otherwise make every cell index infinite and within() never terminate. As the result does not
+ * depend on the cell size, this changes nothing but termination.
  */
 export class SpatialGrid {
   private lo: [number, number, number] = [0, 0, 0];
@@ -18,8 +22,11 @@ export class SpatialGrid {
   private flat: (number[] | undefined)[] | null = null;
   private map: Map<string, number[]> | null = null;
   private empty = true;
+  private readonly cellSize: number;
 
-  constructor(private positions: readonly Vec3[], live: readonly number[], private cellSize: number) {
+  constructor(private positions: readonly Vec3[], live: readonly number[], requestedCellSize: number) {
+    const cellSize = requestedCellSize > 0 && Number.isFinite(requestedCellSize) ? requestedCellSize : 1;
+    this.cellSize = cellSize;
     if (live.length === 0) return;
     this.empty = false;
     const lo = [Infinity, Infinity, Infinity];
