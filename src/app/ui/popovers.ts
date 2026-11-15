@@ -11,7 +11,7 @@ import type { Pair } from '../worlds';
 import { h } from './dom';
 import type { HudPresentation } from './Hud';
 import { icon } from './icons';
-import type { Store } from './store';
+import type { Store, ViewMode } from './store';
 import type { Surfaces } from './surfaces';
 
 export interface PopoverContext {
@@ -223,6 +223,17 @@ function spark(series: Pair<readonly MetricsSample[]>): HTMLCanvasElement {
   return c;
 }
 
+/**
+ * The note under the Metrics nPWC row. Each arm is measured against its own reference formation; an arm in transition
+ * is still flying to it, so its number dips and is read with care. Split view checks both arms, a single view the arm
+ * it shows; the note names the arm(s) in transition.
+ */
+export function npwcNote(hud: Pick<HudPresentation, 'encore' | 'static'>, view: ViewMode): string {
+  const arms = view === 'split' ? (['encore', 'static'] as const) : ([view === 'static' ? 'static' : 'encore'] as const);
+  const moving = arms.filter(arm => hud[arm]?.transitioning === true).map(arm => (arm === 'encore' ? 'Encore' : 'static'));
+  return moving.length ? `${moving.join(' + ')} in transition: read with care` : 'priority-weighted, our slot order';
+}
+
 export function createMetrics(ctx: PopoverContext): Popover {
   const el = h('div', { class: 'popover metrics surface chrome', 'aria-label': 'Metrics', tabindex: '0' });
   el.addEventListener('keydown', (event: KeyboardEvent) => {
@@ -245,7 +256,7 @@ export function createMetrics(ctx: PopoverContext): Popover {
       h('div', { style: { padding: '0 8px 6px' } }, spark(ctx.series())),
       h('div', { class: 'mgrid' },
         h('div', { class: 'h' }, ''), h('div', { class: 'h v' }, 'Encore'), h('div', { class: 'h v' }, 'Static'),
-        ...row('nPWC', a.npwc, b.npwc, { big: true, sub: a.transitioning ? 'in transition: read with care' : 'priority-weighted, our slot order' }),
+        ...row('nPWC', a.npwc, b.npwc, { big: true, sub: npwcNote(view, ctx.store.state.view) }),
         ...row('Alive', a.alive, b.alive),
         ...row('Coverage', a.coverage, b.coverage),
         ...row('Duplicate slots', a.duplicates, b.duplicates),
