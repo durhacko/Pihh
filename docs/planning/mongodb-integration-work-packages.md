@@ -4,7 +4,7 @@
 
 Purpose: split William's Encore Show Library spec into packages `MDB-WP-01` to `MDB-WP-08`, plus the optional `MDB-WP-09`, each small enough for one person and their agent to finish in one PR. Status: proposal, issue #130, audit base `origin/main` 4c41f75. Source author: William Pimentel (`wpimento`), [source handoff](../handoffs/Encore_MongoDB_Atlas_Implementation_Spec.md) (cited below as "William §n"). Integrator: Arnav.
 
-**Where things live.** These are defined in the canonical spec, [`../integrations/mongodb-atlas-show-library.md`](../integrations/mongodb-atlas-show-library.md): requirements `MDB-FR`/`MDB-NFR`, contract change proposals `MDB-CC`, conflict records `MCR-01…`, decisions `MDB-D1…D9`, risks `MDB-R`, review questions `MQ-*` and error codes. Tests `MDB-T*` are in [`../validation/mongodb-show-library-evaluation.md`](../validation/mongodb-show-library-evaluation.md). This file is canonical for `MDB-WP` titles and allowed files, and plans the work only. **Where this file and the canonical spec differ (a bound, an error code, a field name), the spec wins.** The orchestrator's cross-integration rulings XI-1…XI-15 are applied throughout and cited by number: shared gateway, imports, error envelope, hashing, size caps and one network decision (XI-1…XI-10); `requestId` (XI-11); one gateway skeleton and guard (XI-12); the pure validator's location (XI-13); app network code in `src/app/live/` (XI-14); composition file kinds and the MVP load (XI-15).
+**Where things live.** These are defined in the canonical spec, [`../integrations/mongodb-atlas-show-library.md`](../integrations/mongodb-atlas-show-library.md): requirements `MDB-FR`/`MDB-NFR`, contract change proposals `MDB-CC`, conflict records `MCR-01…`, decisions `MDB-D1…D9`, risks `MDB-R`, review questions `MQ-*` and error codes. Tests `MDB-T*` are in [`../validation/mongodb-show-library-evaluation.md`](../validation/mongodb-show-library-evaluation.md). This file is canonical for `MDB-WP` titles and allowed files, and plans the work only. **Where this file and the canonical spec differ (a bound, an error code, a field name), the spec wins.** The orchestrator's cross-integration rulings XI-1…XI-24 are applied throughout and cited by number: shared gateway, imports, error envelope, hashing, size caps and the network decision (XI-1…XI-10); `requestId` (XI-11); one gateway skeleton and guard (XI-12); the pure validator's location (XI-13); app network code in `src/app/live/` (XI-14); composition file kinds and the MVP load (XI-15); SCREAMING_SNAKE reasons (XI-16); one server-side feasibility rule (XI-17); one committed composition library (XI-18); `canonicalJson` in `src/score/canonical.ts` (XI-19); the gateway layout (XI-20); the `SavedShowComposition` name and "D3, approved per integration" (XI-21); what Tiger reads (XI-22); no child processes (XI-23); GF-WP-15 (XI-24).
 
 **Base rules, linked rather than restated:**
 - the [contract](../design/contracts-and-algorithms.md): §2 types, §6 composition, §9 dissemination, §12 "not in the MVP";
@@ -35,7 +35,7 @@ Related drafts that are not yet on this branch:
 | The panel loader ([`ui/index.ts`](../../src/app/ui/index.ts)) auto-mounts modules that export `createPanel({ host })`. The Composer is merged but unmounted until #113. **Changed since 4c41f75:** on `main` at c697f6c (#113 merged), nothing calls `createPanels` (it is still defined in `ui/index.ts`). Panels are mounted explicitly (`src/app/main.ts` 355), and `main.ts` creates the `Drafts` store (457) and connects the Composer (459) | `Composer.ts` 7–8; `main.ts` 65 at 4c41f75 | Self-registration no longer works. The Saved compositions panel gets **one flag-guarded mount line** in `main.ts` that passes it `Drafts`, `params` and the controls (canonical §12, MCR-14, MQ-1; shell-owner sign-off). There is no `Composer.ts` hook. WP-09's file-only panel needs its own mount line |
 | The scripted demo sends timed injects with an explicit `at`, `LEAD_TICKS` (3 s = 60 ticks) early | [`DemoScript.ts`](../../src/app/ui/DemoScript.ts) 41 | Precedent for the MDB-WP-06 cue runner, whose dispatch lead R is the same 60 ticks (canonical §8.2 step 3) |
 | Root `tsconfig` covers `src`, `tests` and `vite.config.ts`; vitest covers `tests/**`; `eslint .` ignores only `dist`, `node_modules` and `research` | root configs | `integrations/gateway/` is linted, but not typechecked or tested. P2-WP-30b adds the ignore, with owner sign-off (XI-1) |
-| `canonicalJson` (sorted keys, throws on non-finite) lives in `src/cli/run.ts`, which also imports `node:crypto` | [`run.ts`](../../src/cli/run.ts) 27–36 | `contentHash` = sha256 of `canonicalJson(composition)` (XI-7). App and gateway reuse it only once it is extracted to a pure module: XI-7's one shared proposal (owner: Arnav) |
+| `canonicalJson` (sorted keys, throws on non-finite) lives in `src/cli/run.ts`, which also imports `node:crypto` | [`run.ts`](../../src/cli/run.ts) 27–36 | `contentHash` = sha256 of `canonicalJson(composition)` (XI-7). App and gateway reuse it only once it is extracted to `src/score/canonical.ts`, a byte-for-byte move that `run.ts` then imports (XI-7, XI-19; proposed, owner: Arnav) |
 | `show save` and `show load` exist as `later` console commands | `commands.ts` 164–165 | Wanted by both GF-WP-11 and MDB-WP-09 (§5) |
 
 ## 2. Work packages
@@ -99,7 +99,7 @@ Related drafts that are not yet on this branch:
 - **Dependencies.**
   - MDB-WP-01.
   - **P2-WP-30a** (the offline half of P2-WP-30, provisional: #110), which creates `src/app/compose/validate.ts`: the DOM-free body of `validateDraft` plus the palette check. **XI-13:** whichever of P2-WP-30a and this package lands first creates the file, and the other extends it. If this package creates it, it does just that move (no behaviour change, re-exported from `Composer.ts`). Either way, `validateText` and `TEXT_MAX` move into it (§1), and `validate.ts` imports only `src/contracts`, `src/score` and `src/score/font`.
-  - XI-7's extraction of `canonicalJson` to a pure module (owner: Arnav). This package never writes its own copy.
+  - XI-7's extraction of `canonicalJson` to `src/score/canonical.ts` (XI-19, proposed, owner: Arnav). This package never writes its own copy. Importing it from `validate.ts` stays within `src/score`, which `validate.ts` may already import.
   - GF-WP-01/02 and GF-CC-01, only to accept `generated` recipes (schemaVersion 2, XI-8). Until then they are rejected.
   - MDB-D1: not needed.
 - **Priority.** Essential. Suggested P1.
@@ -115,20 +115,20 @@ Related drafts that are not yet on this branch:
 
 ```ts
 // src/app/compose/validate.ts (XI-13), added by this package — no DOM, no three.js, no node:*; importable by the gateway (XI-2)
-export interface CompositionMovement { recipe: Recipe; holdTicks: number }   // no startTick, transitionTicks, version
-export interface Composition { v: 1; movements: CompositionMovement[] }
+export interface SavedShowMovement { recipe: Recipe; holdTicks: number }   // no startTick, transitionTicks, version
+export interface SavedShowComposition { v: 1; movements: SavedShowMovement[] }   // the stored body (XI-21); not the X-IN file kind encore.composition
 export const COMPOSITION_LIMITS: { maxMovements: number; maxHoldTicks: number; maxTitleChars: number;
   maxPromptChars: number; maxBodyBytes: number };   // 16, 6000, 80, 2000, 65536: canonical §7.1, §9 (R1, R8, R9)
 export interface CompositionIssue { path: string; rule: string; reason: string }  // = an XI-3 details[] entry
 export type CompositionCheck =
-  | { ok: true; composition: Composition; warnings: CompositionIssue[] }
+  | { ok: true; composition: SavedShowComposition; warnings: CompositionIssue[] }
   | { ok: false; errors: CompositionIssue[] };
 /** Total over unknown, never throws. Shape-directed: descends only into known fields, never a generic walk.
  *  Fresh plain objects; rejects unknown keys, keys starting with '$' or containing '.', and
  *  __proto__/constructor/prototype. Text is upper-cased in the output so the hash is stable. */
 export function validateComposition(input: unknown, params: Params): CompositionCheck;
-// Canonical form: callers use canonicalJson(c) from the extracted helper (XI-7) directly; validate.ts defines no copy
-export function compositionPreview(c: Composition): { movementCount: number; kinds: Recipe['kind'][] };
+// Canonical form: callers use canonicalJson(c) from src/score/canonical.ts (XI-7, XI-19) directly; validate.ts defines no copy
+export function compositionPreview(c: SavedShowComposition): { movementCount: number; kinds: Recipe['kind'][] };
 ```
 
   **Rules** R1–R16 are canonical §9. They come only from the current contract:
@@ -139,7 +139,7 @@ export function compositionPreview(c: Composition): { movementCount: number; kin
   - there are 1 to `maxMovements` movements;
   - each recipe passes a trial expansion, as `validateDraft` does, through the **strict** path. Today that is `expandRecipe`. For a `generated` recipe (after GF-CC-01) it is `expandRecipeStrict`, because the total `expandRecipe` returns a fallback sphere instead of throwing (Gemini ruling G2-1, Gemini spec §7.11; provisional: depends on #117). So a rejected generated recipe fails here, on save and on library load, and never passes as the fallback.
 
-  **Bounded depth, strict decoding.** "Unknown keys at any depth" (R2) is enforced by shape, not by recursion over input. A valid composition nests at most 6 containers (composition → `movements` → movement → `recipe` → `palette` → RGB), 7 for the request body. Any nesting outside the known shape is rejected as `UNKNOWN_KEY` or `INVALID_FIELD` before `canonicalJson` (which recurses without a bound, `run.ts` 28–36) sees it, so a 64 KiB `[[[[…` body is a 400, never a `RangeError`. Bytes are decoded with `new TextDecoder('utf-8', { fatal: true })`; invalid UTF-8 is 400 `VALIDATION_FAILED` (reason `INVALID_JSON`), never silently replaced with U+FFFD. Whether `JSON.parse` itself is safe on such input is UNVERIFIED, so the body reader (WP-04) and the file importer (WP-09) also reject nesting deeper than 8 with a linear pre-parse scan.
+  **Bounded depth, strict decoding.** "Unknown keys at any depth" (R2) is enforced by shape, not by recursion over input. A valid composition nests at most 6 containers (composition → `movements` → movement → `recipe` → `palette` → RGB), 7 for the request body. Any nesting outside the known shape is rejected as `UNKNOWN_KEY` or `INVALID_FIELD` before `canonicalJson` (which recurses without a bound, `run.ts` 28–36) sees it, so a 64 KiB `[[[[…` body is a 400, never a `RangeError`. Bytes are decoded with `new TextDecoder('utf-8', { fatal: true })`; invalid UTF-8 is 400 `VALIDATION_FAILED` (reason `INVALID_JSON`), never silently replaced with U+FFFD. Whether `JSON.parse` itself is safe on such input is UNVERIFIED, so the shows module's body reader (`src/shows/body.ts`, WP-04) and the file importer (WP-09) also reject nesting deeper than 8 with a linear pre-parse scan.
 
   **Service side (XI-2, XI-13).** The gateway imports this same `validate.ts` by relative path, so service-side validation is **complete, trial expansion (R14) included**, on write and on read. There is no structural copy and no parity test. This supersedes Gemini CR-24's "cannot import `src/`" for this feature. It holds only because the module's transitive imports exclude `src/sim`, `src/app/actions` and `src/app/ui` (the `validateText` move above); the import scan enforces it.
 - **Required approvals.** XI-2 and XI-13 recorded as decisions; the `commands.ts` owner for the re-export line. No contract change (MDB-CC-01 is deferred).
@@ -166,28 +166,29 @@ export function compositionPreview(c: Composition): { movementCount: number; kin
 
 - **Purpose.** William's phase 3 ("Persist") and the §5 backend requirements: the official driver, one reused client, indexes, and data access behind an interface that tests can mock (William §10). It adds `shows` as an independently optional module of the one shared gateway (XI-1) at `integrations/gateway/`, beside `gemini` and `tiger`: each is enabled only by its own server-side configuration, and the absence or failure of one never disables another, the app, the simulator, the CLI or `report.ts`. No module creates its own server.
 - **Dependencies.**
-  - **MDB-D1** (= D3 = GF-D1 = TIG-D1, one decision, XI-9), under **X-RUN/live and X-PERSIST (provisional, #110)**.
+  - **MDB-D1** (= D3, approved per integration, XI-9, XI-21). It opens only the `shows` module, under **X-RUN/live and X-PERSIST (provisional, #110)**.
   - MDB-D4.
   - MDB-WP-02.
-  - **The shared gateway skeleton (XI-12):** one server, `guard.ts`, `errors.ts` (XI-3 envelope, `sanitise`, `redact`), `config.ts` and `GET /api/health`, with the dependency policy. Its rules are in the #110 boundaries §6.2 (provisional). It is built once, by whichever of MDB-WP-03, GF-WP-12 and TIG-03 (#142) is approved first. If that is this package, it builds the skeleton first, as its own commit; otherwise it waits for it. Either way it never redefines the guard or the errors.
+  - **The shared gateway skeleton (XI-12):** one server, `guard.ts`, `errors.ts` (XI-3 envelope, `sanitise`, `redact`), `config.ts` and `health.ts` (`GET /api/health`), with the dependency policy, all in `integrations/gateway/src/` (XI-20). XI-20 lists no shared body reader, so the shows body reader is module code (WP-04); moving one into the skeleton would be a proposal for Arnav to record in the #110 boundaries §6.2. Its rules are in the #110 boundaries §6.2 (provisional). It is built once, by whichever of MDB-WP-03, GF-WP-12 and TIG-03 (#142) is approved first. If that is this package, it builds the skeleton first, as its own commit; otherwise it waits for it. Either way it never redefines the guard or the errors.
   - P2-WP-30b (gated by P2-G6 and D3; provisional: #110) adds the eslint ignore (owner sign-off, XI-1).
 - **Priority.** Essential (MVP). Suggested P1.
 - **Lane.** B. Assignee: TBD by Arnav.
-- **Allowed files.** Everything is under `integrations/gateway/`:
-  - only if this package builds the skeleton: `package.json` (run with `tsx`), `package-lock.json`, `tsconfig.json` (resolves XI-2's relative `src/` imports), `README.md`, `.env.example` (variable names only), `src/server.ts`, `src/http/guard.ts`, `src/http/errors.ts`, `src/config.ts` and `src/health.ts`, exactly as XI-12 defines them;
-  - the shows section of `src/config.ts` (reads only `MONGODB_URI` and `MONGODB_DB`; XI-12: each module reads only its own secrets) and `src/db/mongo.ts`;
+- **Allowed files.** Everything is under `integrations/gateway/`, in XI-20's layout (skeleton in `src/`, module code in `src/shows/`, tests in `test/shows/`):
+  - only if this package builds the skeleton: `package.json` (run with `tsx`), `package-lock.json`, `tsconfig.json` (resolves XI-2's relative `src/` imports), `README.md`, `.env.example` (variable names only), `src/server.ts`, `src/guard.ts`, `src/errors.ts`, `src/config.ts` and `src/health.ts`, exactly as XI-12 and XI-20 define them;
+  - the shows section of `src/config.ts` (reads only `MONGODB_URI` and `MONGODB_DB`; XI-12: each module reads only its own secrets);
+  - `src/shows/db.ts`: the shows-only client factory `getDb`. It reads only the shows config. It is **not** a shared gateway service: no other module imports it, because its client authenticates as the shows runtime user (XI-12);
   - `src/shows/types.ts`, `repository.ts`, `mongoRepository.ts`, `memoryRepository.ts` and `indexes.ts` (the lazy index confirmation);
   - `scripts/shows-setup.ts` (proposed name): the admin set-up script that creates the indexes and the optional `$jsonSchema` validator, run once by hand with the admin user (canonical §11);
   - `src/shows/validate.ts`, a thin re-export of `src/app/compose/validate.ts` by relative path (here, not in WP-02, so the gateway exists only after MDB-D1);
-  - `test/repository.test.ts`, `test/imports.test.ts` (the XI-2 allow-list scan) and `test/validate.test.ts` (the WP-02 corpus through the gateway's import, with the app's verdicts);
-  - `test/mongoRepository.live.test.ts`, skipped unless `MONGODB_TEST_URI` is set.
+  - `test/shows/repository.test.ts`, `test/shows/imports.test.ts` (the XI-2 allow-list scan) and `test/shows/validate.test.ts` (the WP-02 corpus through the gateway's import, with the app's verdicts);
+  - `test/shows/mongoRepository.live.test.ts`, skipped unless `MONGODB_TEST_URI` is set.
 - **Proposed interfaces.**
 
 ```ts
-// integrations/gateway/src/shows/types.ts — imports Composition from src/app/compose/validate.ts (XI-2, XI-13)
+// integrations/gateway/src/shows/types.ts — imports SavedShowComposition from src/app/compose/validate.ts (XI-2, XI-13)
 export interface SavedShowDoc {
   _id: ObjectId; schemaVersion: 1; title: string; prompt?: string;   // prompt only with explicit opt-in (MDB-D2)
-  composition: Composition; contentHash: string;                      // sha256(canonicalJson(composition)), server-computed (XI-7)
+  composition: SavedShowComposition; contentHash: string;                      // sha256(canonicalJson(composition)), server-computed (XI-7)
   requestHash: string;                                                // sha256 of the normalised request: the idempotency fingerprint (canonical §7.3)
   source: 'gemini' | 'manual'; generator?: { model: string; integrationVersion: string; sceneHashes?: string[] };
   preview: { movementCount: number; kinds: string[] }; operationId: string; createdAt: Date; updatedAt: Date;
@@ -204,6 +205,7 @@ export interface ShowsRepository {                                    // mocked 
   get(id: string): Promise<SavedShowDoc | null>;                       // id already checked as 24 hex
   ping(): Promise<'up' | 'down'>;
 }
+// integrations/gateway/src/shows/db.ts — shows-only; reads only MONGODB_URI and MONGODB_DB; not a shared gateway service (XI-12, XI-20)
 export function getDb(c: { uri: string; dbName: string; serverSelectionTimeoutMS: number }): Promise<Db>;
   // one MongoClient for the process lifetime; no eager connect(); await old.close() before any replacement (canonical §10.6)
 export function confirmIndexes(db: Db): Promise<'ok' | 'missing'>;
@@ -234,9 +236,8 @@ export function confirmIndexes(db: Db): Promise<'ok' | 'missing'>;
   - **runtime:** a custom role with `find`, `insert` and `listIndexes` on `encore.saved_shows` only, never `readWrite` (collection scoping is UNVERIFIED; the fallback, `readWrite` on `encore`, is recorded as a risk);
   - **admin:** runs the set-up script, and is never in the gateway's `.env`.
 - **Regression checks.** The standard regressions. The root `npm ci` installs no MongoDB package.
-- **Rollback approach.** Delete `src/shows`, `src/db` and the set-up script. Delete the skeleton too only if this package built it and no other module uses it. Nothing in `src/` depends on them.
+- **Rollback approach.** Delete `integrations/gateway/src/shows/`, `integrations/gateway/test/shows/` and the set-up script. Delete the skeleton too only if this package built it and no other module uses it. Nothing in the root `src/` depends on them.
 - **Implementation risk.** Medium:
-  - a second skeleton or a second module layout: the Tiger plan (#142) places its module at `integrations/gateway/tiger/`, this package at `src/shows/` (one layout, chosen with the skeleton, MDB-D4);
   - pinning the driver and Node versions;
   - Atlas network access from the venue.
 - **Expected demonstration evidence.** A live read-after-write log from the test database. None exists until it is run.
@@ -253,10 +254,10 @@ export function confirmIndexes(db: Db): Promise<'ok' | 'missing'>;
 - **Lane.** B. Assignee: TBD by Arnav.
 - **Allowed files.** Under `integrations/gateway/`:
   - one registration line in `src/server.ts` and the shows entry in `src/health.ts` (`modules.shows`);
-  - `src/http/body.ts` (byte cap, fatal UTF-8 decode, pre-parse depth scan), only if the skeleton has no body reader; otherwise this package only sets the shows cap;
-  - `src/shows/routes.ts`, `hash.ts` (`contentHash` and `requestHash`: sha256 via `node:crypto` over the shared `canonicalJson`, XI-7) and `errorMap.ts` (shows reasons, and driver errors 11000, 121, 50, server selection and the deadline mapped onto the skeleton's codes);
-  - `test/routes.test.ts`, `test/idempotency.test.ts` and `test/deadline.test.ts`.
-  - **Not** `server.ts` beyond the line, `errors.ts` or `guard.ts`: the skeleton's (XI-12).
+  - `src/shows/body.ts`: the shows body reader (byte cap, fatal UTF-8 decode, pre-parse depth scan). It is module code, never a new top-level folder, because XI-20's skeleton has no body reader;
+  - `src/shows/routes.ts`, `hash.ts` (`contentHash` and `requestHash`: sha256 via `node:crypto` over the shared `canonicalJson`, XI-7, XI-19) and `errorMap.ts` (shows reasons, and driver errors 11000, 121, 50, server selection and the deadline mapped onto the skeleton's codes);
+  - `test/shows/routes.test.ts`, `test/shows/idempotency.test.ts` and `test/shows/deadline.test.ts`.
+  - **Not** `server.ts` beyond the line, `errors.ts` or `guard.ts`: the skeleton's (XI-12, XI-20).
 - **Proposed interfaces.**
 
 ```ts
@@ -265,7 +266,8 @@ export function confirmIndexes(db: Db): Promise<'ok' | 'missing'>;
 //   200 + idempotentReplay: true on same key and same requestHash · 409 CONFLICT (IDEMPOTENCY_CONFLICT) on same key, other requestHash
 // GET /api/shows?limit=20&cursor=<opaque> → 200 { items: ShowSummary[]; nextCursor: string | null }  (limit ≤ 50)
 // GET /api/shows/:id → 200 { show: SavedShow }
-// GET /api/health    → the skeleton's route; this module adds modules.shows { enabled; db: 'up' | 'down' | 'disabled' } (canonical §10.4)
+// GET /api/health    → the skeleton's route; this module adds modules.shows { enabled; db: 'up' | 'down' | 'disabled'; writable: boolean } (canonical §10.4)
+//   writable: true only once the unique operationId index is confirmed; false whenever db is not 'up'
 // ErrorBody, the shared code list, sanitise and redact: the shared gateway skeleton's errors.ts (XI-12, XI-3). Not redefined here.
 export type ShowsReason = /* canonical §10.1 ReasonCode */ string;
 export function createShowsHandler(repo: ShowsRepository, clock: () => Date, limits: ShowLimits):
@@ -307,6 +309,7 @@ export function mapShowsError(error: unknown): { status: number; code: string; r
   - List returns no `composition` and no `prompt`; a bad projected field gives the fixed placeholder.
   - `limit` is bounded.
   - The shows entry in health works with the database down or `disabled`.
+  - Health reports `writable: false` until `listIndexes` confirms the unique `operationId` index, with `db: 'up'` and reads still served; it reports `writable: true` only after that, and `false` whenever `db` is not `'up'` (canonical §10.4, MDB-R33).
 - **Unit tests.** MDB-T11–T18.
 - **Integration tests.** MDB-T38–T39, over HTTP against the test database.
 - **Security tests.** MDB-T19, T22 and T23: duplicate retry, conflict, sanitised errors, and `$`-key injection; with T13's 413, plus a 64 KiB nested array and invalid UTF-8 bytes (both 400, never 500).
@@ -321,7 +324,7 @@ export function mapShowsError(error: unknown): { status: number; code: string; r
 - **Dependencies.**
   - MDB-WP-02, MDB-WP-06 (Load as drafts), and MDB-WP-04 for the live client. The panel is built against a fake client first.
   - **Base #113** (merged), which creates the `Drafts` store in `main.ts` (§1).
-  - **XI-14:** app network code lives only in `src/app/live/`, behind a build-time flag. Before any code merges, P2-T35's scan is extended to allow network APIs only there (#110 boundaries §6.2, provisional). Who owns the folder skeleton and that extension is open (OIB-Q3).
+  - **XI-14:** app network code lives only in `src/app/live/`, behind a build-time flag. Before any code merges, P2-T35's scan is extended to allow network APIs only there ([#110 boundaries §6.1](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#61-x-runlive-provisional-d3-gated), Scan row, provisional). Who owns the folder skeleton and that extension is open (OIB-Q3).
   - GF-WP-10, for saving a generated draft. Until then only `source: 'manual'` exists (MDB-D7).
   - MDB-D1, MDB-D2 and MDB-D9.
 - **Priority.** Essential (MVP). Suggested P1.
@@ -337,7 +340,8 @@ export function mapShowsError(error: unknown): { status: number; code: string; r
 
 ```ts
 // src/app/live/shows.ts — under src/, only src/app/live/ uses a network API (XI-14); same-origin /api/* or the configured 127.0.0.1 origin
-export type ShowsAvailability = 'off' | 'probing' | 'unavailable' | 'disabled' | 'down' | 'up';  // canonical §12; off = flag unset: not in the bundle
+export type ShowsAvailability = 'off' | 'probing' | 'unavailable' | 'disabled' | 'down' | 'read-only' | 'up';  // canonical §12; off = flag unset: not in the bundle
+// read-only = db 'up' with writable false (§10.4): list and Load as drafts work, Save is disabled with the read-only reason
 // probing (state 2) is held by the panel while a probe is in flight; probeShows never resolves to it
 export type ApiResult<T> = { ok: true; value: T }
   | { ok: false; code: string /* canonical §10.1 ErrorCode */ | 'NETWORK'; message: string; retryable: boolean };  // retryable: client-derived, by status
@@ -366,6 +370,7 @@ export function createPanel(o: { host: HTMLElement; drafts: Drafts; params: Para
   - A failed or timed-out save keeps the draft. Retry sends the same key and body; an edit discards the pending request.
   - With the library flag off (the default), the panel is not in the bundle, nothing renders, the app makes **zero** requests (XI-9), and `dist/` contains no `/api/shows` or `/api/health` string (MDB-T24, T35).
   - With the flag on and no gateway: one probe on mount, then only on user actions, with backoff; state 7; **Check again** picks up a gateway started later.
+  - With health reporting `db: 'up'` and `writable: false`, `probeShows` gives `read-only`: the list and **Load as drafts** work, and Save is shown disabled with the read-only reason (canonical §12).
   - Every response is re-validated before Load is offered, list items per field.
   - No HTML is built from stored strings: the static scan of the banned sinks passes.
 - **Unit tests.** MDB-T25–T29. The client's parsing and timeouts are covered by T11–T18.
@@ -400,11 +405,11 @@ export function createPanel(o: { host: HTMLElement; drafts: Drafts; params: Para
 
 ```ts
 // src/app/compose/showLoad.ts — no DOM; ControlPort adapts the encore:control / encore:control-status events
-export function draftsFromComposition(title: string, c: Composition): { name: string; recipe: Recipe; holdTicks: number }[];
+export function draftsFromComposition(title: string, c: SavedShowComposition): { name: string; recipe: Recipe; holdTicks: number }[];
   // MVP: names "<title> i/k"; the panel turns each into a draft (draftFromRecipe, Composer.ts 78) in the Drafts store; zero intents
 // Follow-up (after MCR-21):
 export interface ShowLoadPlan { droneId: number; steps: { recipe: Recipe; holdTicks: number }[] }
-export function planShowLoad(c: Composition, droneId: number): ShowLoadPlan;
+export function planShowLoad(c: SavedShowComposition, droneId: number): ShowLoadPlan;
 /** t_{i+1} = t_i + max(L, T_i + h_i), L = params.scoreLead (canonical §8.2 step 6). */
 export function nextStepTick(tickI: number, transitionTicksI: number, holdTicksI: number, scoreLead: number): number;
 export interface ControlPort { dispatch(intent: ControlIntent): ControlResult; status(): ControlStatus }
@@ -463,7 +468,7 @@ export function loadComposition(plan: ShowLoadPlan, port: ControlPort, dispatchL
 - **Priority.** Essential before any demo with real Atlas. Suggested P1.
 - **Lane.** B for the service and C for the UI states. Assignee: TBD by Arnav.
 - **Allowed files.**
-  - Under `integrations/gateway/`: `src/shows/rateLimit.ts`, the shows rate limiter (see below), and its one call in `src/shows/routes.ts`, after the guard and before the body is read; the shows rate-limit values in `src/config.ts` (writes 10 per minute with a burst of 3; reads 120 per minute; planning values, canonical §10.7), `README.md` (the runbook: Atlas users, venue network access, `.env` handling), `test/faults.test.ts`, `test/security.test.ts`, and `test/bundle-secrets.test.ts`, which scans the root `dist/` after a build.
+  - Under `integrations/gateway/`: `src/shows/rateLimit.ts`, the shows rate limiter (see below), and its one call in `src/shows/routes.ts`, after the guard and before the body is read; the shows rate-limit values in `src/config.ts` (writes 10 per minute with a burst of 3; reads 120 per minute; planning values, canonical §10.7), `README.md` (the runbook: Atlas users, venue network access, `.env` handling), `test/shows/faults.test.ts`, `test/shows/security.test.ts`, and `test/shows/bundle-secrets.test.ts`, which scans the root `dist/` after a build.
   - `tests/persistence/faults.test.ts`.
   - **Not** `guard.ts` or `errors.ts`: the skeleton's (XI-12).
 - **Proposed interfaces.** Only the rate limiter is new. The guard and its configuration are the shared gateway skeleton's (XI-12): bind `127.0.0.1` only, Host allow-list (`127.0.0.1:<port>`, `localhost:<port>`, plus the dev proxy if used), exact Origin on every non-GET (missing or `null` → 403 `FORBIDDEN`), 415 for non-JSON bodies, non-loopback peers refused, an optional per-launch token, and no CORS headers unless OIB-Q2 decides for CORS. The shows module supplies its rate limiter, its rate values and its routes.
@@ -511,7 +516,7 @@ export function loadComposition(plan: ShowLoadPlan, port: ControlPort, dispatchL
 - **Priority.** Essential for any claim. Suggested P1.
 - **Lane.** B. Assignee: TBD by Arnav.
 - **Allowed files.**
-  - `integrations/gateway/test/e2e.live.test.ts` (opt-in).
+  - `integrations/gateway/test/shows/e2e.live.test.ts` (opt-in).
   - `tests/persistence/acceptance.test.ts`: steps 7–10 on the memory repository with a fixture.
   - An evidence note in the PR.
 - **Proposed interfaces.** None.
@@ -531,11 +536,11 @@ export function loadComposition(plan: ShowLoadPlan, port: ControlPort, dispatchL
 
 ### MDB-WP-09 (optional) Local export and import (offline path)
 
-- **Purpose.** MDB-FR-11. William §7 and §8.4: an Atlas-only show "cannot be loaded while offline unless previously cached or exported locally". This is outside William's MVP (MCR-09). It is the NFR-04-compatible way to keep a show for the judged demo (MD-11), and it aligns with GF-WP-09's offline library and with X-IN files.
+- **Purpose.** MDB-FR-11. William §7 and §8.4: an Atlas-only show "cannot be loaded while offline unless previously cached or exported locally". This is outside William's MVP (MCR-09). It is the NFR-04-compatible way to keep a show for the judged demo (MD-11), and it aligns with X-IN files and the one committed composition library, `assets/compositions/*.json` (XI-18, [boundaries §7](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#7-failure-handling), owned by P2-WP-30a, re-validated by `tests/cli/compositions.test.ts`).
 - **Dependencies.**
   - MDB-WP-02 and MDB-WP-06 (Load as drafts).
   - P2-WP-30a (X-IN and its importer, provisional: #110). If 30a has landed an X-IN file picker in the app, this package adds Export beside it instead of a new panel.
-  - GF-WP-09 for format alignment (provisional: #117).
+  - GF-WP-09, only as a format dependency for generated cues (provisional: #117). The library itself is `assets/compositions/` (XI-18).
   - GF-WP-11, if it takes the `show save`/`show load` names first (MDB-D9 keeps them for this file path).
   - Base #113 (merged), for the mount line.
   - **No MDB-D1**: there is no network.
@@ -551,14 +556,14 @@ export function loadComposition(plan: ShowLoadPlan, port: ControlPort, dispatchL
 
 ```ts
 // src/app/compose/showFile.ts — files are X-IN's `encore.composition` v1/v2 (XI-15); this package defines no other file kind
-export function exportComposition(title: string, c: Composition): Blob;
+export function exportComposition(title: string, c: SavedShowComposition): Blob;
   // movements → cues, cue name "<title> i/k"; v2 keeps holdTicks (once approved); until then v1, and the panel says holds are dropped
 export function importCompositionFile(bytes: Uint8Array, params: Params):   // X-IN steps 2–4: 64 KiB, strict UTF-8, depth scan, prototype keys, schema
-  { ok: true; title: string; composition: Composition } | { ok: false; errors: CompositionIssue[] };   // then the shared validator; a v1 cue has no hold, so DEFAULT_HOLD_TICKS (600) is used, as advice only
+  { ok: true; title: string; composition: SavedShowComposition } | { ok: false; errors: CompositionIssue[] };   // then the shared validator; a v1 cue has no hold, so DEFAULT_HOLD_TICKS (600) is used, as advice only
 ```
 
-  **File kinds (XI-15).** `encore.composition` v1 is X-IN today: cues `{ name, recipe }`, no holds. The proposed v2 (#110 boundaries, needs Arnav) adds an optional per-cue `holdTicks` and, after GF-CC-01, generated recipes (16 KB per cue). `saved_shows.composition` maps movements ↔ cues. Exporting a show with holds needs v2 (MCR-20, still open; §6, item 2). Import ends in Load as drafts (X-IN step 7). No other kind name is used (not `encore.show`, not `CompositionFile`).
-- **Required approvals.** Arnav approves `encore.composition` v2 with #110's owner (MCR-20).
+  **File kinds (XI-15).** `encore.composition` v1 is X-IN today: cues `{ name, recipe }`, no holds. The proposed v2 ([#110 boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes), needs Arnav) adds an optional per-cue `holdTicks` and, after GF-CC-01, generated recipes (16 KB per cue). `saved_shows.composition` maps movements ↔ cues. Exporting a show with holds needs v2 (MCR-20, still open; §6, item 2). Import ends in Load as drafts (X-IN step 7). No other kind name is used (not `encore.show`, not `CompositionFile`).
+- **Required approvals.** Arnav approves `encore.composition` v2 with #110's owner (MCR-20). §3.3 leaves v2's `holdTicks` bounds open; they must accept at least [0, 6000] (spec R9), or the v2 round-trip below cannot hold.
 - **Acceptance criteria.**
   - With v2: export then import gives the same canonical composition and `contentHash`. With v1: the same recipes in order, and the panel says the holds were dropped.
   - Import applies X-IN's 64 KiB gate, rejects prototype keys, and uses the same validator. A cue with a rejected generated recipe fails import (strict path, G2-1).
@@ -576,7 +581,7 @@ export function importCompositionFile(bytes: Uint8Array, params: Params):   // X
 ```mermaid
 flowchart LR
   SUB{{Base submission done}}
-  D1{{MDB-D1 = D3 = GF-D1 = TIG-D1, XI-9}}
+  D1{{"MDB-D1 = D3, approved per integration (XI-9, XI-21): shows only"}}
   D4{{MDB-D4 gateway location}}
   B113{{#113 shell merged}}
   SK{{"shared gateway skeleton, XI-12: first approved of MDB-WP-03 / GF-WP-12 / TIG-03"}}
@@ -623,30 +628,29 @@ His "stop/reassess if a major refactor … is required" applies to every package
 | `src/app/compose/validate.ts` (incl. moved `validateText`, `TEXT_MAX`, and the composition validator) | P2-WP-30a or WP-02, whichever lands first; the other extends it (XI-13) | GF-WP-10 | Arnav (XI-2 coverage) |
 | `src/app/ui/commands.ts` | one re-export line for `validateText`, `TEXT_MAX` (WP-02, if P2-WP-30a has not moved them) | — | `commands.ts` owner |
 | `src/app/ui/Composer.ts` | re-export line (WP-02, if P2-WP-30a absent) | #121, GF-WP-10, P2-WP-05, P2-WP-23 | Composer lane |
-| extracted pure `canonicalJson` helper | XI-7's one shared proposal | WP-02, Gemini, Tiger | Arnav |
+| `src/score/canonical.ts` (`canonicalJson`, byte-for-byte move from `src/cli/run.ts`, which then imports it) | XI-7's one shared proposal (XI-19, proposed) | WP-02 (imported by `validate.ts`, within `src/score`), Gemini, Tiger | Arnav |
 | `src/app/compose/showLoad.ts` | WP-06 | — | lane A review |
 | `src/app/compose/showFile.ts` | WP-09 | — | — |
 | `src/app/live/shows.ts`, `src/app/live/SavedCompositions.ts` | WP-05 | WP-07 (states) | MDB-D1; folder skeleton owner open (XI-14, OIB-Q3) |
 | `src/app/ui/CompositionFiles.ts` (file-only panel) | WP-09 | — | — |
 | `src/app/main.ts` | one flag-guarded mount line (WP-05); one file-panel mount line (WP-09) | — | shell owner |
 | `tests/persistence/**` | WP-02, 05–09 (separate files) | gateway tests read `fixtures/` | — |
-| The shared gateway skeleton (XI-12): `integrations/gateway/{package.json,package-lock.json,tsconfig.json,README.md,.env.example}`, `src/server.ts`, `src/http/guard.ts`, `src/http/errors.ts`, `src/config.ts`, `src/health.ts` | the first approved of WP-03 / GF-WP-12 / TIG-03 | the other modules add their own lines (routes, config section, health entry) and never redefine guard or errors | MDB-D1, MDB-D4 |
-| `integrations/gateway/src/{shows,db}/**`, the shows section of `src/config.ts`, `scripts/shows-setup.ts` | WP-03 (incl. the `shows/validate.ts` re-export), 04 | WP-07 (`shows/rateLimit.ts`, its call in `routes.ts`, and the shows rate values in `config.ts`) | MDB-D1 |
-| `integrations/gateway/src/http/body.ts` | WP-04, only if the skeleton has no body reader | GF-WP-12, Tiger | — |
-| `integrations/gateway/test/**` | WP-03 to 08 (separate files) | — | — |
+| The shared gateway skeleton (XI-12, XI-20): `integrations/gateway/{package.json,package-lock.json,tsconfig.json,README.md,.env.example}`, `src/server.ts`, `src/guard.ts`, `src/errors.ts`, `src/config.ts`, `src/health.ts` | the first approved of WP-03 / GF-WP-12 / TIG-03 | the other modules add their own lines (routes, config section, health entry) and never redefine the guard or the errors. The shows body reader is `src/shows/body.ts` (WP-04), not a skeleton file | MDB-D1, MDB-D4 |
+| `integrations/gateway/src/shows/**` (incl. the shows-only `db.ts`, not a shared service), the shows section of `src/config.ts`, `scripts/shows-setup.ts` | WP-03 (incl. the `shows/validate.ts` re-export), 04 | WP-07 (`shows/rateLimit.ts`, its call in `routes.ts`, and the shows rate values in `config.ts`) | MDB-D1 |
+| `integrations/gateway/test/shows/**` | WP-03 to 08 (separate files) | — | — |
 | `eslint.config.js` (ignore `integrations/**`) | P2-WP-30b | — | build-config owner |
 | `vite.config.ts` (`/api` dev proxy, `strictPort`) | no package | — | build-config owner, later (MQ-5) |
 | `src/agent`, `src/sim`, `src/observer`, `src/cli`, `src/contracts`, root `package.json`, CI, `actions.ts`; `main.ts` and `commands.ts` beyond the lines above | **none** | — | — |
 
-**Same-origin `/api` is not decided here** (MD-1). There are two options: a Vite dev proxy, or the gateway also serving the built `dist/` on `127.0.0.1`. Either way, the NFR-04 demo keeps using `npm run preview`, and the default build makes zero external requests (XI-9).
+**Same-origin `/api` is not decided here** (MD-1). The option is a Vite dev proxy for `/api` (OIB-Q2), a `vite.config.ts` change for its owner. **The gateway never serves the 3D app's `dist/`**, because the judged demo path must not depend on X-RUN ([boundaries §6](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#6-x-run-external-integration-runner), Demo row; Tiger TIG-D3). In every case, the NFR-04 demo keeps using `npm run preview`, and the default build makes zero external requests (XI-9).
 
 ## 5. Reconciliation with existing work
 
 - **MongoDB issues: none exist.** These packages are new.
-- **GF-WP-15** reserves MongoDB and Tiger Data persistence, as interface only. Its MongoDB half → MDB-WP-02 to 08, from William's own MongoDB spec (XI-6, MCR-08); GF-WP-15 points here in #117's revision. Its Tiger Data half belongs to the Tiger plan (#142). Nobody is assigned (XI-10).
+- **GF-WP-15** reserves MongoDB and Tiger Data persistence, as interface only. Its MongoDB half → MDB-WP-02 to 08, from William's own MongoDB spec (XI-6, MCR-08); GF-WP-15 points here in #117's revision. Its Tiger Data half belongs to the Tiger plan (#142, TIG-01…TIG-11). Nobody is assigned (XI-10, XI-24).
 - **Data ownership (XI-6).** `encore.saved_shows` is the canonical show-library model. The field list in William's earlier Gemini handoff §11 (`formationId`, `sceneSpec`, `droneCount`, `generationMs` and others) is superseded by his MongoDB spec, and the Gemini docs point to this model (MCR-12). MongoDB holds no telemetry, and no experiment catalogue lives in `saved_shows` (Tiger TD-11). Identity links run one way: Gemini `sceneHash` per generated recipe, MongoDB `contentHash` per saved composition, Tiger `compositionId` in its import manifest (MD-13).
 - **Generated recipes (after GF-CC-01).** They are stored only in `saved_shows` `schemaVersion` 2 (XI-8). Save and library load call the strict expansion path, so a rejected generated recipe fails there, while `expandRecipe` stays total for the swarm (G2-1). A recipe's `sceneHash` is a checked label, recomputed on load; `contentHash` identifies the whole saved composition (XI-6, XI-7).
-- **GF-WP-12** uses the shared `integrations/gateway/` (XI-1; the Gemini spec §10.4 now names it; MCR-07). **The gateway skeleton** (server, guard, errors, config, health and the dependency policy) is built once, by whichever of MDB-WP-03, GF-WP-12 and TIG-03 is approved first (XI-12); this answers MQ-8. WP-03 never creates a second folder or a second guard. The Tiger plan places its module at `integrations/gateway/tiger/` and this plan at `src/shows/`; one layout is chosen with the skeleton (MDB-D4; `docs/planning/tiger-data-integration-work-packages.md` (#142)).
+- **GF-WP-12** uses the shared `integrations/gateway/` (XI-1; the Gemini spec §10.4 now names it; MCR-07). **The gateway skeleton** (server, guard, errors, config, health and the dependency policy) is built once, by whichever of MDB-WP-03, GF-WP-12 and TIG-03 is approved first (XI-12); this answers MQ-8. WP-03 never creates a second folder or a second guard. Layout fixed by XI-20: skeleton in `integrations/gateway/src/`, one folder per module (`src/shows/`, `src/tiger/`, `src/gemini/`), tests in `test/<module>/`.
 - **Gemini CR-25** ("the app never queries MongoDB at run time") is corrected by XI-5 in #117: the app may call the gateway while the simulation runs, never inside the tick loop or a decision path (MCR-10).
 - **GF-WP-11** uses `show save` and `show load` for event-log replay files, which are a *deterministic replay*. A saved show explicitly is not one (William §8.4), and a replay log is not a composition kind (XI-15). Both features stay, under distinct names. Gemini proposes `replay save`/`replay load`; MDB-D9 recommends keeping `show save`/`show load` for the file path (WP-09) and no console command for the cloud library in the MVP. Arnav allocates the names.
 - **Issue #1 (sponsor brief).** MLH's "Best Use of MongoDB Atlas" rules were unpublished at audit time ([`BRIEF.md`](../competition/BRIEF.md) §5, §7). Capture them before any submission text claims the track. William: eligibility is "not guaranteed by merely using Atlas". No one is assigned or pinged here; Arnav decides how #1 is updated.
@@ -658,7 +662,7 @@ These are reported, not resolved here. The canonical spec records them as MCR ro
 
 1. **Who schedules.** *Resolved for the MVP* by XI-15 and MDB-D6: Load as drafts (X-IN step 7), so every injection is an operator action. Still open for the follow-up runner, which schedules *k* injections after one confirmation against X-IN's "never schedules injections by itself" (MCR-21, MQ-3).
 2. **Composition formats** (MCR-20, MQ-2: still open). XI-15 fixes the names:
-   - files are X-IN's `encore.composition`: v1 has `cues: [{ name, recipe }]`, no holds, and rejects the key `movements`; the proposed v2 (#110 boundaries, needs Arnav) adds an optional per-cue `holdTicks` and, after GF-CC-01, generated recipes;
+   - files are X-IN's `encore.composition`: v1 has `cues: [{ name, recipe }]`, no holds, and rejects the key `movements`; the proposed v2 ([#110 boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes), needs Arnav) adds an optional per-cue `holdTicks` and, after GF-CC-01, generated recipes. §3.3 leaves the `holdTicks` bounds open; they must accept at least [0, 6000] (spec R9);
    - MongoDB stores `saved_shows.composition` (MD-2: `movements: [{ recipe, holdTicks }]`, no names), mapped movements ↔ cues;
    - GF-WP-11's replay log is not a composition kind;
    - `ControlStatus.composition` is a boolean.
@@ -670,7 +674,7 @@ These are reported, not resolved here. The canonical spec records them as MCR ro
 ## Gating
 
 - **No package starts before the base submission** (Devpost by 10:15 Sun 15 Nov 2026, hard deadline 11:00) unless Arnav explicitly approves. These are Track P packages ([`PHASE2_ROADMAP.md`](PHASE2_ROADMAP.md), provisional: depends on #110).
-- **The networked packages are blocked on MDB-D1**: WP-03, WP-04, WP-05's client, WP-07 and WP-08. MDB-D1 = Phase 2 D3 = GF-D1 = TIG-D1, **one decision** (XI-9): it amends NFR-04, the AGENTS ground rule, the contract §12 row and the decisions log, scoped to the optional gateway only, under X-RUN/live and X-PERSIST (provisional, #110). The core and the default build stay offline: library UI off unless a non-secret flag enables it, zero external requests by default, and the NFR-04 acceptance test unchanged. WP-01, 02, 06 and 09 have no network code but are still gated by the submission rule and Arnav's approval.
+- **The networked packages are blocked on MDB-D1**: WP-03, WP-04, WP-05's client, WP-07 and WP-08. MDB-D1 = Phase 2 D3, **approved per integration** (XI-9, XI-21). It opens only the `shows` module; approval for Gemini (GF-D1) or Tiger (TIG-D1) does not approve it, and it does not approve them (boundaries §9). It amends NFR-04, the AGENTS ground rule, the contract §12 row and the decisions log, scoped to the optional gateway only, under X-RUN/live and X-PERSIST (provisional, #110). The core and the default build stay offline: library UI off unless a non-secret flag enables it, zero external requests by default, and the NFR-04 acceptance test unchanged. WP-01, 02, 06 and 09 have no network code but are still gated by the submission rule and Arnav's approval.
 - **No package changes a contract.** MDB-CC-01 (`composeShow`) is deferred: **PROPOSED CONTRACT CHANGE — REQUIRES ARNAV APPROVAL.**
 - **Reviews are done by Arnav's own agents.** Agents never ping William or Haris, and no package is assigned to them (XI-10). William keeps the sponsor-specific decisions.
 
@@ -694,7 +698,7 @@ In scope: <allowed files, exact paths>
 Out of scope: src/agent, src/sim, src/observer, src/cli, src/contracts, root package.json, CI, main.ts and other #113-owned files (except the single lines a package's allowed files name, with owner sign-off); any contract change
 
 **References**
-Canonical spec: docs/integrations/mongodb-atlas-show-library.md (MCR-xx, MDB-D1…D9); rulings XI-1…XI-15
+Canonical spec: docs/integrations/mongodb-atlas-show-library.md (MCR-xx, MDB-D1…D9); rulings XI-1…XI-24
 Contract: docs/design/contracts-and-algorithms.md §<n>
 
 **Depends on / blocks**
@@ -746,6 +750,6 @@ This is reproduced verbatim from the [source handoff](../handoffs/Encore_MongoDB
 5. **Add idempotency and fixed errors:** `operationId` with an `Idempotency-Key` header, compared by `requestHash`; `contentHash` (sha256 of `canonicalJson`, XI-7); 409/413/415/429 and the gateway's one error envelope (MD-7, MD-8, XI-3).
 6. **"Authorization" in the MVP means the skeleton's guard** (XI-12): loopback bind and peers, a Host allow-list, and an exact Origin on every non-GET. A public deployment needs MDB-D3 (MD-9).
 7. **One validator module, run three times.** The gateway imports the app's pure `src/app/compose/validate.ts`, so its checks are complete, trial expansion through the strict path included (MD-4, XI-2, XI-13, G2-1).
-8. **Nothing networked before MDB-D1** (= D3 = GF-D1 = TIG-D1, XI-9), and nothing at all before the submission and Arnav's approval.
+8. **Nothing networked before MDB-D1** (= D3, approved per integration, XI-9, XI-21; it opens only the `shows` module), and nothing at all before the submission and Arnav's approval.
 9. **"Do not mock the production DB workflow"** holds for the acceptance run (WP-08). Unit tests mock `ShowsRepository`, as William's §10 asks.
 10. **App network code only in `src/app/live/`,** behind the build-time `VITE_SHOW_LIBRARY` flag (XI-14). UI labels follow MDB-D9 ("Saved compositions", "Save composition").

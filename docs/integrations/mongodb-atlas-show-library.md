@@ -4,7 +4,7 @@
 >
 > Source design by **William Pimentel** (`wpimento`): [`../handoffs/Encore_MongoDB_Atlas_Implementation_Spec.md`](../handoffs/Encore_MongoDB_Atlas_Implementation_Spec.md), preserved unmodified. Integrated by **Arnav** (contract and integration owner), issue #130.
 
-Purpose: the canonical specification for saving validated Encore compositions to MongoDB Atlas, browsing them, and loading one back into the running simulation through the existing operator pathway. Status: proposed; any network use from the app needs team decision MDB-D1 (= Phase 2 D3 = GF-D1 = TIG-D1, one decision: XI-9). Owner: Arnav (integration, contracts); William (source design, sponsor requirements). Audit base: `origin/main` 4c41f75.
+Purpose: the canonical specification for saving validated Encore compositions to MongoDB Atlas, browsing them, and loading one back into the running simulation through the existing operator pathway. Status: proposed; any network use from the app needs team decision MDB-D1. MDB-D1 = D3, approved per integration (= GF-D1 = TIG-D1 for their modules; XI-9, XI-21). MDB-D1 opens only the `shows` module. Owner: Arnav (integration, contracts); William (source design, sponsor requirements). Audit base: `origin/main` 4c41f75.
 
 Companion documents, sharing these IDs: work packages `MDB-WP-01…09` in [`../planning/mongodb-integration-work-packages.md`](../planning/mongodb-integration-work-packages.md) (canonical for titles and allowed files); tests `MDB-T01…T41` in [`../validation/mongodb-show-library-evaluation.md`](../validation/mongodb-show-library-evaluation.md). This file is canonical for `MDB-FR`, `MDB-NFR`, `MDB-CC`, `MCR`, `MDB-D` and `MDB-R`. Gemini (`GF-*`, `CR-*`), Phase 2 (`X-*`, `D1`–`D7`, `P2-*`), Tiger (`TD-*`, `TIG-*`) and cross-integration ruling (`XI-*`) IDs are cited, never redefined. Links into Gemini documents are *provisional: depends on #117*; links into Phase 2 documents are *provisional: depends on #110* (merge order #110 → #117 → #130).
 
@@ -41,7 +41,7 @@ His boundary, verbatim: "MongoDB must not become a dependency of the drone simul
 |---|---|---|
 | Source design (workflow, data model, API, UI states, risks, scenarios, tests) | William | Preserved. Changes forced by the repo are conflict records (§24) |
 | Sponsor facts (MLH "Best Use of MongoDB Atlas") | William | Names only, from [`BRIEF.md`](../competition/BRIEF.md) P11/H3. Eligibility rules unpublished: UNVERIFIED |
-| Network decision MDB-D1 | Team (Arnav consults William and Haris) | Pending; = D3/GF-D1/TIG-D1 (XI-9), not duplicated |
+| Network decision MDB-D1 | Team (Arnav consults William and Haris) | Pending; MDB-D1 = D3, approved per integration (= GF-D1 = TIG-D1 for their modules; XI-9, XI-21), not duplicated. It opens only the `shows` module |
 | Implementation | TBD by Arnav (MDB-D5, XI-10); lanes suggested in the work packages | Not started |
 
 William's §12 agent brief is source material for a future implementation, not permission to implement now.
@@ -112,7 +112,8 @@ flowchart LR
   CMP -.->|"LIVE-GATEWAY only (GF-D1)"| GM
   SH -.->|"MONGODB_URI server-side"| ATL[("MongoDB Atlas<br/>encore.saved_shows (external)")]
   GM -.-> GEM["Gemini API (external)"]
-  OBS -.->|"X-OUT files, read-only"| TD["Tiger Data (external, #142)"]
+  RR["results/*.json RunRecord files (committed, CLI)"] -.->|"read-only"| TI["Tiger CLI importer (#142)"]
+  TI -.-> TD["Tiger Data (external, #142)"]
 ```
 
 Dashed edges and everything in `GW` are optional and external. **The NFR-04 boundary is the edge of `APP` plus `CORE`.** With the gateway absent and the library flag off, the app makes no request, and [NFR-04](../specification/requirements.md#3-non-functional-requirements)'s acceptance check is unchanged. Nothing from MongoDB reaches a drone except as one controller-built `INJECT_SCORE`.
@@ -123,7 +124,7 @@ Dashed edges and everything in `GW` are optional and external. **The NFR-04 boun
 | Encore app | Validates, previews, injects; hosts the optional library client and panel | Hold credentials; inject anything not passed by the shared validator; block a frame on the network | **Yes** (the library client: no) |
 | Gemini (gemini module, GF-WP-12) | Generates a scene from a prompt | Control drones, assign slots, write to MongoDB | No |
 | MongoDB Atlas (shows module) | Stores, lists, returns compositions | Store telemetry, frames, replays, `RunRecord`s or `ScoreVersion`s; be read in a tick | No |
-| TigerData (#142) | Stores and analyses telemetry from X-OUT exports | Write to `saved_shows`; feed back into a run | No |
+| TigerData (#142) | Stores and analyses experiment evidence imported from committed CLI `RunRecord` files by a CLI importer (X-OUT records later, after P2-WP-30a; XI-22) | Write to `saved_shows`; feed back into a run | No |
 | Optional gateway (X-RUN/live) | Hosts independently optional modules; keeps secrets; validates again, completely (XI-2) | Import from `src/` beyond XI-2's pure modules; be needed by the demo; let one module's failure disable another | No |
 
 ---
@@ -144,10 +145,10 @@ Dashed edges and everything in `GW` are optional and external. **The NFR-04 boun
 
 | Phase 2 boundary, as amended (XI-4; provisional, #110) | Mapping | Gap |
 |---|---|---|
-| [X-RUN](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#6-x-run-external-integration-runner) | **X-RUN/live**, the D3-gated HTTP channel: own folder and dependencies, only XI-2's pure imports, credentials in its environment, deletable with `check.sh` green. Inbound only a candidate composition, X-IN-validated before an operator injection; outbound read-only library data | None once D3 is approved (MCR-11) |
+| [X-RUN](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#6-x-run-external-integration-runner), as [X-RUN/live](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#61-x-runlive-provisional-d3-gated) | **X-RUN/live**, the D3-gated HTTP channel: own folder and dependencies, only XI-2's pure imports, credentials in its environment, deletable with `check.sh` green. Inbound only a candidate composition, X-IN-validated before an operator injection; outbound read-only library data | None once D3 is approved (MCR-11) |
 | [X-PERSIST](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#5-x-persist-optional-persistence) | The `shows` module is X-PERSIST of compositions; never live control | None (MCR-11) |
 | [X-IN](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#3-x-in-composition-input) | A loaded show passes the X-IN validation steps, then the `inject` intent. **Load as drafts** (MVP, §8) conforms: every movement becomes a Composer draft the operator injects | Two conflicts. Format: `movements` with `holdTicks` vs X-IN v1 `cues: { name; recipe }[]`, which rejects the key `movements` (MCR-20). Self-scheduling: the cue runner schedules *k* injections after one confirmation, vs X-IN's "never schedules injections by itself. Every cue is an operator action" (MCR-21). MDB-WP-09 writes only `encore.composition` files, v1 or the proposed v2, and no other file kind (XI-15) |
-| [D3](../planning/PHASE2_ROADMAP.md#decisions-for-arnav) | Needed for any library use from the app (MDB-D1 = GF-D1 = TIG-D1, XI-9) | None |
+| [D3](../planning/PHASE2_ROADMAP.md#decisions-for-arnav) | Needed for any library use from the app. MDB-D1 = D3, approved per integration (= GF-D1 = TIG-D1 for their modules; XI-9, XI-21). MDB-D1 opens only the `shows` module: approving D3 for one integration does not approve it for another ([boundaries §9](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3)) | None |
 
 **Vite proxy.** Same-origin `/api` calls need a dev and preview `server.proxy` in `vite.config.ts`: a build-config change for its owner, listed, not decided ([OIB-Q2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#13-open-questions)). The gateway sends no CORS headers unless OIB-Q2 is decided for CORS (XI-12); then it answers only the configured app origins. Either way the guard's `Host`, `Origin` and remote-address rules (§10.7) apply; a proxied request carries the app's `Host`.
 
@@ -217,7 +218,7 @@ Canonical JSON uses the rules of `canonicalJson` ([`src/cli/run.ts:27-36`](../..
 - numbers via `JSON.stringify` (`-0` becomes `0`);
 - non-finite numbers rejected.
 
-`contentHash` = hex SHA-256 of UTF-8 `canonicalJson(composition)` (XI-7), the canonical JSON Tiger and Gemini also use. The gateway cannot import `src/cli` (XI-2), so it uses the one shared pure extraction (owner Arnav) and `node:crypto`. It is never computed in `src/score`, so Gemini's pure-TypeScript SHA-256 ([§6.7](gemini-generated-formations.md#67-canonicalisation-and-scenehash-gd-4)) is not needed; the app's optional R15 uses Web Crypto. Text is stored upper-case (R12), so equal shows hash equally.
+`contentHash` = hex SHA-256 of UTF-8 `canonicalJson(composition)` (XI-7), the canonical JSON Tiger and Gemini also use. The gateway cannot import `src/cli` (XI-2), so it imports the one shared pure module `src/score/canonical.ts` (XI-19, proposed, owner Arnav) and uses `node:crypto`. `src/cli/run.ts` and `src/telemetry` import the same module. The move is byte-for-byte, so `stateHash` and existing artifact hashes do not change. The SHA-256 is never computed in `src/score`, so Gemini's pure-TypeScript SHA-256 ([§6.7](gemini-generated-formations.md#67-canonicalisation-and-scenehash-gd-4)) is not needed; the app's optional R15 uses Web Crypto. Text is stored upper-case (R12), so equal shows hash equally.
 
 Uses of `contentHash` (composition identity only):
 - integrity check on read (R15);
@@ -256,8 +257,10 @@ Both hashes are computed by the service only; client-supplied values are ignored
 ### 8.1 What is stored
 
 ```ts
-interface CompositionV1 { v: 1; movements: { recipe: Recipe; holdTicks: number }[] }   // 1–16 movements
+interface SavedShowComposition { v: 1; movements: { recipe: Recipe; holdTicks: number }[] }   // 1–16 movements
 ```
+
+The stored body type is `SavedShowComposition`, never `CompositionV1`, so it cannot be confused with the X-IN file kind `encore.composition` v1 (`schema`, `name`, `cues`; XI-21). Its `movements` map to `encore.composition` `cues` at the export edge (§14, MCR-20).
 
 William allows a "validated score **or canonical reusable composition**". This spec stores the composition and renames `score` to `composition` (MCR-04): a stored object called `score` that is not a `Score` invites blind injection.
 
@@ -389,7 +392,7 @@ interface ShowSummary {
   loadable: boolean; problem?: 'invalid' | 'unsupported-schema';
 }
 interface SavedShow extends ShowSummary {
-  prompt?: string; composition: CompositionV1; contentHash: string; generator?: Generator; updatedAt: string;
+  prompt?: string; composition: SavedShowComposition; contentHash: string; generator?: Generator; updatedAt: string;
 }
 interface ErrorBody { error: { code: ErrorCode; message: string; details?: { path: string; reason: ReasonCode }[]; requestId?: string } }   // XI-3
 type ReasonCode = 'UNSUPPORTED_RECIPE' | 'INVALID_TEXT' | 'INVALID_COLOUR' | 'INVALID_TIMING' | 'RUNTIME_FIELD'
@@ -410,7 +413,7 @@ type ReasonCode = 'UNSUPPORTED_RECIPE' | 'INVALID_TEXT' | 'INVALID_COLOUR' | 'IN
 ```ts
 // Headers: Content-Type: application/json; Idempotency-Key: <uuid v4>
 interface SaveShowRequest {
-  schemaVersion: 1; title: string; prompt?: string; composition: CompositionV1;
+  schemaVersion: 1; title: string; prompt?: string; composition: SavedShowComposition;
   source: ShowSource; generator?: Generator;
   operationId?: string;   // body fallback; if both are present they must be equal
 }
@@ -449,7 +452,8 @@ interface SaveShowResponse { show: SavedShow; idempotentReplay: boolean }   // 2
 ### 10.4 `GET /api/health`
 
 - The route belongs to the shared gateway skeleton (XI-12). This module contributes only `modules.shows`.
-- Response: `200 { service: 'encore-gateway'; version: string; modules: { shows: { enabled: boolean; db: 'up' | 'down' | 'disabled'; writable: boolean }; gemini: { enabled: boolean }; tiger: { enabled: boolean } } }`.
+- This module defines only `modules.shows: { enabled: boolean; db: 'up' | 'down' | 'disabled'; writable: boolean }`.
+- The envelope (`service`, `version`) is the skeleton's ([boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard), provisional). Every other `modules.*` entry is defined by its own module (for `tiger`, the Tiger analytics RFC §3.1, #142).
 - `db` comes from a cached `ping`, refreshed at most every 10 s. A successful ping is a connection, so it also runs the lazy index confirmation (§11) if that has not resolved.
 - `writable` is `true` only once the unique `operationId` index is confirmed (§11). Until then, or if `listIndexes` shows it missing, `db` stays `'up'` and `writable` is `false`: writes give `503 INDEX_MISSING` and reads proceed. The panel keeps the list and **Load as drafts**, and disables Save with a fixed reason (§12). `writable` is `false` whenever `db` is not `'up'`.
 - It never contains a URI, host, user or error text.
@@ -618,8 +622,8 @@ The runner never calls `world.schedule`, never sets a slot, target or belief, an
 
 - **The core is untouched** and the library client is optional, off by default and feature-detected (§5), so the static build and the NFR-04 demo are unaffected.
 - **A cloud-only show is not available offline** (William §7).
-- **The offline path is an optional export/import** of the same composition as an X-IN `encore.composition` file (MDB-WP-09), aligned with Gemini's offline scene library (GF-WP-09). It is outside William's MVP (MCR-09).
-- **File kinds (XI-15).** Only `encore.composition` v1 (existing X-IN: text, sphere and helix cues, no holds) and the proposed v2 (optional per-cue `holdTicks` and, after GF-CC-01, generated recipes; #110, needs Arnav). `saved_shows.composition` maps movements ↔ cues. Every saved movement carries `holdTicks`, so a faithful export needs v2 (MCR-20). No other file kind name is used (`CompositionFile`, `encore.show`).
+- **The offline path is an optional export/import** of the same composition as an X-IN `encore.composition` file (MDB-WP-09). Exported files that are committed go in `assets/compositions/`, the one committed composition library (XI-18, [boundaries §7](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#7-failure-handling)), and are re-validated by `tests/cli/compositions.test.ts`. It is outside William's MVP (MCR-09).
+- **File kinds (XI-15).** Only `encore.composition` v1 (existing X-IN: text, sphere and helix cues, no holds) and the proposed v2 (optional per-cue `holdTicks` and, after GF-CC-01, generated recipes; [boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes), #110, needs Arnav). `saved_shows.composition` maps movements ↔ cues. Every saved movement carries `holdTicks`, so a faithful export needs v2 (MCR-20). R9 accepts `holdTicks` as a safe integer in [0, 6000], and §3.3 sets v2's bounds only when v2 is approved. Request to the #110 owner: v2's per-cue `holdTicks` must accept at least [0, 6000], or the export/import round trip loses holds (MCR-20, MDB-WP-09, MDB-T41). No other file kind name is used (`CompositionFile`, `encore.show`).
 
 | Scenario | Trigger | Behaviour | Message | Keeps working |
 |---|---|---|---|---|
@@ -627,7 +631,7 @@ The runner never calls `world.schedule`, never sets a slot, target or belief, an
 | B. Corrupt saved document | Read fails R2–R16 | `500 INTERNAL` (`STORED_SHOW_INVALID`); not loadable; nothing injected | State 8 | Other shows, simulation |
 | C. Save times out | 8 s client abort | Retry with the same key → 201 or a 200 replay; never a duplicate | "Checking whether the save completed…" | Everything |
 | D. Unauthorised write | Missing, `null` or foreign `Origin`; foreign `Host`; non-loopback peer; no session when deployed | 403/401 before any database call; no credential detail; no Retry | State 6b: "Saving is not allowed from this page." | Browsing, simulation |
-| E. No internet at all | No route out | Gemini, the library and Tiger uploads fail fast | State 7 | Simulation, Composer, a scheduled show, exported files |
+| E. No internet at all | No route out | Gemini, the library and Tiger analytics reads fail fast | State 7 | Simulation, Composer, a scheduled show, exported files |
 | F. Outdated or newer schema | Unsupported version | Reported, or migrated explicitly offline; never reinterpreted | State 8 | Supported shows |
 | G1. Default build (added) | Flag off at build time | Nothing rendered; no request | None | Everything; NFR-04 demo |
 | G2. Gateway absent or module disabled (added) | Health fails, or reports `shows.enabled: false` | State 7 (absent) or state 1 (disabled); no background polling; **Check again** re-probes; a gateway started later is picked up without a reload | State 7 / 1 | Everything |
@@ -646,16 +650,16 @@ The runner never calls `world.schedule`, never sets a slot, target or belief, an
   - **Hashes.** `sceneHash` names one generated recipe's canonical scene; `contentHash` names the whole saved composition (XI-6). The stored scene is already in Gemini's canonical, quantised form ([§6.7](gemini-generated-formations.md#67-canonicalisation-and-scenehash-gd-4)), and `contentHash` does not quantise again. `generator.sceneHashes` repeats the hashes for listing only. The app recomputes every `sceneHash` and never trusts a stored one.
   - **Strict load (G2-1).** On load the app recompiles through the strict path (R14). A rejected scene throws `GeneratedSceneRejected`, so the show is state 8 and nothing is injected. It never loads as the total path's fallback sphere.
   - **Digest.** The app compares `slotsDigest`; a mismatch (a changed compiler) is reported, never loaded silently.
-- **Gemini's earlier field list** (William's Gemini handoff §11; Gemini §13.1) is superseded by this model (XI-6, MCR-12): `formationId` → `_id`, `modelId` → `generator.model`, scene fields → the recipe; `droneCount` and `placementParams` are not stored (recipes are `n0`-independent); `generationMs`/`compileMs` are Tiger telemetry.
+- **Gemini's earlier field list** (William's Gemini handoff §11; Gemini §13.1) is superseded by this model (XI-6, MCR-12): `formationId` → `_id`, `modelId` → `generator.model`, scene fields → the recipe; `droneCount` and `placementParams` are not stored (recipes are `n0`-independent); `generationMs` (now Gemini's `modelLatencyMs`) and `compileMs` are wall-clock values. They are kept in the gateway log and GF-WP-13's dated results, are not stored in `saved_shows`, and are not Tiger evidence (XI-21, Tiger TCR-33).
 - **Gemini CR-25** ("never at run time") is corrected by XI-5: after MDB-D1 the app may call the library while the simulation runs, never in the tick loop or a decision path; only an operator `INJECT_SCORE` reaches a drone (I7, MCR-10).
-- **GF-WP-15.** Its MongoDB half is realised by MDB-WP-01…09, from William's own specification. Its Tiger Data half stays reserved for William (MCR-08).
+- **GF-WP-15.** Its MongoDB half is realised by MDB-WP-01…09, from William's own specification. Its Tiger Data half is realised by #142 (TIG-01…TIG-11). Nobody is assigned (XI-10, XI-24); William keeps sponsor-specific decisions (MCR-08).
 
 ---
 
 ## 16. TigerData separation (MD-13)
 
 - **MongoDB stores compositions only.** There is no telemetry collection in MongoDB.
-- **TigerData** (William's plan, #142, provisional) stores execution telemetry read from X-OUT exports.
+- **TigerData** (William's plan, #142, provisional) stores experiment evidence imported from committed CLI `RunRecord` files by a CLI importer (X-OUT records later, after P2-WP-30a; XI-22). It has no upload route.
 - **References run one way.** A telemetry record may reference a show's `_id` or `contentHash`, never the reverse. Identity links (XI-6): `sceneHash` (Gemini recipe), `contentHash` (saved composition), `compositionId` (Tiger manifest).
 - **No shared collection.** The Tiger plan's optional experiment catalogue, if built, is a separate collection, never `saved_shows` (Tiger decision TD-11). Nothing here changes for it.
 
@@ -666,7 +670,7 @@ The runner never calls `world.schedule`, never sets a slot, target or belief, an
 - **No I/O in the core:** none in ticks, brains, worlds or observers; library work is asynchronous app code outside the step loop. FR-01, FR-02 and T01 are unchanged; a grep for the driver package under `src/` is added.
 - **One entry point.** Injection happens only through `INJECT_SCORE` into one drone (I7, FR-19).
 - **Replay.** The event log holds every step's exact tick and full score, so a headless replay of the log reproduces `stateHash` (the T13 pattern). The same composition with the same seed, events and injection ticks gives the same `stateHash` (NFR-03, T04), testable without Atlas from a fixture (MDB-T32).
-- **A saved composition is not a deterministic replay** (William §8.4). Seed, events, parameters, `n0` and git revision are not stored here. A reproducible run is a `RunRecord` plus its scenario (X-OUT, Tiger Data).
+- **A saved composition is not a deterministic replay** (William §8.4). Seed, events, parameters, `n0` and git revision are not stored here. A reproducible run is a `RunRecord` plus its scenario (Tiger Data).
 
 ---
 
@@ -707,7 +711,7 @@ Added from the repository:
 **Deferred, not MVP** (one line each: what judges would see; dependency; owner):
 - **Atlas Search over titles** (and prompts only where stored): search in the panel. Needs an Atlas Search index (free-tier limits UNVERIFIED); prompts are off by default (MDB-D2), so it mostly searches titles. Owner TBD by Arnav.
 - **Show lineage (`derivedFrom`):** "derived from" links between compositions. A schema bump (§7.4). Owner TBD by Arnav.
-- **Run-outcome summaries:** a **Tiger-side** view keyed by MongoDB `contentHash`, stored in Tiger, never in `saved_shows` (§16, XI-6). Owner: the Tiger plan (#142).
+- **Run-outcome summaries:** a **Tiger-side** view keyed by MongoDB `contentHash`, stored in Tiger, never in `saved_shows` (§16, XI-6). This is a future request to #142: no Tiger document defines such a view yet. Owner TBD by Arnav (XI-10).
 - No vector search (William: out of scope).
 
 ---
@@ -804,12 +808,12 @@ Columns as in [`requirements.md`](../specification/requirements.md). These are p
 |---|---|---|---|---|---|
 | MCR-01 | Gemini and TigerData "completed" | No such code anywhere at 4c41f75 | Unverified premise | Treat as absent; re-inspect before coding | — |
 | MCR-02 | Reuse the existing backend | None exists | Nothing to reuse | One shared optional gateway (MD-1) | Arnav (MDB-D4) |
-| MCR-03 | "No internet" rule "updated or explicitly scoped" | NFR-04 MUST, AGENTS ground rule, contract §12 "Never"; AGENTS.md:15 miscites NFR-10 (Gemini CR-19) | Live library forbidden today | MDB-D1 = D3 = GF-D1; William's wording matches D3 | Team |
+| MCR-03 | "No internet" rule "updated or explicitly scoped" | NFR-04 MUST, AGENTS ground rule, contract §12 "Never"; AGENTS.md:15 miscites NFR-10 (Gemini CR-19) | Live library forbidden today | MDB-D1 = D3, approved per integration (= GF-D1 = TIG-D1 for their modules; XI-9, XI-21). MDB-D1 opens only the `shows` module. William's wording matches D3 | Team |
 | MCR-04 | Stored field `score` | `Score` holds runtime fields | Invites blind injection | `composition` (MD-2) | Arnav |
 | MCR-05 | Load a multi-movement score | `composeNext` takes one recipe | No multi-movement inject | Chained steps (MD-3); MDB-CC-01 deferred | Arnav |
 | MCR-06 | Example `version {0,0}`, ticks 0/200/400, `transitionTicks` 60/80 | Origin is a drone id (preloaded: `OPERATOR` −1); ticks are runtime | Wrong ordering, skipped show, wrong pacing | Corrected example (§7.2, §8.4) | — |
 | MCR-07 | `server/` | Gemini spec: `integrations/gemini-gateway/` | Two locations | `integrations/gateway/` (XI-1); the Gemini spec uses it | Arnav (MDB-D4) |
-| MCR-08 | Persistence per William's spec | GF-WP-15 "reserved for William; interface only" | Ownership overlap | MDB-WP-* realise the MongoDB half (XI-6); Tiger half William's; nobody assigned (XI-10) | Arnav (MDB-D5) |
+| MCR-08 | Persistence per William's spec | GF-WP-15 "reserved for William; interface only" | Ownership overlap | MDB-WP-* realise the MongoDB half (XI-6). Its Tiger Data half is realised by #142 (TIG-01…TIG-11). Nobody is assigned (XI-10, XI-24); William keeps sponsor-specific decisions | Arnav (MDB-D5) |
 | MCR-09 | Offline cache "not included in MVP" | NFR-04 demo must run offline | Cloud-only shows not demoable offline | Optional MDB-WP-09; demo never depends on Atlas | Arnav |
 | MCR-10 | Browse and retrieve in the app | Gemini CR-25: "app never queries MongoDB at run time" | Two integration docs disagree | XI-5: calls while running, never in ticks; gate on MDB-D1; #117 corrects CR-25 | Team |
 | MCR-11 | App ↔ backend over HTTP | X-RUN files-only; X-PERSIST covers X-OUT data | Outside both boundaries | XI-4: X-RUN/live and X-PERSIST (provisional, #110), approved with D3 | Team |
@@ -821,7 +825,7 @@ Columns as in [`requirements.md`](../specification/requirements.md). These are p
 | MCR-17 | Browser `fetch('/api/shows')` from `src/app/services/savedShows.ts` | P2-T35 scans `src/` for network calls; X-RUN/live confines app network code to `src/app/live/` behind a compile-time flag (OIB-Q1) | One call site outside the confined folder; a URL flag would ship the client in the default bundle | Client in `src/app/live/` (XI-14); build-time `VITE_SHOW_LIBRARY` only; after D3, P2-T35 allow-lists that folder | Arnav |
 | MCR-18 | "Loaded: existing operator controls can execute it" | Injection is execution | Ambiguous step | Load = schedule steps; state 10 | — |
 | MCR-19 | "Existing score validation" | `validateDraft` is UI-typed, imports three.js, no palette range check | No headless validator | Recipe-level pure validator in `src/app/compose/validate.ts`, imported by the gateway too (XI-2, XI-13, §9) | Arnav |
-| MCR-20 | Stored `movements` with `holdTicks` | X-IN v1 is `cues: { name; recipe }[]` and rejects the key `movements` ([X-IN §3.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#32-file-format-sketch-encorecomposition-v1)) | Two composition formats for one boundary | Recommended by XI-15: `encore.composition` v2 (#110, needs Arnav) adds optional per-cue `holdTicks`, and `saved_shows.composition` maps `movements` ↔ `cues` at the edge (`name` from `<title> i/k`); a show with holds exports only as v2. Still undecided (MQ-2) | Arnav + #110 owner |
+| MCR-20 | Stored `movements` with `holdTicks` | X-IN v1 is `cues: { name; recipe }[]` and rejects the key `movements` ([X-IN §3.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#32-file-format-sketch-encorecomposition-v1)) | Two composition formats for one boundary | Recommended by XI-15: `encore.composition` v2 (#110, needs Arnav) adds optional per-cue `holdTicks`, and `saved_shows.composition` maps `movements` ↔ `cues` at the edge (`name` from `<title> i/k`); a show with holds exports only as v2 ([boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes)). v2's per-cue `holdTicks` must accept at least R9's [0, 6000] for a lossless round trip (a request to the #110 owner). Still undecided (MQ-2) | Arnav + #110 owner |
 | MCR-21 | One Load schedules the whole show | X-IN "never schedules injections by itself. Every cue is an operator action" (§3) | The cue runner self-schedules *k* injections after one confirmation | MVP Load as drafts (conforms); the runner only if this boundary rule is amended (MDB-D6) | Arnav + #110 owner |
 | MCR-22 | Criterion step 1 "Generate a show" | No Generate step until GF-CC-01 (post-submission, GF-D2) | The sponsor criterion cannot be met as written | MDB-D7 reads it as "compose or generate" until then, stated in panel and pitch | Arnav; William retains the sponsor call (XI-10) |
 
@@ -852,7 +856,7 @@ Columns as in [`requirements.md`](../specification/requirements.md). These are p
 
 | ID | Decision | Recommendation | Confidence | Blocks |
 |---|---|---|---|---|
-| MDB-D1 | = Phase 2 [D3](../planning/PHASE2_ROADMAP.md#decisions-for-arnav) = GF-D1 = TIG-D1 (XI-9): one amendment scoped to the gateway (X-RUN/live, X-PERSIST; provisional, #110); core and default build stay offline, NFR-04 test unchanged | No change during the hackathon; afterwards Arnav consults William and Haris | High | MDB-FR-01–03 in the app |
+| MDB-D1 | = Phase 2 [D3](../planning/PHASE2_ROADMAP.md#decisions-for-arnav), approved per integration (= GF-D1 = TIG-D1 for their modules; XI-9, XI-21). MDB-D1 opens only the `shows` module. One amendment scoped to the gateway (X-RUN/live, X-PERSIST; provisional, #110); core and default build stay offline, NFR-04 test unchanged | No change during the hackathon; afterwards Arnav consults William and Haris | High | MDB-FR-01–03 in the app |
 | MDB-D2 | Library visibility and prompt storage | Private to the local deployment; prompt stored only on an explicit tick | Medium | MDB-WP-04, -05 |
 | MDB-D3 | Write protection if deployed beyond localhost | Server-held credential via HttpOnly session, TLS, stricter limits; out of MVP | Medium | Any deployment (MDB-WP-07) |
 | MDB-D4 | Shared gateway at `integrations/gateway/` | Ruled by XI-1; one skeleton, guard and dependency policy, built once by the first approved module work package (XI-12); #117 aligned | High | MDB-WP-03 |
@@ -925,19 +929,19 @@ Adversarial review, 2026-11-15, six lenses, against William's source, MONGO_DECI
 
 **Hackathon.** Fixed: a dated "what can be demonstrated, and when" box (§1, §20): nothing at submission, so do not claim the Atlas track unless MDB-D8 approves a slice; Load as drafts as the MVP load (MDB-D6); R = 60 with the status-cadence reasoning (§8.2); honesty notes on the deferred uses; the Gemini caveat under the criterion and MCR-22 for MDB-D7. Open: MDB-D8 itself (MQ-4).
 
-**Scope.** The core-isolation claims hold. Fixed: R (60, not 40: one constant shared with `LEAD_TICKS`, and the largest lead that keeps at most one future step scheduled). Open, because the fixes sit outside this file or need an owner: the mount line (MQ-1), the `canonicalJson` extraction touching `src/cli` and possibly `src/score`'s public API (MQ-7), and the contract §12 "Never" row that D3 amends (MQ-9). Resolved since: the WP-04/WP-07 overlap (XI-12: the guard is the skeleton's, and WP-07 tests it) and WP-02's folder ordering (XI-13). Gateway-skeleton ownership (MQ-8) is answered by XI-12.
+**Scope.** The core-isolation claims hold. Fixed: R (60, not 40: one constant shared with `LEAD_TICKS`, and the largest lead that keeps at most one future step scheduled). Open, because the fixes sit outside this file or need an owner: the mount line (MQ-1), whether `src/score/canonical.ts` is re-exported from `src/score/index.ts` (MQ-7; its location is fixed by XI-19), and the contract §12 "Never" row that D3 amends (MQ-9). Resolved since: the WP-04/WP-07 overlap (XI-12: the guard is the skeleton's, and WP-07 tests it) and WP-02's folder ordering (XI-13). Gateway-skeleton ownership (MQ-8) is answered by XI-12.
 
 ### Unresolved questions
 
 | ID | Question | Why open | Who decides | Link |
 |---|---|---|---|---|
 | MQ-1 | May one flag-guarded line in `main.ts` mount the panel with `Drafts`, `params` and the controller? | Current `main` never calls `createPanels`; MDB-WP-05 forbids `main.ts` | Arnav with the shell owner | MDB-D5, MDB-D6 |
-| MQ-2 | X-IN v2 with per-cue `holdTicks`, or a `movements` ↔ `cues` mapping at the edge? | MCR-20; two formats for one boundary. XI-15 recommends both: v2 with optional per-cue `holdTicks`, plus the mapping at the edge; still open until Arnav approves v2 | Arnav + #110 owner | MDB-D6 |
+| MQ-2 | X-IN v2 with per-cue `holdTicks`, or a `movements` ↔ `cues` mapping at the edge? | MCR-20; two formats for one boundary. XI-15 recommends both: v2 with optional per-cue `holdTicks`, plus the mapping at the edge; still open until Arnav approves v2 ([boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes)). v2's per-cue `holdTicks` must accept at least R9's [0, 6000] for a lossless round trip (a request to the #110 owner) | Arnav + #110 owner | MDB-D6 |
 | MQ-3 | May any runner self-schedule injections after one confirmation? | MCR-21 contradicts X-IN's "every cue is an operator action" | Arnav + #110 owner | MDB-D6 |
 | MQ-4 | Forgo the MLH Atlas track, or approve the timeboxed slice? | Cost to the NFR-04 demo and an MDB-D1 exception | Arnav; William keeps the sponsor call (XI-10) | MDB-D8, MDB-D1 |
 | MQ-5 | Vite `/api` proxy or CORS (OIB-Q2), and `strictPort: true`? | Both are `vite.config.ts` changes | Arnav with the build-config owner | MDB-D1, MDB-D3 |
 | MQ-6 | Where does the text rule (R12) live so the gateway can import it? | **Closed by XI-13:** moved to `src/app/compose/validate.ts`, one re-export line left in `commands.ts` (§9). This also closes the work-package file's §6 item 3 | Arnav (with P2-WP-30) | MDB-D4 |
-| MQ-7 | Where does `canonicalJson` move, and does it change `src/score`'s public API? | Extraction edits `src/cli/run.ts`; `src/score` is a contract-listed API (XI-7) | Arnav | MDB-D4 |
+| MQ-7 | Where does `canonicalJson` move, and does it change `src/score`'s public API? | **Location closed by XI-19:** the pure module `src/score/canonical.ts` (proposed, owner Arnav), a byte-for-byte move that `src/cli/run.ts`, the gateway and `src/telemetry` import (§7.3). Still open: whether it is re-exported from `src/score/index.ts`, since `src/score` is a contract-listed API (XI-7) | Arnav | MDB-D4 |
 | MQ-8 | Who builds the shared gateway skeleton (server, envelope, guards, health)? | **Answered by XI-12:** whichever module work package is approved first builds it once (MDB-WP-03 or GF-WP-12); the others depend on it (§6) | Arnav | MDB-D4, MDB-D5 |
 | MQ-9 | Is D3's amendment of contract §12's "Never" row a contract change for this feature? | §25 says no contract change; the network decision edits a contract file | Arnav | MDB-D1 |
 | MQ-10 | How does a runner choose and keep its target drone, given `select` accepts a dead drone and `main` refuses a selection made in the static pane? | Proposed answer in §8.2 step 7: never send `select`, check the selected drone before each step, pause otherwise, resume into the drone selected then. Needs the UI owner's agreement | Arnav with the UI owner | MDB-D6 |
