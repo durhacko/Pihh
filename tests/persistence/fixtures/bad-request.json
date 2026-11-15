@@ -1,0 +1,629 @@
+{
+  "id": "FX-BAD/request",
+  "description": "R4 title, R5 prompt, R6 source and generator, R16 shape (MDB-T07).",
+  "cases": [
+    {
+      "name": "request not an object",
+      "target": "request",
+      "input": "show",
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "title missing",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "title",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "title blank after trim",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "   ",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "title",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "title 81 code points",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "title",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "title with a control character",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "A\u0007B",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "title",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "title with a format character (U+200B)",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "A​B",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "title",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "title not a string",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": 7,
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "title",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "title with a lone surrogate (not UTF-8 encodable)",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "A\ud800",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "title",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "prompt with a lone surrogate",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "prompt": "\udc00x"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "prompt",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "prompt 2001 code points",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "prompt": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "prompt",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "prompt with a carriage return",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "prompt": "a\rb"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "prompt",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "prompt null",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "prompt": null
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "prompt",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "source unknown",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "atlas"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "source",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "source missing",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "source",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "gemini without generator",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "gemini"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "generator",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "manual with generator",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "generator": {
+          "model": "m",
+          "integrationVersion": "1"
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "generator",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "generator model too long",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "gemini",
+        "generator": {
+          "model": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+          "integrationVersion": "1"
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "generator.model",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "generator bad scene hash",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "gemini",
+        "generator": {
+          "model": "m",
+          "integrationVersion": "1",
+          "sceneHashes": [
+            "ABC"
+          ]
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "generator.sceneHashes",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "generator 17 scene hashes",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "gemini",
+        "generator": {
+          "model": "m",
+          "integrationVersion": "1",
+          "sceneHashes": [
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          ]
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "generator.sceneHashes",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "composition missing",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "composition",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a composition error is reported under composition.",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "cube"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "composition.movements[0].recipe.kind",
+            "reason": "UNSUPPORTED_RECIPE"
+          }
+        ]
+      }
+    }
+  ]
+}

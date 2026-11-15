@@ -6,6 +6,7 @@
 // AND the same git, paramsHash and events. Anything else is shown as MISMATCH and never counted.
 import type { RunRecord } from '../contracts';
 import { canonicalJson } from './run';
+import { generatedProvenance } from './generated';
 
 export const WIN_MARGIN = 0.02;
 export type Verdict = 'WIN' | 'TIE' | 'LOSS';
@@ -259,5 +260,21 @@ export function buildReport(records: readonly RunRecord[]): string {
   if (gits.length > 1 || hashes.length > 1) out.push('', '**WARNING: records come from more than one commit or parameter set; they are not one frozen revision (§5).**');
   out.push('', 'Medians and IQRs skip null values, counted separately: `n/a` = not applicable (e.g. `npwcDeficitSec` with no event), `—` = key absent (e.g. `tRec` without a KILL). Exception: a censored `tRec` (not recovered) ranks above every recovered seed, and a quantile that lands on one prints `censored`. Deltas and win/tie/loss use fair pairs only (same git, paramsHash and events); other pairs are listed as MISMATCH. `npwc` is priority-weighted by our own slot order: read it beside `coverage`, `sfMean` and `sfMax`.', '');
   for (const g of groupRecords(records)) out.push(...renderGroup(g));
+  out.push(...renderGeneratedProvenance(records));
   return out.join('\n');
+}
+
+/**
+ * GF-WP-11 step 4: one row per generated injection, read from each record's own INJECT_SCORE events. Empty (and the
+ * report byte-identical) when no run injected a generated scene. Adoption stays in the observer metrics above.
+ */
+function renderGeneratedProvenance(records: readonly RunRecord[]): string[] {
+  const rows = records.flatMap((r) => generatedProvenance(r).map((p) => ({ r, p })))
+    .sort((a, b) => a.r.scenario.localeCompare(b.r.scenario) || b.r.n0 - a.r.n0 || a.r.arm.localeCompare(b.r.arm) || a.r.seed - b.r.seed || a.p.tick - b.p.tick);
+  if (rows.length === 0) return [];
+  const cell = (s: string) => s.replace(/[|\n\r]/g, ' ');   // scene titles are data: never break the table
+  return ['## Generated scenes (provenance)', '',
+    'Each generated injection, from the run’s own `INJECT_SCORE` events. `replayFromProvenance` re-derives the formation from the stored scene and this row alone (no model call).', '',
+    '| Scenario | n0 | Arm | Seed | Tick | Drone | Scene | sceneHash | Compiler | slotsDigest |', '|---|---:|---|---:|---:|---:|---|---|---:|---|',
+    ...rows.map(({ r, p }) => `| ${r.scenario} | ${r.n0} | ${r.arm} | ${r.seed} | ${p.tick} | ${p.droneId} | ${cell(p.title)} | \`${p.sceneHash.slice(0, 12)}\` | ${p.compilerVersion} | \`${p.slotsDigest.slice(0, 12)}\` |`), ''];
 }

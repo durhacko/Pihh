@@ -1,18 +1,45 @@
 // src/score/expand.ts
 // Recipe -> Formation (contract section 6). Pure and deterministic; results are memoised.
-import type { Formation, Params, Recipe, RGB, Slot, Vec3 } from '../contracts';
+//
+// A `generated` recipe (GF-CC-01) is compiled by src/score/generated. That package imports helpers from this file
+// (freeze, boundsOf, CENTRE, closestPair, SPACING_MARGIN), so the two form a module cycle. It is safe: neither uses
+// the other at load time, only inside functions.
+import type { Formation, GeneratedRecipe, Params, Recipe, RGB, Slot, Vec3 } from '../contracts';
 import { dist2, farthestPointOrder } from './fps';
+import { compileGeneratedScene, COMPILER_VERSION } from './generated/compile';
 import { defaultPalette, denseCloud, selectionCloud } from './shapes';
+
+/** text, sphere and helix: the three MUST kinds, expanded exactly as before GF-CC-01. */
+export type LegacyRecipe = Exclude<Recipe, GeneratedRecipe>;
 
 const CANDIDATES_PER_SLOT = 4;
 const DENSE_POINTS = 2000;
-const CENTRE: Vec3 = [0, 30, 0];
-const SPACING_MARGIN = 1.001;      // so rounding cannot leave the closest pair below slotSpacingMin
+export const CENTRE: Vec3 = [0, 30, 0];
+export const SPACING_MARGIN = 1.001;      // so rounding cannot leave the closest pair below slotSpacingMin
 const CACHE_MAX = 64;
 
-// Memo cache of pure results: the only module-level mutable state in this package.
-// Oldest entries are dropped beyond CACHE_MAX, which only costs a recomputation.
+// Memo caches of pure results (with the fallback and frozen-scene registries below and in compose.ts, the package's
+// only module-level mutable state, all memos of pure results). Oldest entries are dropped beyond CACHE_MAX, which
+// only costs a recomputation.
 const cache = new Map<string, Formation>();
+// Generated recipes: the compile outcome (formation, or the typed rejection), keyed like `cache`.
+const compiled = new Map<string, Compiled>();
+// The fallback formation per (n0, slotSpacingMin): its own frozen object, so identity tells it apart (spec §7.11).
+const fallbacks = new Map<string, Formation>();
+const fallbackSet = new WeakSet<Formation>();
+
+type Compiled =
+  | { ok: true; formation: Formation; sceneHash: string; slotsDigest: string }
+  | { ok: false; code: string; detail: string };
+
+function remember<V>(map: Map<string, V>, key: string, value: V): V {
+  if (map.size >= CACHE_MAX) {
+    const oldest = map.keys().next();
+    if (!oldest.done) map.delete(oldest.value);
+  }
+  map.set(key, value);
+  return value;
+}
 
 function distinct(points: Vec3[]): Vec3[] {
   const seen = new Set<string>();
@@ -24,7 +51,7 @@ function distinct(points: Vec3[]): Vec3[] {
   return out;
 }
 
-function boundsOf(groups: Vec3[][]): { min: Vec3; max: Vec3 } {
+export function boundsOf(groups: Vec3[][]): { min: Vec3; max: Vec3 } {
   const min: Vec3 = [Infinity, Infinity, Infinity];
   const max: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const points of groups) {
@@ -39,7 +66,7 @@ function boundsOf(groups: Vec3[][]): { min: Vec3; max: Vec3 } {
   return { min, max };
 }
 
-function closestPair(points: Vec3[]): number {
+export function closestPair(points: Vec3[]): number {
   let best = Infinity;
   for (let i = 0; i < points.length; i++) {
     for (let j = i + 1; j < points.length; j++) {
@@ -52,11 +79,15 @@ function closestPair(points: Vec3[]): number {
 
 const clamp01 = (v: number): number => (v > 0 ? (v < 1 ? v : 1) : 0);
 
-function build(recipe: Recipe, n0: number, slotSpacingMin: number): Formation {
+function checkArgs(n0: number, slotSpacingMin: number): void {
   if (!Number.isInteger(n0) || n0 < 1) throw new RangeError(`expandRecipe: n0 must be a positive integer, got ${n0}`);
   if (!(slotSpacingMin > 0) || !Number.isFinite(slotSpacingMin)) {
     throw new RangeError(`expandRecipe: slotSpacingMin must be positive, got ${slotSpacingMin}`);
   }
+}
+
+function build(recipe: LegacyRecipe, n0: number, slotSpacingMin: number): Formation {
+  checkArgs(n0, slotSpacingMin);
 
   // 1. Candidate cloud: about 4 * n0 distinct points. Ask for more if the shape gives fewer than n0.
   let wanted = CANDIDATES_PER_SLOT * n0;
@@ -105,7 +136,7 @@ function build(recipe: Recipe, n0: number, slotSpacingMin: number): Formation {
 
 // The cached formation is shared by every caller, so it is frozen: a caller that tries to edit it
 // gets a TypeError instead of silently corrupting what every drone and the observer see.
-function freeze(f: Formation): Formation {
+export function freeze(f: Formation): Formation {
   for (const s of f.slots) { Object.freeze(s.pos); Object.freeze(s.colour); Object.freeze(s); }
   for (const p of f.dense) Object.freeze(p);
   Object.freeze(f.slots);
@@ -116,20 +147,119 @@ function freeze(f: Formation): Formation {
   return Object.freeze(f);
 }
 
+/** A generated scene the compiler rejected, or a recipe whose labels do not match it (spec §6.5, §7.11). */
+export class GeneratedSceneRejected extends Error {
+  readonly code: string;
+  constructor(code: string, detail: string) {
+    super(`generated scene rejected (${code}): ${detail}`);
+    this.name = 'GeneratedSceneRejected';
+    this.code = code;
+  }
+}
+
+/** The compile of a generated recipe's scene at (n0, slotSpacingMin), memoised. Never throws. */
+function compileRecipe(recipe: GeneratedRecipe, n0: number, slotSpacingMin: number, key: string): Compiled {
+  const hit = compiled.get(key);
+  if (hit !== undefined) return hit;
+  const result = compileGeneratedScene(recipe.scene, { n0, slotSpacingMin }, n0);
+  return remember(compiled, key, result.ok
+    ? { ok: true, formation: result.formation as Formation, sceneHash: result.sceneHash, slotsDigest: result.slotsDigest }
+    : { ok: false, code: result.code, detail: result.detail });
+}
+
+/**
+ * The deterministic fallback for a rejected generated recipe (spec §7.11): the `sphere` formation for this
+ * (n0, slotSpacingMin), held as its own frozen object so `isFallbackFormation` can tell it from a real sphere.
+ */
+function fallbackFor(n0: number, slotSpacingMin: number): Formation {
+  const key = `${n0}|${slotSpacingMin}`;
+  const hit = fallbacks.get(key);
+  if (hit !== undefined) return hit;
+  const formation = freeze(build({ kind: 'sphere' }, n0, slotSpacingMin));
+  fallbackSet.add(formation);
+  return remember(fallbacks, key, formation);
+}
+
+/** True only for the fallback formation of a rejected generated recipe: a pure identity check, no counter. */
+export function isFallbackFormation(formation: Formation): boolean {
+  return fallbackSet.has(formation);
+}
+
+const keyOf = (recipe: Recipe, n0: number, slotSpacingMin: number): string => `${JSON.stringify(recipe)}|${n0}|${slotSpacingMin}`;
+
 /**
  * Expand a recipe into exactly `n0` slots in priority order, a dense cloud of the same shape, and bounds.
  * `bounds` covers the slots and the dense cloud. The result depends only on the recipe, `n0` and
  * `params.slotSpacingMin`, and is memoised on those. It is frozen: copy it before changing anything.
+ *
+ * Total for a `generated` recipe (spec §7.11): a scene the compiler rejects gives the frozen fallback sphere
+ * (`isFallbackFormation` is true), never a throw, because the world, the observer and preloaded scores reach this
+ * without the adoption check. Operator-side code uses `expandRecipeStrict`, which throws instead.
  */
 export function expandRecipe(recipe: Recipe, n0: number, params: Params): Formation {
-  const key = `${JSON.stringify(recipe)}|${n0}|${params.slotSpacingMin}`;
+  const spacing = params.slotSpacingMin;
+  const key = keyOf(recipe, n0, spacing);
+  if (recipe.kind === 'generated') {
+    // Every recipe the strict path rejects (wrong compiler, rejected compile, wrong sceneHash or slotsDigest label)
+    // flies the fallback here, never its compile (WP-07 acceptance, §6.4, §7.11).
+    const checked = checkGenerated(recipe, n0, spacing, key);
+    return checked.ok ? checked.formation : fallbackFor(n0, spacing);
+  }
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
-  const formation = freeze(build(recipe, n0, params.slotSpacingMin));
-  if (cache.size >= CACHE_MAX) {
-    const oldest = cache.keys().next();
-    if (!oldest.done) cache.delete(oldest.value);
+  return remember(cache, key, freeze(build(recipe, n0, spacing)));
+}
+
+/**
+ * The operator-side expansion (spec §7.11): the same as `expandRecipe` for text, sphere and helix; for a generated
+ * recipe it throws `GeneratedSceneRejected` instead of returning the fallback, when the compiler rejects the scene
+ * (its code), when `compilerVersion` is not this compiler's (`unsupported-compiler`), when the `sceneHash` label is
+ * not the hash of the scene (`hash-mismatch`), or when the `slotsDigest` label is missing or malformed, or was made
+ * for this n0 and slotSpacingMin and does not match (`digest-mismatch`). `composeNext` and `makeScore` use it (and operator-side
+ * loaders must, GF-WP-09), so the operator never schedules the fallback as if it were the scene.
+ */
+export function expandRecipeStrict(recipe: Recipe, n0: number, params: Params): Formation {
+  if (recipe.kind !== 'generated') return expandRecipe(recipe, n0, params);
+  const spacing = params.slotSpacingMin;
+  const checked = checkGenerated(recipe, n0, spacing, keyOf(recipe, n0, spacing));
+  if (!checked.ok) throw new GeneratedSceneRejected(checked.code, checked.detail);
+  return checked.formation;
+}
+
+/**
+ * The one rule both paths share (spec §6.4, §6.5 recipe checks, §7.11): a generated recipe is usable only if it is
+ * for this compiler, its scene compiles, its `sceneHash` label is the scene's hash, and its `slotsDigest` label, when
+ * made for this n0 and slotSpacingMin, matches the compile. A digest made for another roster is not compared.
+ */
+function checkGenerated(recipe: GeneratedRecipe, n0: number, spacing: number, key: string):
+  | { ok: true; formation: Formation } | { ok: false; code: string; detail: string } {
+  if (recipe.compilerVersion !== COMPILER_VERSION) {
+    return { ok: false, code: 'unsupported-compiler', detail: `compilerVersion ${String(recipe.compilerVersion)} is not ${COMPILER_VERSION}` };
   }
-  cache.set(key, formation);
-  return formation;
+  const outcome = compileRecipe(recipe, n0, spacing, key);
+  if (!outcome.ok) return outcome;
+  if (outcome.sceneHash !== recipe.sceneHash) return { ok: false, code: 'hash-mismatch', detail: 'the sceneHash label is not the hash of the scene' };
+  const label: unknown = recipe.slotsDigest;
+  if (!wellFormedDigest(label)) {
+    // The same rule as acceptsRecipe: the type requires a digest, so a recipe without one is not usable anywhere.
+    return { ok: false, code: 'digest-mismatch', detail: 'the slotsDigest label is missing or malformed' };
+  }
+  if (label.n0 === n0 && label.slotSpacingMin === spacing && label.digest !== outcome.slotsDigest) {
+    return { ok: false, code: 'digest-mismatch', detail: `the slotsDigest label does not match this compile at n0 ${n0}` };
+  }
+  return { ok: true, formation: outcome.formation };
+}
+
+/** Package-internal: a slotsDigest label of the right shape (integer n0, finite slotSpacingMin, string digest). */
+export function wellFormedDigest(d: unknown): d is GeneratedRecipe['slotsDigest'] {
+  if (typeof d !== 'object' || d === null) return false;
+  const { n0, slotSpacingMin, digest } = d as Record<string, unknown>;
+  return Number.isInteger(n0) && typeof slotSpacingMin === 'number' && Number.isFinite(slotSpacingMin) && typeof digest === 'string';
+}
+
+/** The slotsDigest the compile of this generated recipe produced at (n0, slotSpacingMin); null if it was rejected. */
+export function compiledSlotsDigest(recipe: GeneratedRecipe, n0: number, params: Params): string | null {
+  const spacing = params.slotSpacingMin;
+  const outcome = compileRecipe(recipe, n0, spacing, keyOf(recipe, n0, spacing));
+  return outcome.ok ? outcome.slotsDigest : null;
 }

@@ -3,9 +3,9 @@
 // Composer or `preview on`) and expandRecipe, and it has no route to a world. Without connectPreview(store) it draws
 // nothing.
 import { Color, DoubleSide, DynamicDrawUsage, Group, InstancedMesh, Mesh, MeshBasicMaterial, Object3D, PlaneGeometry, RingGeometry, ShaderMaterial, type Camera, type Scene } from 'three';
-import type { Formation, Params, Recipe } from '../../../contracts';
+import type { Formation, Params } from '../../../contracts';
 import { expandRecipe } from '../../../score';
-import type { Store } from '../../ui/store';
+import type { StagePreview, Store } from '../../ui/store';
 import type { Layer } from '../Layer';
 
 type PreviewSource = Pick<Store, 'state'>;
@@ -18,7 +18,20 @@ export function connectPreview(store: PreviewSource | null): () => void {
 }
 
 /** The preview to draw now, or null. */
-export function currentPreview(): { recipe: Recipe; label: string } | null { return source?.state.preview ?? null; }
+export function currentPreview(): StagePreview | null { return source?.state.preview ?? null; }
+
+/**
+ * The stage label. A precomputed formation (GF-WP-10) says it is a target arrangement, not a flight, and where it came
+ * from: a committed fixture (#265), or a scene the gateway generated, named by its provider (#213). A generated scene
+ * is never labelled a fixture.
+ */
+export function previewLabel(preview: StagePreview): string {
+  if (preview.formation && preview.source === 'generated') {
+    return `PREVIEW · target arrangement (preview), not flown · generated “${preview.label}” · ${preview.provider ?? 'unknown provider'} · local only, nothing is sent`;
+  }
+  if (preview.formation) return `PREVIEW · target arrangement (preview), not flown · fixture “${preview.label}” · local only, nothing is sent`;
+  return `PREVIEW · “${preview.label}” · local only, nothing is sent`;
+}
 
 /** How much the overlay darkens the live swarm while a preview is shown (0 = none, 1 = black). */
 export const PREVIEW_DIM = 0.72;
@@ -91,8 +104,11 @@ export default function createLayer(): Layer {
         group.userData.preview = null;
         return;
       }
-      const next = JSON.stringify(preview.recipe);
-      if (next !== key) { key = next; formation = expandRecipe(preview.recipe, params.n0, params); }
+      if (preview.formation) { key = ''; formation = preview.formation; }   // precomputed (#265): drawn as given
+      else {
+        const next = JSON.stringify(preview.recipe);
+        if (next !== key) { key = next; formation = expandRecipe(preview.recipe, params.n0, params); }
+      }
       const slots = formation!.slots;
       const n = Math.min(slots.length, rings.instanceMatrix.count);
       for (let i = 0; i < n; i++) {
@@ -106,8 +122,8 @@ export default function createLayer(): Layer {
       rings.instanceMatrix.needsUpdate = true;
       if (rings.instanceColor) rings.instanceColor.needsUpdate = true;
       group.visible = true;
-      group.userData.preview = { slots: n, label: preview.label };
-      showLabel(owner, `PREVIEW · “${preview.label}” · local only, nothing is sent`);
+      group.userData.preview = preview.formation ? { slots: n, label: preview.label, source: preview.source ?? 'fixture' } : { slots: n, label: preview.label };
+      showLabel(owner, previewLabel(preview));
     },
     setVisible(value) { visible = value; if (!value) { group.visible = false; showLabel(owner, null); } },
     dispose() {

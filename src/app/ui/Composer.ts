@@ -6,7 +6,7 @@
 // This module also holds the inject path the console shares (drafts, validation, plan dispatch, picks, adoption),
 // because the issue's allowed files are Composer.ts, Console.ts and PreviewLayer.ts. No createPanel export: the
 // panel loader skips it, and the shell mounts it with connectComposer(ctx).
-import type { EnvEvent, MetricsSample, Params, Recipe, RGB, WorldSnapshot } from '../../contracts';
+import type { EnvEvent, MetricsSample, Params, Recipe, RGB, Score, WorldSnapshot } from '../../contracts';
 import { expandRecipe } from '../../score';
 import { defaultPalette } from '../../score/shapes';
 import type { ControlIntent, ControlResult, ControlStatus } from '../actions';
@@ -16,13 +16,17 @@ import { connectPreview } from '../render/layers/PreviewLayer';
 import type { Pair } from '../worlds';
 import { liveState, NAME_MAX, parse, shouldDispatch, TEXT_MAX, validateText, withRecipe, type ControlPlan, type InjectPlan, type ParseContext } from './commands';
 import { h } from './dom';
+import { lintDraft, type DraftLintContext } from './draftLint';
+import type { AcceptedGeneratedScene, GeneratedSource, injectAccepted as injectAcceptedType } from './GeneratedSource';
 import { icon } from './icons';
 import { hexToRgb, rgbToHex, type PickRequest, type Store } from './store';
 import type { Surfaces } from './surfaces';
 
 // ------------------------------------------------------------------------------------------- drafts
 
-export interface Draft { id: string; name: string; kind: Recipe['kind']; text: string; palette: [RGB, RGB] | null; sent: string[] }
+// GF-CC-01: a draft is one of the three legacy kinds; a generated formation has no palette and comes from the
+// Generated tab, not from a draft.
+export interface Draft { id: string; name: string; kind: Exclude<Recipe['kind'], 'generated'>; text: string; palette: [RGB, RGB] | null; sent: string[] }
 export type DraftInput = Omit<Draft, 'id' | 'sent'>;
 
 const DEFAULT_DRAFTS: readonly DraftInput[] = [
@@ -75,14 +79,22 @@ export class Drafts {
 }
 
 /** A console `form …` result (a recipe) as a draft. */
-export function draftFromRecipe(name: string, recipe: Recipe): DraftInput {
+/** null: a generated recipe is not editable as a draft (GF-CC-01: it has no text or palette; it comes from the
+ *  Generated tab). Callers skip it. */
+export function draftFromRecipe(name: string, recipe: Recipe): DraftInput | null {
+  if (recipe.kind === 'generated') return null;
   return { name, kind: recipe.kind, text: recipe.kind === 'text' ? recipe.text : '', palette: recipe.palette ? structuredClone(recipe.palette) : null };
 }
 
-export interface Validation { ok: boolean; errors: string[]; warnings: string[]; recipe: Recipe | null }
+/** `notes`: muted information, not warnings (today: what the linter could not check). */
+export interface Validation { ok: boolean; errors: string[]; warnings: string[]; notes?: string[]; recipe: Recipe | null }
 
-/** Validates a draft against the score package itself (its font table and expandRecipe), not a UI copy of its rules. */
-export function validateDraft(draft: Draft, params: Params): Validation {
+/**
+ * Validates a draft against the score package itself (its font table and expandRecipe), not a UI copy of its rules.
+ * A valid draft also gets the score linter's findings as warnings (draftLint.ts, #208): the transition checks only with
+ * `lint`, the formation checks always; what could not be linted is a muted note. Lint never changes `ok` or `errors`.
+ */
+export function validateDraft(draft: Draft, params: Params, lint?: DraftLintContext): Validation {
   const errors: string[] = [];
   const warnings: string[] = [];
   if (!draft.name.trim()) errors.push('Give the formation a name.');
@@ -103,7 +115,9 @@ export function validateDraft(draft: Draft, params: Params): Validation {
   if (!errors.length) {
     try { expandRecipe(recipe, params.n0, params); } catch (error) { errors.push(`The score package rejected it: ${error instanceof Error ? error.message : String(error)}`); }
   }
-  return { ok: errors.length === 0, errors, warnings: [...new Set(warnings)], recipe: errors.length ? null : recipe };
+  const linted = errors.length ? null : lintDraft(recipe, params, lint);
+  if (linted) warnings.push(...linted.warnings);
+  return { ok: errors.length === 0, errors, warnings: [...new Set(warnings)], notes: linted?.notes ?? [], recipe: errors.length ? null : recipe };
 }
 
 // ------------------------------------------------------------------------- the shared action path
@@ -124,6 +138,11 @@ export interface ComposeContext {
   snapshots(): Pair<WorldSnapshot>;
   /** Newest observer MetricsSample per world (worlds.samples()). The adoption bar reads only this. */
   samples(): Pair<MetricsSample | null>;
+  /**
+   * The authored score the controller composes from. When given, the panel lints the transition the draft would fly
+   * (#208); without it, the panel shows formation checks only and says the transition was not linted.
+   */
+  score?(): Score;
   /** Where bindControls emits 'encore:control-status' (the app root). The Composer listens there to follow the selection. */
   events?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
 }
@@ -304,6 +323,43 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
   let thumbKey = '';
   let thumbFormation: ReturnType<typeof expandRecipe> | null = null;
   let targetSig = '';
+  // GF-WP-10 (#265, #213, G3): the opt-in "Generated" source (fixture or gateway scenes). Without ?p2=generated
+  // nothing below runs and the panel is exactly as before; with it, the tab and its worker client load lazily.
+  // G3: `inject` is GeneratedSource.injectAccepted bound to d1's injectGeneratedRecipe (#214), loaded with the tab;
+  // Accept and the generated Inject are enabled only because that path is actually loaded (injectConnected).
+  let generated: { source: GeneratedSource; el: HTMLElement; inject: (accepted: AcceptedGeneratedScene, droneId: number) => ReturnType<typeof injectAcceptedType>; replayText: (r: Awaited<ReturnType<typeof injectAcceptedType>>['replay']) => string } | null = null;
+  let generatedMode = false;
+  let composerDisposed = false;
+  if (generatedFlag()) {
+    // #213: live generation only with the non-secret build flag AND `?p2=generated,live`; otherwise no client exists
+    // and the tab says "live Gemini unavailable (live mode is off on this page)". The build flag is a static check, so a default
+    // build never even loads the live module's client path.
+    const wantLive = import.meta.env.VITE_GENERATE_LIVE === '1';
+    void Promise.all([import('./GeneratedSource'), import('../workers/formationClient'), import('./generatedInject'), wantLive ? import('../live/generate') : Promise.resolve(null)]).then(([g, c, gi, l]) => {
+      if (composerDisposed) return;
+      const live = l && l.liveGenerationEnabled(import.meta.env.VITE_GENERATE_LIVE, typeof location !== 'undefined' ? location.search : null) ? l.createGenerateClient() : null;
+      const source = g.createGeneratedSource({
+        params, store, client: c.createFormationClient(c.spawnFormationWorker), live,
+        // Real wiring, read live: d1's inject function is present AND the controller can compose (status.composition).
+        injectConnected: () => typeof gi.injectGeneratedRecipe === 'function' && !!ctx.controller.status().composition,
+        onAccept: () => renderTransmit(),
+      });
+      generated = {
+        source, el: g.renderGeneratedSource(source, params.n0, () => render()),
+        inject: (accepted, droneId) => g.injectAccepted(ctx, accepted, droneId, gi.injectGeneratedRecipe), replayText: g.replayText,
+      };
+      source.subscribe(() => renderTransmit());
+      render();
+    }).catch(() => {
+      // A chunk that failed to load (flag on only): the generated tab stays absent and the panel works as before.
+    });
+  }
+  /** Leaving the generated source drops its fixture preview (a draft preview is the draft's own). */
+  const leaveGenerated = () => {
+    if (!generatedMode) return;
+    generatedMode = false;
+    generated?.source.preview(false);
+  };
 
   // Persistent fields
   const nameInput = h('input', { class: 'input', id: 'cmp-name', maxlength: NAME_MAX, autocomplete: 'off' });
@@ -340,7 +396,8 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
 
   const visible = () => !el.hidden;
   const previewOn = () => store.state.preview !== null;
-  const refreshPreview = () => { if (previewOn()) setPreview(ctx, true); };
+  // A fixture preview (it carries its own formation, #265) is not the draft's: draft edits never overwrite it.
+  const refreshPreview = () => { if (previewOn() && !store.state.preview?.formation) setPreview(ctx, true); };
   nameInput.addEventListener('input', () => drafts.update({ name: nameInput.value }));
   textInput.addEventListener('input', () => { drafts.update({ text: textInput.value.toUpperCase() }); refreshPreview(); });
   idInput.addEventListener('input', () => {
@@ -360,7 +417,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
   function render() {
     if (!visible()) return;
     const draft = drafts.current;
-    const v = validateDraft(draft, params);
+    const v = validateDraft(draft, params, ctx.score ? { score: ctx.score(), tick: ctx.snapshots().encore.tick } : undefined);
     if (draft.id !== paletteDraft) { paletteDraft = draft.id; nextEnd = 0; }
     if (document.activeElement !== nameInput && nameInput.value !== draft.name) nameInput.value = draft.name;
     if (document.activeElement !== textInput && textInput.value !== draft.text) textInput.value = draft.text;
@@ -377,12 +434,31 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       h('span', { class: previewOn() ? 'on' : '' }, h('span', { class: 'n' }, '2')), 'Preview', h('span', { class: 'line' }),
       h('span', { class: lastSent ? 'on' : '' }, h('span', { class: 'n' }, '3')), 'Transmit');
 
-    const kinds: [Recipe['kind'], string, string][] = [['text', 'Text', icon.text], ['sphere', 'Sphere', icon.sphere], ['helix', 'Double helix', icon.helix]];
+    const kinds: [Draft['kind'], string, string][] = [['text', 'Text', icon.text], ['sphere', 'Sphere', icon.sphere], ['helix', 'Double helix', icon.helix]];
     fill(typeBox, h('span', { class: 'label', id: 'cmp-type-label' }, 'Formation'),
       h('div', { class: 'types', role: 'radiogroup', 'aria-labelledby': 'cmp-type-label' },
-        ...kinds.map(([kind, label, glyph]) => h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': `type-${kind}`, 'aria-checked': String(draft.kind === kind), onclick: () => { drafts.update({ kind, text: kind === 'text' ? draft.text || 'ENCORE' : draft.text }); refreshPreview(); } }, h('span', { html: glyph }), label))),
+        ...kinds.map(([kind, label, glyph]) => h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': `type-${kind}`, 'aria-checked': String(draft.kind === kind && !generatedMode), onclick: () => { leaveGenerated(); drafts.update({ kind, text: kind === 'text' ? draft.text || 'ENCORE' : draft.text }); refreshPreview(); } }, h('span', { html: glyph }), label)),
+        generated ? h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': 'type-generated', 'aria-checked': String(generatedMode), title: 'Committed fixture scenes (or the live gateway): preview, accept and inject into one drone', onclick: () => { generatedMode = true; if (previewOn() && !store.state.preview?.formation) store.set({ preview: null }); render(); } }, h('span', { html: icon.compose }), 'Generated (fixture)') : null),
       h('div', { class: 'future-types' }, h('span', { class: 'tag later' }, 'Later'),
         ...LATER_TYPES.map(type => h('span', { class: 'ft', title: `${type}: not in the Recipe contract yet; needs a new Recipe kind through a [contract] PR.` }, type))));
+
+    // Generated source (#265): its own tab replaces the text, light and preview regions; nothing here is injectable.
+    // `.field { display: grid }` outranks the `hidden` attribute, so the regions are hidden with an inline display:
+    // none here and restored to '' (the stylesheet's own value) outside generated mode (98's browser smoke, #213).
+    if (generatedMode && generated) {
+      textField.style.display = 'none';
+      lightBox.style.display = 'none';
+      errorsBox.replaceChildren();
+      warningsBox.replaceChildren();
+      if (previewBox.firstChild !== generated.el || previewBox.childNodes.length !== 1) {
+        previewBox.replaceChildren(generated.el);
+        generated.el.scrollIntoView?.({ block: 'nearest' });   // entering the tab: its chips may sit below the fold
+      }
+      renderTransmit();
+      return;
+    }
+    textField.style.display = '';
+    lightBox.style.display = '';
 
     // Text, validated live against the font table and expandRecipe
     textField.hidden = draft.kind !== 'text';
@@ -432,7 +508,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, h('span', { class: 'label', style: { flex: '1' } }, `Preview · ${params.n0} priority-ordered slots`),
         h('button', { type: 'button', class: 'btn small', 'data-fk': 'preview', 'aria-pressed': String(previewOn()), disabled: !v.ok, onclick: () => { setPreview(ctx, !previewOn()); render(); } }, h('span', { html: icon.eye }), previewOn() ? 'Hide stage preview' : 'Preview in stage')),
       canvas, h('div', { class: 'hint' }, 'Brighter dots are higher-priority slots. The stage preview is drawn locally and sends nothing.'));
-    warningsBox.replaceChildren(...v.warnings.map(warning => h('div', { class: 'hint warn' }, '▲ ', warning)));
+    warningsBox.replaceChildren(...v.warnings.map(warning => h('div', { class: 'hint warn' }, '▲ ', warning)), ...(v.notes ?? []).map(note => h('div', { class: 'hint' }, note)));
     renderTransmit();
   }
 
@@ -450,7 +526,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     if (!visible()) return;
     targetSig = targetSignature();
     const draft = drafts.current;
-    const v = validateDraft(draft, params);
+    const v = validateDraft(draft, params, ctx.score ? { score: ctx.score(), tick: ctx.snapshots().encore.tick } : undefined);
     const status = ctx.controller.status();
     const targetId = pickedDrone ?? status.selectedId;
     const snapshot = ctx.snapshots().encore;
@@ -468,13 +544,19 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       parts.push(h('span', {}, `holds score v${versionKey(target.belief.version)}`));
     } else parts.push(h('span', { class: 'hint' }, targetId === null ? 'Choose a drone: the uplink reaches only that one.' : `No drone ${targetId} in this roster.`));
     statusBox.replaceChildren(...parts);
-    const reason = !status.composition ? 'Score injection is not connected to the simulation.' : !v.ok ? 'Fix the draft first.' : !target?.alive ? 'Choose a live drone.' : busy ? 'Sending…' : '';
+    // G3: in generated mode, Inject sends the ACCEPTED scene (never a draft) into the one chosen live drone, through
+    // d1's injectGeneratedRecipe. It is enabled only when the inject path is loaded and a scene is accepted.
+    const gen = generatedMode && generated ? generated : null;
+    const accepted = gen?.source.accepted ?? null;
+    const genReason = gen ? (!gen.source.injectConnected ? 'Injection is not connected on this page.' : !accepted ? 'Accept a compiled scene first.' : '') : '';
+    const reason = genReason || (!status.composition ? 'Score injection is not connected to the simulation.' : !gen && !v.ok ? 'Fix the draft first.' : !target?.alive ? 'Choose a live drone.' : busy ? 'Sending…' : '');
     const command = targetId === null ? `inject --drone <id> --draft ${draft.id}` : injectCommand(draft.id, targetId);
+    const what = gen ? (accepted ? accepted.title : 'the accepted scene') : draft.name;
     fill(actionBox,
-      h('button', { type: 'button', class: 'btn primary', 'data-fk': 'inject', disabled: !!reason, 'aria-describedby': reason ? 'cmp-inject-reason' : undefined, onclick: () => void inject(draft.id, targetId) },
-        h('span', { html: icon.inject }), targetId !== null ? `Inject “${draft.name}” into drone ${targetId}` : 'Inject into one drone'),
+      h('button', { type: 'button', class: 'btn primary', 'data-fk': 'inject', disabled: !!reason, 'aria-describedby': reason ? 'cmp-inject-reason' : undefined, onclick: () => void (gen ? injectGenerated(targetId) : inject(draft.id, targetId)) },
+        h('span', { html: icon.inject }), targetId !== null ? `Inject “${what}” into drone ${targetId}` : 'Inject into one drone'),
       reason && !busy ? h('div', { class: 'hint', id: 'cmp-inject-reason' }, reason) : null,
-      h('div', { class: 'cmd-echo', title: 'The same action as a console command' }, h('span', {}, `› ${command}`)),
+      gen ? null : h('div', { class: 'cmd-echo', title: 'The same action as a console command' }, h('span', {}, `› ${command}`)),
       feedback ? h('div', { class: `hint ${feedback.ok ? '' : 'err'}`, role: feedback.ok ? 'status' : 'alert' }, feedback.text) : null);
     fill(sentBox, lastSent ? sentCard(lastSent) : null);
     updateAdoption();
@@ -500,6 +582,26 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     if (outcome.sent) { lastSent = outcome.sent; feedback = { ok: true, text: `${outcome.message} Adoption is measured by the observer below.` }; }
     else feedback = { ok: outcome.status === 'done', text: outcome.message };
     render();
+  }
+
+  /** G3: the accepted generated scene into ONE live drone (d1's path), then the replay check. Adoption is the sentCard's. */
+  async function injectGenerated(targetId: number | null) {
+    const accepted = generated?.source.accepted ?? null;
+    if (targetId === null || busy || !generated || !accepted) return;
+    busy = true; renderTransmit();
+    try {
+      const { outcome, replay } = await generated.inject(accepted, targetId);
+      if (outcome.sent) {
+        lastSent = outcome.sent;
+        generated.source.clearAccepted();             // sent: Accept again to send the same scene to another drone
+        feedback = { ok: true, text: `${outcome.message} Other drones learn it only by radio; adoption is measured by the observer below. ${generated.replayText(replay)}`.trim() };
+      } else feedback = { ok: outcome.status === 'done', text: outcome.message };
+    } catch (error) {
+      feedback = { ok: false, text: `The injection failed: ${String(error)}` };
+    } finally {
+      busy = false;                                   // never stuck on "Sending…"
+      render();
+    }
   }
 
   const bar = h('div', { class: 'bar', role: 'meter', 'aria-label': 'Adoption of the injected score (observer)', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' });
@@ -555,6 +657,8 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     open() { if (ctx.surfaces) ctx.surfaces.open('composer'); else { el.hidden = false; render(); } },
     render,
     dispose() {
+      composerDisposed = true;
+      generated?.source.dispose();
       clearInterval(timer);
       offDrafts(); offStore();
       ctx.events?.removeEventListener('encore:control-status', onStatus);
@@ -563,6 +667,13 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       el.remove();
     },
   };
+}
+
+/** `?p2=generated` (the Phase 2 opt-in flag form, read once per panel; off without a location). */
+export function generatedFlag(search: string | null = typeof location !== 'undefined' ? location.search : null): boolean {
+  if (search === null) return false;
+  const value = new URLSearchParams(search).get('p2');
+  return value !== null && value.split(',').map(part => part.trim()).includes('generated');
 }
 
 function parseVersion(key: string): { issuedTick: number; origin: number } {

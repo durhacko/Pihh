@@ -1,0 +1,58 @@
+{
+  "id": "FX-WILLIAM-S4",
+  "description": "William's section 4 example document: `score` (not `composition`) with version {issuedTick 0, origin 0}, startTick and transitionTicks (MCR-04, MCR-06). Rejected.",
+  "cases": [
+    {
+      "name": "FX-WILLIAM-S4",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "Hello to Helix",
+        "source": "manual",
+        "score": {
+          "version": {
+            "issuedTick": 0,
+            "origin": 0
+          },
+          "movements": [
+            {
+              "startTick": 0,
+              "transitionTicks": 200,
+              "recipe": {
+                "kind": "text",
+                "text": "HELLO"
+              }
+            },
+            {
+              "startTick": 200,
+              "transitionTicks": 200,
+              "recipe": {
+                "kind": "sphere"
+              }
+            },
+            {
+              "startTick": 400,
+              "transitionTicks": 200,
+              "recipe": {
+                "kind": "helix"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "score",
+            "reason": "UNKNOWN_KEY"
+          },
+          {
+            "path": "composition",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,448 @@
+{
+  "id": "FX-BAD/palette",
+  "description": "R13: palette absent or two triples of finite numbers in [0, 1] (MDB-T04). NaN and Infinity cannot be written in JSON; the test adds them as objects.",
+  "cases": [
+    {
+      "name": "null palette",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": null
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "null channel",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                [
+                  null,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette[0]",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "-0.01",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                [
+                  -0.01,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette[0]",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "1.01",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1.01,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette[1]",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "[255, 0, 0]",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                [
+                  255,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette[0]",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "\"#ff0000\"",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                "#ff0000",
+                [
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette[0]",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hex string palette",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": "#ff0000"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "2 channels",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette[0]",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "4 channels",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette[0]",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "1 entry",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                [
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "3 entries",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "object with extra keys",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": {
+                "start": [
+                  0,
+                  0,
+                  0
+                ],
+                "end": [
+                  1,
+                  1,
+                  1
+                ]
+              }
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "string channel",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "palette": [
+                [
+                  "0",
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.palette[0]",
+            "reason": "INVALID_COLOUR"
+          }
+        ]
+      }
+    }
+  ]
+}

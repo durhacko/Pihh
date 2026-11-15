@@ -1,0 +1,151 @@
+{
+  "id": "FX-V",
+  "description": "R3: FX-V0 (missing or 0) is invalid; FX-V2 is newer than this reader (until GF-CC-01) and is never down-read: only SCHEMA_VERSION_UNSUPPORTED is reported (MDB-T10).",
+  "cases": [
+    {
+      "name": "FX-V0 missing",
+      "target": "request",
+      "input": {
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "schemaVersion",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FX-V0 zero",
+      "target": "request",
+      "input": {
+        "schemaVersion": 0,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "schemaVersion",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "schemaVersion \"1\"",
+      "target": "request",
+      "input": {
+        "schemaVersion": "1",
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "schemaVersion",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "schemaVersion 1.5",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1.5,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "schemaVersion",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FX-V2",
+      "target": "request",
+      "input": {
+        "schemaVersion": 2,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "generated",
+                "scene": {}
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "schemaVersion",
+            "reason": "SCHEMA_VERSION_UNSUPPORTED"
+          }
+        ]
+      }
+    }
+  ]
+}

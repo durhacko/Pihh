@@ -1,0 +1,2 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Named Colour", "view": "front", "foreground": "white",
+  "parts": [ { "id": "disc", "operation": "union", "geometry": { "type": "ellipse", "center": [0, 0], "radii": [1, 1] }, "priority": 5 } ] }

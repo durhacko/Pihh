@@ -1,6 +1,6 @@
 # Phase 2 roadmap
 
-> **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing here is built, approved or scheduled on GitHub. It is a plan for Arnav to accept, amend or reject. Base work (gates G0–G6 in the [development plan](development-plan.md#gates-and-times-gmt)) always comes first.
+> **STATUS: ARCHITECTURE PROPOSAL, WITH LIMITED OFFLINE DEVELOPMENT AUTHORISED.** G0–G5 are complete; G6 submission remains human-owned. The team has opened Phase 2 kickoff #199 and offline implementation issues #200–#203 on isolated branches, as recorded in [PHASE2_EXECUTION.md](PHASE2_EXECUTION.md). No Phase 2 feature is implemented by this status change. D2 contracts, D3 networking, sponsor service integrations and default-demo changes remain unapproved. This roadmap's historical Track H cutoffs have passed; they do not authorise late inclusion in the judged build.
 
 Audit base: `origin/main` 26b438a (first audited at 7a50a69). Purpose: when Phase 2 work may happen, in what order, behind which gates, what is cut first, and which decisions Arnav must take. Status: proposal for issue #110. Audited at 26b438a (committed Sun 15 Nov 2026 00:14 GMT, audited ~00:40 GMT); the base state, lock rule and Track H timeline were re-checked at `origin/main` c697f6c (02:58 GMT, 15 Nov 2026). Owner: Arnav (Phase 2 architecture, issue #110).
 

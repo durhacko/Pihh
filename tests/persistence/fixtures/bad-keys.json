@@ -1,0 +1,569 @@
+{
+  "id": "FX-BAD/keys",
+  "description": "R2, R16: unknown keys at any depth, $-prefixed and dotted keys, prototype keys; client-sent server fields (MDB-T07). JSON.parse keeps \"__proto__\" as an own key.",
+  "cases": [
+    {
+      "name": "client-sent or foreign top-level _id",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "_id": "0123456789abcdef01234567"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "_id",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level contentHash",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "contentHash",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level requestHash",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "requestHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "requestHash",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level createdAt",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "createdAt": "2026-11-15T00:00:00Z"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "createdAt",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level updatedAt",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "updatedAt": "2026-11-15T00:00:00Z"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "updatedAt",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level preview",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "preview": {
+          "movementCount": 1,
+          "kinds": [
+            "sphere"
+          ]
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "preview",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level formationId",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "formationId": "f1"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "formationId",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level droneCount",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "droneCount": 200
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "droneCount",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level telemetry",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "telemetry": {}
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "telemetry",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level runRecord",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "runRecord": {}
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "runRecord",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level $set",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "$set": {
+          "title": "x"
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "$set",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level constructor",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "constructor": {}
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "constructor",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level prototype",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "prototype": {}
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "prototype",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-sent or foreign top-level a.b",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "a.b": 1
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "[\"a.b\"]",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "$set inside a recipe",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "$set": {
+                "kind": "cube"
+              }
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.$set",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dotted key in a movement",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600,
+            "recipe.kind": "cube"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0][\"recipe.kind\"]",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "text on a sphere",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "text": "HI"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown composition key",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          }
+        ],
+        "name": "x"
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "name",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown generator key",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "gemini",
+        "generator": {
+          "model": "m",
+          "integrationVersion": "1",
+          "apiKey": "x"
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "generator.apiKey",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    }
+  ]
+}

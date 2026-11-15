@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { makeParams } from '../contracts';
 import type { MetricsSample, Params, RunRecord, Score, WorldSnapshot } from '../contracts';
 import { currentMovement, expandRecipe } from '../score';
+import { canonicalJson } from '../score/canonical';
 import { createWorld } from '../sim';
 import { brainFor, type Arm, type BrainMap } from './brains';
 import type { ObserverFactory } from './observer';
@@ -23,17 +24,8 @@ export interface RunOptions {
   ticks?: number;            // TESTS ONLY: stop early. Evaluation runs always use the scenario's length
 }
 
-/** JSON with object keys sorted at every level, so equal params always hash equally. */
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error(`canonicalJson: non-finite number ${value}`);
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
-}
+// canonicalJson lives in src/score/canonical.ts (XI-7); re-exported here for existing importers.
+export { canonicalJson };
 
 /** sha256 of the canonical JSON of `params`, hex. */
 export function paramsHash(params: Params): string {

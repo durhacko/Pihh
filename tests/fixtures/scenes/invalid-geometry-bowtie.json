@@ -1,0 +1,2 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Bowtie", "view": "front", "foreground": [1, 1, 1],
+  "parts": [ { "id": "bowtie", "operation": "union", "geometry": { "type": "polygon", "points": [[-1, -1], [1, 1], [1, -1], [-1, 1]] }, "priority": 5 } ] }

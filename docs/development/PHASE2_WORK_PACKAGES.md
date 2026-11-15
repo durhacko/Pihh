@@ -1,6 +1,6 @@
 # Phase 2 work packages
 
-> **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing in this file has been built, and no issue described here exists on GitHub. Each package becomes an issue only after its gate has passed and Arnav says go (see [§7](#7-issue-body-template)).
+> **STATUS: PROPOSED WORK PACKAGES; FOUR OFFLINE IMPLEMENTATION ISSUES OPEN.** The owner has authorised isolated development of P2-WP-01 (#200), P2-WP-04 (#201), P2-WP-03 (#202), and the separate Gemini GF-WP-01 (#203). None is implemented merely by opening its issue. The actual queue, immutable Phase 1 baseline and remaining D2/D3/G6 gates are tracked in [PHASE2_EXECUTION.md](../planning/PHASE2_EXECUTION.md); all other work packages remain unapproved proposals.
 
 Purpose: the issue-ready work packages for Phase 2, `P2-WP-01`…`P2-WP-10` (Track H, inside the hackathon window) and `P2-WP-20`…`P2-WP-31` (Track P, after submission or with explicit approval). Status: proposal for review, no code written. Owner: Arnav (Phase 2 architecture, issue #110). Audit base: `origin/main` 26b438a (first audited at 7a50a69); re-checked at `origin/main` c697f6c (02:58 GMT, 15 Nov 2026).
 

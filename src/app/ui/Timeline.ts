@@ -44,10 +44,14 @@ export interface Cue {
   droneId: number | null;
 }
 
-/** "ENCORE", "Sphere", "Helix". */
+/** "ENCORE", "Sphere", "Helix"; a generated formation by its scene title (GF-CC-01: never mislabelled "Helix"). */
 export function recipeName(recipe: Recipe): string {
+  if (recipe.kind === 'generated') return recipe.scene.title;
   return recipe.kind === 'text' ? recipe.text : recipe.kind === 'sphere' ? 'Sphere' : 'Helix';
 }
+
+/** A cue's palette: a generated recipe has none (its colours come from the scene). */
+const paletteOfRecipe = (recipe: Recipe): [RGB, RGB] | null => (recipe.kind === 'generated' ? null : recipe.palette ?? null);
 
 /**
  * The operator's plan. Starts from the preloaded score; each INJECT_SCORE in the log (in order) replaces every
@@ -58,7 +62,7 @@ export function planCues(preloaded: Score, events: readonly EnvEvent[]): Cue[] {
   const preKey = versionKey(preloaded.version);
   let cues: Omit<Cue, 'endTick'>[] = preloaded.movements.map((m, i) => ({
     key: `${preKey}@${m.startTick}`, name: recipeName(m.recipe), source: 'preloaded', versionKey: preKey,
-    startTick: m.startTick, transitionTicks: m.transitionTicks, palette: m.recipe.palette ?? null, droneId: null,
+    startTick: m.startTick, transitionTicks: m.transitionTicks, palette: paletteOfRecipe(m.recipe), droneId: null,
     scoreEndTick: preloaded.movements[i + 1]?.startTick ?? null,
   }));
   // Applied in tick order: since `at` (#104) the log can hold an event scheduled for an earlier tick after a later one.
@@ -71,7 +75,7 @@ export function planCues(preloaded: Score, events: readonly EnvEvent[]): Cue[] {
     cues = cues.filter(c => c.startTick <= score.version.issuedTick);
     cues.push({
       key: `${key}@${added.startTick}`, name: recipeName(added.recipe), source: 'injected', versionKey: key,
-      startTick: added.startTick, transitionTicks: added.transitionTicks, palette: added.recipe.palette ?? null, droneId: event.droneId,
+      startTick: added.startTick, transitionTicks: added.transitionTicks, palette: paletteOfRecipe(added.recipe), droneId: event.droneId,
       scoreEndTick: null,   // composeNext adds its movement last
     });
   }

@@ -1,0 +1,706 @@
+{
+  "id": "FX-BAD/movements",
+  "description": "R7 composition shape, R8 movement count, R9 runtime fields (RUNTIME_FIELD at every level: composition, movement, recipe, request, generator) (MDB-T06, MDB-T10). Array order is play order.",
+  "cases": [
+    {
+      "name": "0 movements",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": []
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "17 movements",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements",
+            "reason": "TOO_MANY_MOVEMENTS"
+          }
+        ]
+      }
+    },
+    {
+      "name": "movements not an array",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": {
+          "0": {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          }
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "movements missing",
+      "target": "composition",
+      "input": {
+        "v": 1
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field startTick",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600,
+            "startTick": 0
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].startTick",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field transitionTicks",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600,
+            "transitionTicks": 200
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].transitionTicks",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field version",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600,
+            "version": {
+              "issuedTick": 0,
+              "origin": 0
+            }
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].version",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field origin",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600,
+            "origin": 0
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].origin",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field droneId",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600,
+            "droneId": 5
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].droneId",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "composition-level version",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "version": {
+          "issuedTick": 0,
+          "origin": -1
+        },
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "version",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "slots (unknown, not runtime)",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600,
+            "slots": []
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].slots",
+            "reason": "UNKNOWN_KEY"
+          }
+        ]
+      }
+    },
+    {
+      "name": "composition v 0",
+      "target": "composition",
+      "input": {
+        "v": 0,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "v",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "composition v 2",
+      "target": "composition",
+      "input": {
+        "v": 2,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "v",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "composition v missing",
+      "target": "composition",
+      "input": {
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "v",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "movement not an object",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          "sphere"
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0]",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "recipe not an object",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": "sphere",
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "composition not an object",
+      "target": "composition",
+      "input": [
+        {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "text",
+                "text": "HELLO",
+                "palette": [
+                  [
+                    1,
+                    0.6,
+                    0.1
+                  ],
+                  [
+                    0.2,
+                    0.5,
+                    1
+                  ]
+                ]
+              },
+              "holdTicks": 600
+            },
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            },
+            {
+              "recipe": {
+                "kind": "helix"
+              },
+              "holdTicks": 600
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "",
+            "reason": "INVALID_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "second movement bad, first fine",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 600
+          },
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "É"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[1].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field startTick in a recipe",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "startTick": 0
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.startTick",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field transitionTicks in a text recipe",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "HI",
+              "transitionTicks": 200
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.transitionTicks",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field version at the request top level",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "version": {
+          "issuedTick": 0,
+          "origin": 0
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "version",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field droneId at the request top level",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "droneId": 5
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "droneId",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field origin in a generator",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "gemini",
+        "generator": {
+          "model": "m",
+          "integrationVersion": "1",
+          "origin": 3
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "generator.origin",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -92,6 +92,8 @@ function applyLayerLenses(): void {
   for (const { view } of views) for (const layer of view.layers) {
     if (layer.id === 'ghost-slots') layer.setVisible(store.state.lenses.ghosts);
     if (layer.id === 'tethers') layer.setVisible(store.state.lenses.tethers);
+    // `view zones on|off` (Console) changes this lens; the zone layer still draws only with X-ray on (ZoneLayer.setVisible).
+    if (layer.id === 'zones') layer.setVisible(store.state.lenses.zones);
   }
 }
 applyLayerLenses();
@@ -466,6 +468,7 @@ function renderCaption(): void {
 const drafts = new Drafts();
 const compose = { controller: controls, store, surfaces, drafts, params, host: root, snapshots, samples: () => worlds.samples() };
 const composer = connectComposer(compose);   // also connects the stage preview to the store
+if (import.meta.env.VITE_SHOW_LIBRARY === '1') void import('./live/SavedCompositions').then(m => m.createPanel({ host: root, drafts, params, controls }));   // MDB-WP-05 (#264): build-time flag, off by default, not in the default bundle
 const consoleTray = connectConsole({ ...compose, hooks: {
   step: () => { run({ type: 'step' }, true); },
   inspect: (id, arm) => selectionArm.within(arm, id, () => controls.selectDrone(id)),
@@ -498,7 +501,9 @@ function layoutBottom(): void {
     const top = dock.el.getBoundingClientRect().top;
     root.style.setProperty('--bottom-h', `${Math.max(82, window.innerHeight - top + 12)}px`);
     root.classList.add('has-bottom');
-    const trayTop = [consoleTray.el, timeline.el].filter(el => !el.hidden).map(el => el.getBoundingClientRect().top);
+    // The show caption sits in the same bottom stack: the stage (and split view's static pane) must end above it too,
+    // or the narration covers the formation it narrates (E7 audit: at 1280x720 it hid the launch and the static hole).
+    const trayTop = [caption, consoleTray.el, timeline.el].filter(el => !el.hidden).map(el => el.getBoundingClientRect().top);
     const { stageBottom, splitMid } = stageLayout(window.innerHeight, trayTop);
     stage.style.bottom = `${stageBottom}px`;
     // The divider and the ▼ STATIC label sit where the panes meet (the panes are 50% / 50% of the stage, not of #app).

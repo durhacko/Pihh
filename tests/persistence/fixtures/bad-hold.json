@@ -1,0 +1,173 @@
+{
+  "id": "FX-BAD/hold",
+  "description": "R9: holdTicks a safe integer in [0, 6000] (MDB-T05). NaN cannot be written in JSON; the test adds it as an object.",
+  "cases": [
+    {
+      "name": "negative",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": -1
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].holdTicks",
+            "reason": "INVALID_TIMING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "1.5",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 1.5
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].holdTicks",
+            "reason": "INVALID_TIMING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "\"600\"",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": "600"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].holdTicks",
+            "reason": "INVALID_TIMING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "6001",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 6001
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].holdTicks",
+            "reason": "INVALID_TIMING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].holdTicks",
+            "reason": "INVALID_TIMING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "null",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": null
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].holdTicks",
+            "reason": "INVALID_TIMING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "2^53 (not a safe integer)",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere"
+            },
+            "holdTicks": 9007199254740992
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].holdTicks",
+            "reason": "INVALID_TIMING"
+          }
+        ]
+      }
+    }
+  ]
+}

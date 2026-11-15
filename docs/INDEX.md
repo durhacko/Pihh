@@ -23,12 +23,13 @@ The map of the canonical documentation for **Encore**. One fact lives in one pla
 | [validation/evaluation-and-tests.md](validation/evaluation-and-tests.md) | Metrics, scenarios S0–S5, baseline fairness, test list, gate evidence | Approved; thresholds pre-registered |
 | [planning/decisions-and-risks.md](planning/decisions-and-risks.md) | ADR-001…010, decision log, risks, fallback ladder, red-team answers | Living |
 
-## Phase 2 (proposed, not implemented)
+## Phase 2 — offline sprint authorised, integrations still proposed
 
-Enhancements for after the base gates. **Every doc here is STATUS: PROPOSED — NOT IMPLEMENTED**; nothing in them changes the contract or the evaluation until Arnav approves it ([roadmap decisions](planning/PHASE2_ROADMAP.md)). Issue #110.
+The frozen Phase 1 release is preserved. Four offline work packages (#200–#203) are now in the ready queue under #199; the canonical specifications still describe proposed capabilities, not implemented code. No D2 contract changes, D3 network permissions or judged-demo changes are approved. **Current queue, branch decisions and outstanding documentation gaps:** [planning/PHASE2_EXECUTION.md](planning/PHASE2_EXECUTION.md). Other package gates remain in the [roadmap](planning/PHASE2_ROADMAP.md).
 
 | Doc | What |
 |---|---|
+| [planning/PHASE2_EXECUTION.md](planning/PHASE2_EXECUTION.md) | **Current sprint register**: four approved offline issues, branch cleanup, dependency sequence, sponsor gating and outstanding documentation gaps |
 | [design/PHASE2_ARCHITECTURE.md](design/PHASE2_ARCHITECTURE.md) | Start here: pipeline, module and information rules, proposed requirements and ADRs, contract-change register, traceability, review record |
 | [planning/PHASE2_ROADMAP.md](planning/PHASE2_ROADMAP.md) | Tracks, gates P2-G0–G6, minimal and stretch sets, cut order, risks, decisions for Arnav |
 | [ideation/PHASE2_CANDIDATES.md](ideation/PHASE2_CANDIDATES.md) | Candidates E01–E10 and N01–N21, scoring, prior art, accepted, deferred and rejected ideas |
@@ -46,7 +47,7 @@ William's sponsor designs, kept as received under `handoffs/`, and the canonical
 | Doc | What |
 |---|---|
 | [integrations/gemini-generated-formations.md](integrations/gemini-generated-formations.md) | Gemini generated formations (#117): canonical spec, scene schema, compiler, gateway module, conflict records, decisions |
-| [planning/gemini-integration-work-packages.md](planning/gemini-integration-work-packages.md) | Gemini work packages GF-WP-01–15 (not to be opened without approval) |
+| [planning/gemini-integration-work-packages.md](planning/gemini-integration-work-packages.md) | Gemini work packages GF-WP-01–15; **GF-WP-01 offline validator approved as #203 only**; the remaining packages need their listed approvals |
 | [validation/gemini-formation-evaluation.md](validation/gemini-formation-evaluation.md) | Gemini metrics, fixtures, tests GF-T01–GF-T41, gates |
 | [handoffs/Encore_Gemini_Flash_Lite_Architecture.md](handoffs/Encore_Gemini_Flash_Lite_Architecture.md) | William's Gemini handoff, preserved unmodified |
 | [integrations/mongodb-atlas-show-library.md](integrations/mongodb-atlas-show-library.md) | MongoDB Atlas show library (#130): canonical spec, `saved_shows` model, API, idempotency, security, UI states, decisions |

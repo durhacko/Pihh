@@ -1,0 +1,2 @@
+{ "version": 1, "mode": "silhouette2d", "title": "Open Leaf", "view": "front", "foreground": [0.2, 0.8, 0.3],
+  "parts": [ { "id": "leaf", "operation": "union", "geometry": { "type": "path", "points": [[0, -1], [-0.8, -0.2], [-0.4, 0.8], [0, 1]] }, "priority": 5 } ] }

@@ -5,8 +5,8 @@
 // Intents are shaped for the one action API in src/app/actions.ts. A `control` intent carries the exact
 // ControlIntent steps to pass to the controller's handle(), in order. Where that API only toggles, the intent
 // also carries `when`: dispatch only if the live state matches, otherwise the command is already in effect.
-import type { EnvEvent, RGB, Recipe, WorldSnapshot } from '../../contracts';
-import { FONT } from '../../score/font';
+import type { EnvEvent, GeneratedRecipe, RGB, Recipe, WorldSnapshot } from '../../contracts';
+import { TEXT_MAX, validateText } from '../compose/validate';
 import { OPERATOR_JAM_ID, OPERATOR_PARTITION_ID, toggleOnAt, type ControlIntent, type ControlStatus } from '../actions';
 
 // ---------------------------------------------------------------------------------------------- types
@@ -57,7 +57,8 @@ export type UiAction =
   | { type: 'compare'; mode: 'on' | 'off' | 'static' }
   | { type: 'metrics' } | { type: 'timeline' } | { type: 'clear' } | { type: 'history' }
   | { type: 'drafts' } | { type: 'draft-use'; id: string } | { type: 'preview'; on: boolean }
-  | { type: 'demo-run'; seconds: 90 } | { type: 'demo-stop' };
+  | { type: 'demo-run'; seconds: 90 } | { type: 'demo-stop' }
+  | { type: 'replay-save' } | { type: 'replay-load' };   // GF-WP-11 (#214): the run's event log as a file, and back
 export interface UiIntent { kind: 'ui'; command: string; ui: UiAction }
 
 export interface HelpIntent { kind: 'help'; command: 'help'; text: string }
@@ -115,7 +116,7 @@ const SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
 const SWATCHES = ['#FFB000', '#FF3D7F', '#00C2A8', '#B6F500', '#9B7BFF'] as const;
 export const RADIUS_MAX = 40;
 export const LOSS_MAX_PERCENT = 90;
-export const TEXT_MAX = 20;
+export { TEXT_MAX, validateText } from '../compose/validate';   // moved to the pure validator (XI-13, #230)
 export const NAME_MAX = 24;
 
 /** Lenses the production renderer has (ghost slots and tethers: #102, toggled through the layers' setVisible). */
@@ -139,7 +140,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   { path: ['drafts'], desc: 'List local drafts', status: 'ui', build: ui({ type: 'drafts' }) },
   { path: ['draft', 'use'], args: 'ID', min: 1, max: 1, desc: 'Make a draft current', status: 'ui', build: buildDraftUse },
   { path: ['preview'], args: 'on|off', max: 1, values: ['on', 'off'], desc: 'Show the current draft in the stage (local only)', status: 'ui', build: buildPreview },
-  { path: ['inject'], flags: [DRONE_FLAG('drone'), PICK_FLAG, { name: 'draft', arity: 1, hint: 'DRAFT', type: 'text' }], exclusive: [['drone', 'pick']], desc: 'Uplink a draft into ONE drone; radio does the rest', status: 'proto', build: buildInject },
+  { path: ['inject'], flags: [DRONE_FLAG('drone'), PICK_FLAG, { name: 'draft', arity: 1, hint: 'DRAFT', type: 'text' }], exclusive: [['drone', 'pick']], desc: 'Uplink a draft into ONE drone; radio does the rest', status: 'main', build: buildInject },
   { path: ['play'], desc: 'Resume the simulation', status: 'main', build: () => control('play', [{ type: 'play' }], { when: { playing: false } }) },
   { path: ['pause'], desc: 'Pause the simulation', status: 'main', build: () => control('pause', [{ type: 'play' }], { when: { playing: true } }) },
   { path: ['step'], desc: 'Advance exactly one tick (50 ms)', status: 'main', build: () => ({ kind: 'step', command: 'step' }) },
@@ -150,8 +151,8 @@ export const COMMANDS: readonly CommandSpec[] = [
   { path: ['fault', 'kill-random'], flags: [{ name: 'percent', arity: 1, hint: '1–50', type: 'number', values: ['10'] }], desc: 'Kill 10% of the roster at random', status: 'main', build: buildKillRandom },
   { path: ['fault', 'jam'], flags: [RADIUS_FLAG, DRONE_FLAG('at'), PICK_FLAG], exclusive: [['at', 'pick']], desc: 'Jam radio inside a sphere (sensing still works)', status: 'main', build: buildJam },
   { path: ['fault', 'unjam'], args: '[ID]', max: 1, desc: 'Lift the jam', status: 'main', build: buildUnjam },
-  { path: ['fault', 'partition'], args: 'on|off', min: 1, max: 1, values: ['on', 'off'], desc: 'Split the swarm into two radio groups at x = 0', status: 'proto', build: buildPartition },
-  { path: ['fault', 'loss'], args: 'PERCENT', min: 1, max: 1, values: ['0', '5', '20', '50'], desc: `Packet loss for every receiver, 0–${LOSS_MAX_PERCENT} %`, status: 'proto', build: buildLoss },
+  { path: ['fault', 'partition'], args: 'on|off', min: 1, max: 1, values: ['on', 'off'], desc: 'Split the swarm into two radio groups at x = 0', status: 'main', build: buildPartition },
+  { path: ['fault', 'loss'], args: 'PERCENT', min: 1, max: 1, values: ['0', '5', '20', '50'], desc: `Packet loss for every receiver, 0–${LOSS_MAX_PERCENT} %`, status: 'main', build: buildLoss },
   { path: ['inspect'], args: 'ID|off', min: 1, max: 1, values: ['off'], flags: [{ name: 'static', arity: 0, hint: '' }], desc: 'Open the inspector on a drone', status: 'ui', build: buildInspect },
   { path: ['view'], args: 'LENS [on|off]', min: 1, max: 2, values: Object.keys(LENSES), desc: 'Toggle a diagnostic lens (visual only)', status: 'ui', build: buildView },
   { path: ['camera'], args: 'PRESET', min: 1, max: 1, values: ['audience', 'quarter', 'top'], desc: 'Move the camera to a preset', status: 'ui', build: buildCamera },
@@ -160,13 +161,15 @@ export const COMMANDS: readonly CommandSpec[] = [
   { path: ['timeline'], desc: 'Toggle the show timeline', status: 'ui', build: ui({ type: 'timeline' }) },
   { path: ['clear'], desc: 'Clear the console', status: 'ui', build: ui({ type: 'clear' }) },
   { path: ['history'], desc: 'Show command history', status: 'ui', build: ui({ type: 'history' }) },
-  { path: ['demo', 'run'], args: '90', max: 1, values: ['90', '180'], desc: 'Run the 90-second scripted demo', status: 'proto', build: buildDemoRun },
+  { path: ['demo', 'run'], args: '90', max: 1, values: ['90', '180'], desc: 'Run the 90-second scripted demo', status: 'main', build: buildDemoRun },
   { path: ['demo', 'stop'], desc: 'Stop the scripted demo', status: 'ui', build: ui({ type: 'demo-stop' }) },
   { path: ['cue', 'add'], desc: 'Add a cue to the planned show', status: 'later' },
   { path: ['cue', 'move'], desc: 'Re-order or retime cues', status: 'later' },
   { path: ['show', 'save'], desc: 'Save the show to a file', status: 'later' },
   { path: ['show', 'load'], desc: 'Load a saved show', status: 'later' },
   { path: ['seek'], args: 'TIME', desc: 'Jump to a time (needs replay-to-tick)', status: 'later' },
+  { path: ['replay', 'save'], desc: 'Save this run’s event log (seed, params, events) to a file', status: 'main', build: ui({ type: 'replay-save' }) },
+  { path: ['replay', 'load'], desc: 'Load a saved event log: reset from its seed and schedule its events', status: 'main', build: ui({ type: 'replay-load' }) },
 ];
 
 // ---------------------------------------------------------------------------------------- tokenise
@@ -283,21 +286,6 @@ export function parseColour(text: string): RGB | null {
   return [0, 2, 4].map(i => parseInt(text.slice(1 + i, 3 + i), 16) / 255) as RGB;
 }
 
-/**
- * Text a text recipe can draw: 1–20 characters, not all spaces, each in the score package's font table either as
- * typed or as an ASCII lower-case letter. Checked per character as typed, so Unicode case mapping (ß -> SS,
- * ı -> I) cannot smuggle a character past the font.
- */
-export function validateText(text: string): string | null {
-  const chars = [...text];
-  if (!text.trim()) return 'form text needs a word in quotes, e.g. form text "DURHACK".';
-  if (chars.length > TEXT_MAX) return `Text is ${chars.length} characters; the most is ${TEXT_MAX}.`;
-  const drawable = (ch: string) => Object.hasOwn(FONT, ch) || (/^[a-z]$/.test(ch) && Object.hasOwn(FONT, ch.toUpperCase()));
-  const bad = [...new Set(chars.filter(ch => !drawable(ch)))];
-  if (bad.length) return `The font has no ${bad.map(ch => `"${ch}"`).join(', ')}. Use A–Z, 0–9 and spaces.`;
-  return null;
-}
-
 function droneId(text: string | undefined, ctx: ParseContext, what: string, allowDead = false): { id: number; alive: boolean } | string {
   const id = parseInteger(text);
   if (id === null || id < 0) return `${what} must be a drone id (a whole number from 0), not "${text ?? ''}".`;
@@ -341,7 +329,7 @@ function planned(spec: CommandSpec, reason?: string): PlannedIntent {
 
 function buildForm(kind: 'text' | 'sphere' | 'helix'): Build {
   return (args, _ctx, spec) => {
-    let recipe: Recipe;
+    let recipe: Exclude<Recipe, GeneratedRecipe>;   // GF-CC-01: a console form is never `generated`
     if (kind === 'text') {
       const text = args.positional[0];
       const problem = validateText(text);

@@ -4,23 +4,32 @@
 // main.ts refreshes it. These tests check scheduling, determinism and stop/restart, plus one measured timing: the
 // repair caption lands between the Encore arm's first claim and its first slot commit. Other repair, adoption and
 // radio behaviour (see BRAIN_DEPENDENT_BEATS) is not asserted here.
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Group, PerspectiveCamera, Scene } from 'three';
 import { makeParams, OPERATOR } from '../../src/contracts';
 import type { EnvEvent, MetricsSample, WorldSnapshot } from '../../src/contracts';
 import { currentMovement, expandRecipe } from '../../src/score';
 import { createWorld, idsInSphere } from '../../src/sim';
 import { bindControls } from '../../src/app/actions';
-import { readViewMode, resetViewMode } from '../../src/app/render/colourModes/viewMode';
+import { readViewMode, resetViewMode, setViewMode } from '../../src/app/render/colourModes/viewMode';
+import { createCascadeLayer } from '../../src/app/render/layers/CascadeLayer';
+import { versionKey } from '../../src/observer/measure';
 import { controlContext, createWorlds, DEFAULT_N0, viewModeDisplay, type Pair, type ShellHooks, type Worlds } from '../../src/app/worlds';
 import { createSelectionArm } from '../../src/app/ui/popovers';
 import { armPhase } from '../../src/app/armPhase';
 import { readoutItems, type ArmPhase, type ReadoutItem } from '../../src/app/ui/Readout';
 import {
-  BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoViewAt, dispatchTick,
+  activeDemoBeats, BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoBeatsFor, demoViewAt, dispatchTick,
+  REPAIR_TRAIL_CAPTION, TRAIL_OFF,
+  GENERATED_CAPTIONS, GENERATED_DRONE, GENERATED_FIXTURE, GENERATED_TICKS, generatedDemoBeats, generatedDemoOptIn, generatedSceneRecipe,
+  preloadGeneratedScene, type DemoAction,
   INJECT_DRONE, INJECT_RECIPE, JAM_CENTRE, JAM_RADIUS, KILL_CENTRE, KILL_RADIUS, LEAD_TICKS, type DemoBeat,
 } from '../../src/app/ui/DemoScript';
 
-afterEach(() => resetViewMode());
+afterEach(() => { resetViewMode(); vi.unstubAllGlobals(); });
+/** JSON of DEMO_BEATS at phase2/development 6b6bfba (before #232): the script without ?p2=cascade must not change. */
+const BEATS_SHA256_6B6BFBA = 'f4dd8fe1a98f0678c710c0f62048bd7948e198b1a46a8211f46d8ad2ff34d4c4';
 
 /** The app's wiring minus WebGL: same binder, context and display adapter; the demo talks to it by events only. */
 function rig(seed = 7, beats: readonly DemoBeat[] = DEMO_BEATS, shell: Partial<ShellHooks> = {}) {
@@ -100,6 +109,43 @@ describe('scripted demo constants', () => {
     // The stop and restart tests below read X-ray on at KILL - 30 and KILL + 20: both before the repair beat.
     expect(DEMO_TICKS.REPAIR).toBeGreaterThan(DEMO_TICKS.KILL + 20);
   });
+
+  it('without ?p2=cascade the script is unchanged, byte for byte: the same beats array, captions and schedule (#232)', () => {
+    expect(demoBeatsFor({ cascade: false })).toBe(DEMO_BEATS);
+    expect(activeDemoBeats()).toBe(DEMO_BEATS);                    // node: no location
+    for (const search of ['', '?seed=101', '?p2=inv', '?p2=cascades', '?cascade=1', '?q=low', '?q=4&p2=inv']) {
+      vi.stubGlobal('location', { search });
+      expect(activeDemoBeats(), search).toBe(DEMO_BEATS);
+    }
+    // The beat list as it was at phase2/development 6b6bfba, before #232 (sha256 of its JSON).
+    expect(createHash('sha256').update(JSON.stringify(DEMO_BEATS)).digest('hex')).toBe(BEATS_SHA256_6B6BFBA);
+  });
+
+  it('with ?p2=cascade only the repair view and caption change and one view beat is added: no world event moves (#232)', () => {
+    vi.stubGlobal('location', { search: '?p2=inv,cascade' });
+    const beats = activeDemoBeats();
+    expect(beats).toEqual(demoBeatsFor({ cascade: true }));
+    // The trail draws at every quality level (E3), so a forced ?q never drops the flag schedule.
+    for (const search of ['?q=high&p2=cascade', '?q=0&p2=cascade', '?p2=cascade&seed=7', '?q=low&p2=cascade', '?q=1&p2=cascade', '?p2=cascade&q=4']) {
+      vi.stubGlobal('location', { search });
+      expect(activeDemoBeats(), search).toEqual(beats);
+    }
+    const added = beats.filter(beat => !DEMO_BEATS.some(old => old.id === beat.id));
+    expect(added).toEqual([{ id: 'trail-off', tick: TRAIL_OFF, action: { kind: 'view', xray: false, beliefColours: false }, caption: '' }]);
+    expect(beats.filter(beat => beat.id !== 'trail-off' && beat.id !== 'repair')).toEqual(DEMO_BEATS.filter(beat => beat.id !== 'repair'));
+    expect(beats.find(beat => beat.id === 'repair')).toEqual({ id: 'repair', tick: DEMO_TICKS.REPAIR, action: { kind: 'view', xray: true, beliefColours: false }, caption: REPAIR_TRAIL_CAPTION });
+    // Only overlays differ, and overlays never reach a world: every control, camera and layout beat is unchanged.
+    const world = (list: readonly typeof DEMO_BEATS[number][]) => list.filter(beat => beat.action?.kind !== 'view').map(beat => [beat.id, dispatchTick(beat), beat.action]);
+    expect(world(beats)).toEqual(world(DEMO_BEATS));
+    for (let i = 1; i < beats.length; i++) expect(dispatchTick(beats[i])).toBeGreaterThanOrEqual(dispatchTick(beats[i - 1]));
+    // X-ray: on from the X-ray beat through the repair until TRAIL_OFF, off until the jam, then as before.
+    expect(demoViewAt(DEMO_TICKS.REPAIR, beats)).toEqual({ xray: true, beliefColours: false });
+    expect(demoViewAt(TRAIL_OFF - 1, beats)).toEqual({ xray: true, beliefColours: false });
+    for (const tick of [TRAIL_OFF, DEMO_TICKS.FORMATION, DEMO_TICKS.JAM_ON - 1]) expect(demoViewAt(tick, beats)).toEqual({ xray: false, beliefColours: false });
+    for (const tick of [DEMO_TICKS.JAM_ON, DEMO_TICKS.FINAL, DEMO_TICKS.END]) expect(demoViewAt(tick, beats)).toEqual(demoViewAt(tick));
+    expect(TRAIL_OFF).toBeGreaterThan(DEMO_TICKS.REPAIR);
+    expect(TRAIL_OFF).toBeLessThan(DEMO_TICKS.FORMATION);
+  });
 });
 
 describe('scripted demo run', () => {
@@ -118,13 +164,37 @@ describe('scripted demo run', () => {
   const selectedAt: Record<string, number | null> = {};
   let finalPhases: Pair<ArmPhase | null> | null = null;
   let finalReadout: ReadoutItem[] = [];
+  // #232: the opt-in cascade trail layer (#204) fed this run's Encore snapshots. Each tick it is drawn three times,
+  // with the overlays of the ?p2=cascade schedule, of the default schedule, and with X-ray forced on (every arrow the
+  // trail would draw). The real view mode is restored at once, so the run itself is untouched.
+  const cascadeBeats = demoBeatsFor({ cascade: true });
+  const arrows = { flag: [] as number[], plain: [] as number[], all: [] as number[] };   // ticks with >= 1 arrow drawn
+  let trailChanges = 0;
+  /** The trail's commit and pop counts as the repair beat lands and at TRAIL_OFF (the caption names green commits). */
+  const trailCounts: Record<'repair' | 'off', { commits: number; pops: number } | null> = { repair: null, off: null };
   const watched = [DEMO_TICKS.KILL - 1, DEMO_TICKS.KILL, DEMO_TICKS.JAM_ON, DEMO_TICKS.INJECT, DEMO_TICKS.JAM_OFF - 1, DEMO_TICKS.JAM_OFF];
   beforeAll(() => {
     r = rig();
     expect(r.runner.start()).toBe(true);
     let xray = readViewMode().xray;
+    const trail = createCascadeLayer({ optIn: true });
+    const trailScene = new Scene();
+    trail.init({ scene: trailScene, camera: new PerspectiveCamera(), params: r.worlds.params });
+    const trailGroup = trailScene.children[0] as Group;
     play(r, DEMO_TICKS.END, 1, snapshots => {
       const tick = snapshots.encore.tick;
+      trail.ingest!(snapshots.encore);
+      const real = readViewMode();
+      for (const [key, view] of [['flag', demoViewAt(tick, cascadeBeats)], ['plain', demoViewAt(tick)], ['all', { xray: true, beliefColours: false }]] as const) {
+        setViewMode(view);
+        trail.update({ prev: previous?.encore ?? snapshots.encore, curr: snapshots.encore, alpha: 0, dtReal: 0 });
+        if (trailGroup.userData.cascade.drawn > 0) arrows[key].push(tick);
+      }
+      setViewMode(real);
+      trailChanges = trailGroup.userData.cascade.changes;
+      const counts = { commits: trailGroup.userData.cascade.commits, pops: trailGroup.userData.cascade.pops };
+      if (tick === DEMO_TICKS.REPAIR) trailCounts.repair = counts;
+      if (tick === TRAIL_OFF) trailCounts.off = counts;
       if (watched.includes(tick)) seen[tick] = structuredClone(snapshots);
       // play() refreshes status after this callback, so a view beat sent on tick t shows here on tick t + 1.
       if (readViewMode().xray !== xray) { xray = !xray; xrayChanges.push([tick - 1, xray]); }
@@ -231,6 +301,28 @@ describe('scripted demo run', () => {
     expect(r.captions.map(entry => entry.tick)).toEqual(captioned.map(beat => beat.tick));
   });
 
+  it('?p2=cascade shows the real repair arrows; without it the same run shows none (#232, measured on this run)', () => {
+    const span = (ticks: number[]) => (ticks.length ? `${ticks[0]}-${ticks.at(-1)}` : 'none');
+    const repair = arrows.all.filter(tick => tick >= DEMO_TICKS.REPAIR && tick < DEMO_TICKS.JAM_ON);
+    console.log(`#232 demo seed ${DEMO_SEED}, Encore arm, cascade layer opted in: ${trailChanges} observed slot changes (observer: ${r.worlds.observers.encore.summary().slotChanges}); ` +
+      `ticks with >= 1 arrow drawn: X-ray forced on ${arrows.all.length} (${span(arrows.all)}; repair window ${repair.length}, ${span(repair)}), ` +
+      `?p2=cascade schedule ${arrows.flag.length} (${span(arrows.flag)}), default schedule ${arrows.plain.length} (${span(arrows.plain)}); ` +
+      `trail commits / pops at the repair beat ${JSON.stringify(trailCounts.repair)}, at TRAIL_OFF ${JSON.stringify(trailCounts.off)}`);
+    // The flag caption says "each green arrow is one observed slot change": the window shows commits (green), no pops (violet).
+    expect(trailCounts.off!.commits).toBeGreaterThan(trailCounts.repair!.commits);
+    expect(trailCounts.off!.pops).toBe(trailCounts.repair!.pops);
+    expect(trailChanges).toBe(r.worlds.observers.encore.summary().slotChanges);   // every arrow is an observed belief change
+    expect(repair.length).toBeGreaterThan(0);
+    expect(arrows.plain.filter(tick => tick >= DEMO_TICKS.REPAIR && tick < DEMO_TICKS.JAM_ON)).toEqual([]);   // #204's limitation
+    expect(arrows.flag.length).toBeGreaterThan(0);
+    // With the flag, every repair-window arrow frame is on screen: TRAIL_OFF comes after the last one has faded.
+    expect(arrows.flag.filter(tick => tick >= DEMO_TICKS.REPAIR && tick < DEMO_TICKS.JAM_ON)).toEqual(repair);
+    expect(repair.at(-1)!).toBeLessThan(TRAIL_OFF);
+    // Outside the repair window the flag changes nothing: the same frames as the default schedule.
+    const outside = (ticks: number[]) => ticks.filter(tick => tick < DEMO_TICKS.REPAIR || tick >= DEMO_TICKS.JAM_ON);
+    expect(outside(arrows.flag)).toEqual(outside(arrows.plain));
+  });
+
   it('X-ray is off from the repair caption until the jam, through the real display intents (#134)', () => {
     expect(xrayChanges).toEqual([[DEMO_TICKS.XRAY, true], [DEMO_TICKS.REPAIR, false], [DEMO_TICKS.JAM_ON, true], [DEMO_TICKS.FINAL, false]]);
   });
@@ -324,6 +416,106 @@ describe('scripted demo problems reach the panel over the browser path', () => {
     expect(r.controls.getEventLog().map(event => [event.type, event.tick])).toEqual([['KILL', 121]]);
     expect(r.runner.problems[0]).toMatch(/off-script/);
   }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
+});
+
+describe('generated-scene demo (E5, ?p2=generated-demo)', () => {
+  it('is opt-in: only ?p2=generated-demo switches to it; the default and ?p2=cascade schedules stay what they were', () => {
+    expect(generatedDemoOptIn('?p2=generated-demo')).toBe(true);
+    expect(generatedDemoOptIn('?q=low&p2=cascade, generated-demo')).toBe(true);
+    expect(generatedDemoOptIn('?p2=generated')).toBe(false);
+    expect(generatedDemoOptIn('?p2=generated-demos')).toBe(false);
+    for (const search of ['', '?seed=101', '?p2=generated', '?p2=inv']) {
+      vi.stubGlobal('location', { search });
+      expect(activeDemoBeats(), search).toBe(DEMO_BEATS);
+    }
+    vi.stubGlobal('location', { search: '?p2=cascade' });
+    expect(activeDemoBeats()).toEqual(demoBeatsFor({ cascade: true }));
+    for (const search of ['?p2=generated-demo', '?p2=cascade,generated-demo']) {
+      vi.stubGlobal('location', { search });
+      expect(activeDemoBeats(), search).toEqual(generatedDemoBeats());   // it takes precedence over cascade
+    }
+    expect(createHash('sha256').update(JSON.stringify(DEMO_BEATS)).digest('hex')).toBe(BEATS_SHA256_6B6BFBA);
+  });
+
+  it('keeps the default script up to the sphere, then partition, one generated injection, divergence, merge, honest end', () => {
+    const beats = generatedDemoBeats();
+    const formation = DEMO_BEATS.findIndex(beat => beat.id === 'formation');
+    expect(beats.slice(0, formation + 1)).toEqual(DEMO_BEATS.slice(0, formation + 1));
+    expect(beats.slice(formation + 1).map(beat => beat.id)).toEqual(['partition', 'gen-belief', 'accept', 'gen-inject', 'gen-deselect', 'diverge', 'partition-off', 'final-layout', 'final-view', 'final', 'end']);
+    for (let i = 1; i < beats.length; i++) expect(dispatchTick(beats[i])).toBeGreaterThanOrEqual(dispatchTick(beats[i - 1]));
+    expect(beats.filter(beat => beat.action?.kind === 'generated')).toHaveLength(1);   // exactly one inject beat
+    expect(beats.filter(beat => beat.action?.kind === 'control' && beat.action.intent.type === 'inject')).toHaveLength(0);
+    const inject = beats.find(beat => beat.id === 'gen-inject')!;
+    expect(inject.action).toEqual({ kind: 'generated', fixture: GENERATED_FIXTURE, droneId: GENERATED_DRONE, at: GENERATED_TICKS.INJECT });
+    expect(dispatchTick(inject)).toBe(GENERATED_TICKS.INJECT - LEAD_TICKS);   // timed, like the other world events
+    expect(GENERATED_TICKS.NEW_MOVEMENT).toBe(GENERATED_TICKS.INJECT + makeParams(DEMO_N0).scoreLead);
+    expect(beats.find(beat => beat.id === 'accept')!.caption).toContain('committed fixture scene, not Gemini');
+    // World changes: the default kill, the operator partition on and off, and the one generated injection. No beat
+    // positions a drone: there is no such intent.
+    const world = beats.filter(beat => beat.action?.kind === 'control' || beat.action?.kind === 'generated')
+      .map(beat => beat.action!.kind === 'generated' ? 'generated-inject' : (beat.action as Extract<DemoAction, { kind: 'control' }>).intent.type);
+    expect(world).toEqual(['kill-region', 'partition', 'generated-inject', 'select', 'partition']);
+    expect(demoViewAt(GENERATED_TICKS.INJECT, beats)).toEqual({ xray: true, beliefColours: true });   // gossip visible
+    expect(demoViewAt(DEMO_TICKS.FINAL, beats)).toEqual({ xray: false, beliefColours: false });
+  });
+
+  // Heavy (n0 200, 1560 ticks, about 22-25 s): opt-in, WP §2.3 item 7. The browser smoke's check 7 drives the same
+  // sequence in the real app; this is the headless proof of one uplink, gossip-only adoption and the partition.
+  it.skipIf(process.env.P2_WIDE !== '1')('the scene reaches ONE drone at its exact tick through the controller; adoption rises only by gossip, partition respected (P2_WIDE=1)', async () => {
+    expect(await preloadGeneratedScene()).toBe(true);
+    const recipe = generatedSceneRecipe()!;
+    expect(recipe).toMatchObject({ kind: 'generated' });
+    const r = rig(DEMO_SEED, generatedDemoBeats());
+    expect(r.runner.start()).toBe(true);
+    const G = GENERATED_TICKS, END = G.PARTITION_OFF + 160;
+    let key: string | null = null, targetSide: number | null = null;
+    const heard = new Set<number>(), adopters = new Map<number, number>(), unexplained: string[] = [];
+    let holdersAcrossBeforeMerge = 0, holdersAcrossAfterMerge = 0;
+    const observer: [number, number, number][] = [];   // tick, Encore count, static count (observer samples only)
+    play(r, END, 1, snapshots => {
+      const s = snapshots.encore, tick = s.tick;
+      if (tick === G.INJECT) {
+        const event = r.controls.getEventLog().find(e => e.type === 'INJECT_SCORE') as Extract<EnvEvent, { type: 'INJECT_SCORE' }>;
+        key = versionKey(event.score.version);
+        targetSide = s.drones[GENERATED_DRONE].partitionSide;
+      }
+      if (!key) return;
+      // Gossip evidence: a SCORE broadcast from a drone already holding the new score, delivered to this drone.
+      for (const e of s.radio) if (e.type === 'SCORE' && versionKey(s.drones[e.from].belief.version) === key) for (const d of e.delivered) heard.add(d);
+      for (const d of s.drones) {
+        if (!d.alive || versionKey(d.belief.version) !== key || adopters.has(d.id)) continue;
+        adopters.set(d.id, tick);
+        if (d.id !== GENERATED_DRONE && !heard.has(d.id)) unexplained.push(`${d.id}@${tick}`);
+        if (d.partitionSide !== targetSide) { if (tick < G.PARTITION_OFF) holdersAcrossBeforeMerge++; else holdersAcrossAfterMerge++; }
+      }
+      if (tick % 10 === 0) {
+        const samples = r.worlds.samples();
+        observer.push([tick, samples.encore?.versions[key] ?? 0, samples.static?.versions[key] ?? 0]);
+      }
+    });
+    const injects = r.controls.getEventLog().filter(e => e.type === 'INJECT_SCORE') as Extract<EnvEvent, { type: 'INJECT_SCORE' }>[];
+    expect(injects).toHaveLength(1);                                     // exactly one uplink...
+    expect(injects[0]).toMatchObject({ tick: G.INJECT, droneId: GENERATED_DRONE });   // ...into the one drone, on its exact tick
+    expect(injects[0].score.movements.at(-1)!.recipe).toMatchObject({ kind: 'generated', sceneHash: (recipe as { sceneHash: string }).sceneHash });
+    expect(r.runner.problems).toEqual([]);
+    expect(adopters.get(GENERATED_DRONE)).toBeLessThanOrEqual(G.INJECT + 2);   // the uplink lands on its tick
+    expect(unexplained).toEqual([]);                                     // every other adopter heard it on the radio first
+    expect(holdersAcrossBeforeMerge).toBe(0);                            // the partition held the score on one side
+    expect(holdersAcrossAfterMerge).toBeGreaterThan(0);                  // and gossip carried it across after
+    const at = (tick: number) => observer.filter(([t]) => t <= tick).at(-1)!;
+    const [, early] = at(G.INJECT), [, beforeMerge] = at(G.PARTITION_OFF - 1), [, end] = at(END);
+    const live = r.worlds.latest()!.encore.drones.filter(d => d.alive).length;
+    const series = observer.filter(([t]) => t >= G.INJECT && t % 40 === 0).map(([t, n]) => `t${t} ${n}`).join(', ');
+    console.log(`E5 generated demo (seed ${DEMO_SEED}): drone ${GENERATED_DRONE} on side ${targetSide}; observer adoption (live Encore drones on the scene's version): ${series}; end ${end} of ${live} live; static max ${Math.max(...observer.map(([, , st]) => st))}`);
+    for (let i = 1; i < observer.length; i++) expect(observer[i][1], `t${observer[i][0]}`).toBeGreaterThanOrEqual(observer[i - 1][1]);   // never falls
+    expect(early).toBe(1);                                               // at its tick only the one drone holds it...
+    expect(beforeMerge).toBeGreaterThan(early);                          // ...it fills the injected side...
+    expect(beforeMerge).toBe([...adopters.values()].filter(t => t < G.PARTITION_OFF).length);   // observer count = belief holders
+    expect(end).toBeGreaterThan(beforeMerge);                            // ...and crosses once the partition is off
+    expect(end).toBe(live);
+    expect(observer.every(([, , st]) => st === 0)).toBe(true);          // the static arm ignores uplinks by design
+    expect(r.captions.find(c => c.caption === GENERATED_CAPTIONS.accept)?.tick).toBe(G.ACCEPT);
+  }, 180_000);
 });
 
 describe('injection target and brain note', () => {

@@ -68,9 +68,23 @@ export interface ScoreVersion { issuedTick: number; origin: number }   // origin
 export type Recipe =
   | { kind: 'text'; text: string; palette?: [RGB, RGB] }      // 5x7 bitmap font, A-Z 0-9 space
   | { kind: 'sphere'; palette?: [RGB, RGB] }
-  | { kind: 'helix'; palette?: [RGB, RGB] };                  // double helix
+  | { kind: 'helix'; palette?: [RGB, RGB] }                   // double helix
+  | GeneratedRecipe;                                          // optional kind (GF-CC-01, GF-FR-01)
 
-// All three recipe kinds are MUST: the show needs typed text and two parametric 3D shapes.
+// text, sphere and helix are MUST: the show needs typed text and two parametric 3D shapes. `generated` is optional.
+
+// GF-CC-01: a formation compiled from a scene. No `palette`: colours come from the scene's materials or foreground.
+// `sceneHash` is a checked label, never trusted and never a memo key; adoption checks every label (section 9).
+export interface GeneratedRecipe {
+  kind: 'generated';
+  compilerVersion: number;           // integer; must equal the running compiler's COMPILER_VERSION
+  sceneHash: string;                 // 64 lower-case hex: SHA-256 of the scene's canonical form
+  slotsDigest: SlotsDigest;          // what the operator's compile produced for its roster (GF-CC-02)
+  scene: SceneSpec2D | SceneSpec3D;  // the canonical (validated, quantised) scene; types in src/contracts/generatedScene.ts
+}
+// GF-CC-02: SHA-256 of the canonical slot list a compile produced at this n0 and slotSpacingMin.
+export interface SlotsDigest { n0: number; slotSpacingMin: number; digest: string }
+
 export interface Movement {
   startTick: number;        // show clock tick at which drones start flying to this formation
   transitionTicks: number;  // hold begins at startTick + transitionTicks
@@ -86,9 +100,13 @@ export interface Formation {
 }
 ```
 
+The scene types (`SceneSpec2D`, `SceneSpec3D` and their parts) are `src/contracts/generatedScene.ts`, exactly the canonical spec `docs/integrations/gemini-generated-formations.md` §6.2–§6.3. Every exhaustive `switch` on `recipe.kind` has an assert-never `default`, so a new kind fails to typecheck. Code that reads `recipe.palette` narrows on `kind` first.
+
 ## 3. Messages
 
 Two message types. Both are **one-hop broadcasts**: the radio medium never relays. No unbounded flooding: `SCORE` is rate-limited gossip (§9), in which each adopter re-sends, at most once per `scoreResendMin`.
+
+**`SCORE` size is not modelled.** The medium applies loss, latency, jam and partition, not payload size or bandwidth, so a `SCORE` carrying a generated scene (canonical form at most 16 KB) has the same delivery odds as a heartbeat. Real radios would fragment it (proposed AS-11).
 
 ```ts
 // src/contracts/messages.ts
@@ -287,9 +305,30 @@ composeNext(score: Score, tick: number, recipe: Recipe, origin: number, n0: numb
 launchPos(id: number, n0: number): Vec3
 transitionTicksBetween(from: Vec3[], to: Vec3[], params: Params): number          // the authoring formula under "Timing"
 makeScore(recipes: Recipe[], n0: number, params: Params, holdTicks?: number): Score   // builds the preloaded score
+
+// GF-CC-01 / GF-CC-02: generated recipes
+expandRecipeStrict(recipe: Recipe, n0: number, params: Params): Formation   // operator side: throws GeneratedSceneRejected
+isFallbackFormation(formation: Formation): boolean                         // identity check against the frozen fallback
+makeGeneratedRecipe(scene: unknown, n0: number, params: Params)            // labels from one compile; never throws
+  : { ok: true; recipe: GeneratedRecipe; warnings: CompileWarning[] } | { ok: false; code: RejectCode; detail: string }
+copyRecipe(recipe: Recipe): Recipe                                         // shares nothing; a generated scene is deep-frozen
+acceptsRecipe(recipe: Recipe, n0: number, params: Params): boolean         // the brain's adoption check (section 9); pure, total
 ```
 
 **Expansion.** (1) Generate a dense candidate cloud for the shape: about `4·n0` points for slot selection, and about 2000 for `dense`. Text uses a built-in 5×7 bitmap font table (no canvas, so Node and browser agree), supersampling each lit cell 3×3. Sphere uses a Fibonacci lattice. Helix samples two strands. (2) Pick `n0` slots by **farthest-point sampling**: slot 0 is the candidate nearest the centroid; each next slot is the candidate farthest from all slots chosen so far (ties: lowest candidate index). (3) Scale the shape uniformly about its centre, up or down, so that the closest pair of slots is `slotSpacingMin` (times 1.001, so rounding cannot leave it below), then translate it so the centre of `bounds` is (0, 30, 0). Local slot density is therefore the same at every `n0`. Choose each shape's proportions so that `bounds.min.y ≥ 2` at `n0` 40 and 200 (a squat helix, not a tall one). (4) Colour each slot from the palette as a gradient along x.
+
+**Expansion of a `generated` recipe** (GF-CC-01) is the compiler's (`src/score/generated`, canonical spec §7), on the stored canonical scene:
+- (1) Candidates: at least `4·n0` from the scene's geometry, plus a dense cloud.
+- (2) Select `n0` points (spec §7.4), then order the **selection** by farthest-point order, with slot 0 the selected point nearest the selection's centroid. The prefix property holds over the selection, not over all candidates.
+- (3) Placement P1: a uniform scale and translation, with no rotation, so the closest pair of slots is `slotSpacingMin·1.001` (spec §7.6).
+- (4) Colour comes from the scene's materials or foreground, not a palette.
+
+Two entry points, one rule (spec §7.11):
+- **`expandRecipe` is total.** A scene the compiler rejects gives the frozen fallback `sphere` formation for that `(n0, slotSpacingMin)`, held as its own object so `isFallbackFormation` is true for it. It never throws, because preloaded scores, the observer and paced targets reach it without the adoption check, and `world.step` has no try/catch.
+- **`expandRecipeStrict` is the operator's.** It throws `GeneratedSceneRejected` (with the compiler's code, or `unsupported-compiler` or `hash-mismatch` for a wrong label). `composeNext` and `makeScore` use it, so the operator never composes the fallback as if it were the scene. A generated movement they build carries the `slotsDigest` of the same compile that set its `transitionTicks`.
+- **`slotsDigest` scope.** Inside one simulation process the shared memo makes it a consistency assertion, not a drift detector. Its purpose is saved scenes (library, MongoDB) and future multi-device use.
+
+For text, sphere and helix, expansion is exactly the four steps above, unchanged.
 
 Why farthest-point order: **any prefix `0…k-1` is an evenly spread k-drone version of the shape.** Low indices carry the coarse outline; high indices add density. So "priority" means "how much of the outline this slot carries", and sacrificing the highest indices thins the image instead of holing it.
 
@@ -461,6 +500,17 @@ If test 2 cannot be made to pass by about 23:30, use the fallback ladder in [`de
 ## 9. Score dissemination and partitions (ADR-005, ADR-008)
 
 - **Adopt** a received score only if its version is newer: `s.score = score; recompute mvIndex; targetChanged(); scheduleScoreSend()`. `targetChanged` is called on every adoption, which pauses healing for `tStable` (§8.5 limit 8).
+- **Generated movements (GF-CC-02).** After the version checks, and before adopting, a brain checks each `generated` movement with `acceptsRecipe` (normally a memo hit). It refuses only for causes every honest drone computes the same way from the score and its own constants:
+  - a rejected compile;
+  - a `sceneHash` label that is not the hash of the scene;
+  - `compilerVersion ≠ COMPILER_VERSION`;
+  - a `slotsDigest` mismatch where the digest's `n0` and `slotSpacingMin` are the drone's own. A digest for another roster is not compared.
+
+  **On refusal** the score is not adopted (so it is not relayed). One log note is written, and `(version, sceneHash)` goes into the optional state field `refused`: at most 8 entries, oldest evicted, and **absent until the first refusal**, so the `stateHash` of every run without a generated recipe is unchanged. A remembered pair is not rechecked on re-send.
+
+  **On adoption** each generated recipe in the adopted copy becomes `copyRecipe(recipe)`: the same JSON, with a frozen scene.
+
+  A score with no generated movement takes exactly the path above. In one process every brain gets the same compile, so a refusal is uniform: all drones refuse or none does. It becomes partial only where compiles differ between drones (multi-device, mixed compiler versions). This is not a defence against malice (honest senders, §12).
 - **`scheduleScoreSend()`:** if no send is pending, set `scoreSendAt = max(now + 1 + jitter, lastScoreSent + scoreResendMin)`, where `jitter = nextRandom() % scoreJitter` is a fresh draw from the drone's seeded stream (`rng` holds its state), and `jitter = 0` when `scoreJitter = 0` (no jitter). `lastScoreSent` starts at `-scoreResendMin`, so the first send is not delayed. **A scheduled send always fires; it is never cancelled.** Hearing the same version from someone else proves nothing about my other neighbours: with A in range of B, B in range of C, and A out of range of C, only B can reach C, so B must not stand down because it heard A. The rate limit (`scoreResendMin`) bounds the traffic instead: each drone sends at most one `SCORE` per two seconds.
 - **Anti-entropy:** every heartbeat carries the sender's version. A drone that hears an older version schedules a `SCORE` send. A drone that hears a newer one does nothing: the newer drone will hear its heartbeat and send.
 - **Why it cannot stall:** a stale drone keeps sending heartbeats. Each one that an up-to-date neighbour hears leads to a `SCORE` send within `max(1 + scoreJitter, scoreResendMin)` ticks of hearing it, and each send reaches the stale drone with probability `1 - loss`. So any stale drone with a working link to an up-to-date drone adopts with probability 1, and a chain relays hop by hop. This is an argument; test T18 (a three-drone relay line and a hidden-terminal variant) checks it.
