@@ -1,6 +1,6 @@
 import { DoubleSide, DynamicDrawUsage, InstancedMesh, MeshBasicMaterial, Object3D, RingGeometry, type Camera, type Scene } from 'three';
 import type { Layer } from '../Layer';
-import { versionColour, versionKey } from '../colourModes/belief';
+import { resetVersionColours, versionColour, versionKey } from '../colourModes/belief';
 import { readViewMode } from '../colourModes/viewMode';
 import { interpolateDrone } from '../SnapshotBuffer';
 
@@ -51,6 +51,8 @@ export default function createLayer(): Layer {
         }
       }
     },
+    // The world was rebuilt: its versions start over, so their colours do too (#134 P1-10).
+    reset() { resetVersionColours(); },
     setVisible(value) { visible = value; rings.visible = value; if (legend) legend.hidden = !value || !readViewMode().beliefColours; },
     dispose() { scene?.remove(rings); rings?.dispose(); geometry.dispose(); material.dispose(); legend?.remove(); },
   };

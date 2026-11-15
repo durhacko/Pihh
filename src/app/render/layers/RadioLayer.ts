@@ -3,6 +3,12 @@ import type { Layer } from '../Layer';
 import { RadioTrace } from '../colourModes/radioTrace';
 import { readViewMode } from '../colourModes/viewMode';
 
+/** The radio counter: like-for-like counts, and an explicit note when only the selected drone's links are drawn. */
+export function radioCounterText(view: number, plan: { drawn: number; logged: number; involving?: number; filteredTo?: number }): string {
+  if (plan.filteredTo === undefined) return `Radio view ${view} · drawn ${plan.drawn} / ${plan.logged} observed deliveries · last 1 s`;
+  return `Radio view ${view} · drawn ${plan.drawn} of ${plan.involving ?? 0} deliveries involving #${plan.filteredTo} · filtered to #${plan.filteredTo} (all drones: ${plan.logged}) · last 1 s`;
+}
+
 export default function createLayer(): Layer {
   const trace = new RadioTrace();
   const group = new Group();
@@ -43,12 +49,19 @@ export default function createLayer(): Layer {
       geometry.setAttribute('color', new Float32BufferAttribute(colours, 3));
       geometry.computeBoundingSphere();
       group.visible = enabled;
-      group.userData.radio = { drawn: plan.drawn, observed: plan.logged, currentSegments: plan.segments.length, droppedStubs: plan.stubs.length };
+      // With a drone selected, `drawn` covers only its links: say so, and compare it with the deliveries involving it,
+      // not with every delivery (#134 P1-4). `filteredTo` / `involving` are absent without a selection.
+      group.userData.radio = {
+        drawn: plan.drawn, observed: plan.logged, currentSegments: plan.segments.length, droppedStubs: plan.stubs.length,
+        ...(plan.filteredTo !== undefined ? { filteredTo: plan.filteredTo, involving: plan.involving } : {}),
+      };
       if (counter) {
         counter.hidden = !enabled;
-        counter.textContent = `Radio view ${counter.dataset.radioCounter} · drawn ${plan.drawn} / ${plan.logged} observed deliveries · last 1 s`;
+        counter.textContent = radioCounterText(Number(counter.dataset.radioCounter), plan);
         counter.dataset.drawn = String(plan.drawn);
         counter.dataset.observed = String(plan.logged);
+        if (plan.filteredTo !== undefined) { counter.dataset.filteredTo = String(plan.filteredTo); counter.dataset.involving = String(plan.involving); }
+        else { delete counter.dataset.filteredTo; delete counter.dataset.involving; }
       }
     },
     ingest(snapshot) { trace.ingest(snapshot); },

@@ -54,10 +54,15 @@ export class RadioTrace {
     const stubs: DropStub[] = [];
     let logged = 0;
     let drawn = 0;
+    // With a drone selected only its links are drawn, so `drawn` counts only them: `involving` is the matching
+    // denominator (observed deliveries sent by or to the selected drone), so a label can compare like with like
+    // (#134 P1-4). Absent without a selection.
+    let involving = 0;
     const ordered = [...this.history].sort((a, b) => Number(this.highlighted(b.event)) - Number(this.highlighted(a.event)) || a.tick - b.tick || a.ordinal - b.ordinal);
     for (const broadcast of ordered) {
       const { event, positions } = broadcast;
       logged += event.delivered.length;
+      if (selectedDroneId !== null) involving += event.from === selectedDroneId ? event.delivered.length : event.delivered.filter(id => id === selectedDroneId).length;
       const start = positions.get(event.from);
       if (!start) continue;
       const highlight = this.highlighted(event);
@@ -81,7 +86,9 @@ export class RadioTrace {
       }
       drawn += [...broadcast.drawn].filter(id => selectedDroneId === null || event.from === selectedDroneId || id === selectedDroneId).length;
     }
-    return { segments, stubs, drawn, logged };
+    return selectedDroneId === null
+      ? { segments, stubs, drawn, logged }
+      : { segments, stubs, drawn, logged, involving, filteredTo: selectedDroneId };
   }
 
   private highlighted(event: RadioEvent): boolean { return event.type === 'SCORE' || event.claimSlot !== null; }
