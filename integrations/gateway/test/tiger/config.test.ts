@@ -79,21 +79,22 @@ test('T35: a URL carrying any TLS parameter is refused, whatever its value or le
   assert.deepEqual([...URL_TLS_PARAMS], ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'ssl']);
 });
 
-test('T35: require only with TIGER_TLS_UNVERIFIED=1; every other mode refused; ssl built only from the mode', () => {
-  refused(() => loadTigerReaderConfig({ TIGER_READ_DATABASE_URL: URL_OK, TIGER_SSL_MODE: 'require' }), 'TLS_UNVERIFIED_NOT_ACKNOWLEDGED');
-  for (const flag of ['0', 'true', 'yes', ' ', '']) {
-    refused(() => loadTigerReaderConfig({ TIGER_READ_DATABASE_URL: URL_OK, TIGER_SSL_MODE: 'require', TIGER_TLS_UNVERIFIED: flag }), 'TLS_UNVERIFIED_NOT_ACKNOWLEDGED');
+test('T35: verify-full by default; require only with TIGER_TLS_UNVERIFIED=1; ssl built only from the mode (RFC §13 names)', () => {
+  for (const env of [{}, { TIGER_TLS_UNVERIFIED: '' }, { TIGER_TLS_UNVERIFIED: '  ' }]) {
+    const s = loadTigerReaderConfig({ TIGER_READ_DATABASE_URL: URL_OK, ...env });
+    assert.equal(s?.sslMode, 'verify-full');
+    assert.deepEqual(s?.ssl, { rejectUnauthorized: true, servername: HOST });
   }
-  const s = loadTigerReaderConfig({ TIGER_READ_DATABASE_URL: URL_OK, TIGER_SSL_MODE: 'require', TIGER_TLS_UNVERIFIED: '1' });
-  assert.ok(s);
-  assert.equal(s.sslMode, 'require');
-  assert.deepEqual(s.ssl, { rejectUnauthorized: false });
-  for (const mode of ['disable', 'allow', 'prefer', 'no-verify', 'verify-ca', 'VERIFY-FULL', 'Require']) {
-    refused(() => loadTigerReaderConfig({ TIGER_READ_DATABASE_URL: URL_OK, TIGER_SSL_MODE: mode, TIGER_TLS_UNVERIFIED: '1' }), 'INVALID_SSL_MODE');
+  const weak = loadTigerReaderConfig({ TIGER_READ_DATABASE_URL: URL_OK, TIGER_TLS_UNVERIFIED: '1' });
+  assert.equal(weak?.sslMode, 'require');
+  assert.deepEqual(weak?.ssl, { rejectUnauthorized: false });
+  // Anything but 1 or unset is refused, never guessed.
+  for (const flag of ['0', 'true', 'TRUE', 'yes', 'on', '2', 'require', 'verify-full']) {
+    refused(() => loadTigerReaderConfig({ TIGER_READ_DATABASE_URL: URL_OK, TIGER_TLS_UNVERIFIED: flag }), 'INVALID_TLS_FLAG');
+    refused(() => loadTigerImporterConfig({ TIGER_DATABASE_URL: URL_OK, TIGER_TLS_UNVERIFIED: flag }), 'INVALID_TLS_FLAG');
   }
-  // TIGER_TLS_UNVERIFIED=1 alone does not weaken verify-full.
-  const strict = loadTigerReaderConfig({ TIGER_READ_DATABASE_URL: URL_OK, TIGER_TLS_UNVERIFIED: '1' });
-  assert.equal(strict?.sslMode, 'verify-full');
+  // There is no other TLS setting: a TIGER_SSL_MODE (not an RFC name) has no effect on the mode.
+  assert.equal(loadTigerReaderConfig({ TIGER_READ_DATABASE_URL: URL_OK, TIGER_SSL_MODE: 'disable' })?.sslMode, 'verify-full');
 });
 
 test('T35: the start-up line states the effective mode, warns for require, and names no host', () => {

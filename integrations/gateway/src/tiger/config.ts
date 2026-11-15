@@ -4,7 +4,8 @@
 //   reader   TIGER_READ_DATABASE_URL   - the gateway HTTP server (loadTigerReaderConfig)
 //   importer TIGER_DATABASE_URL        - the importer CLI, from src/tiger/.env.importer (loadTigerImporterConfig)
 //   admin    TIGER_ADMIN_DATABASE_URL  - tiger:migrate, the live-test harness, the owner tools (loadTigerAdminConfig)
-// A process refuses a credential it must not hold. TLS never comes from the URL; it comes only from TIGER_SSL_MODE.
+// A process refuses a credential it must not hold. TLS never comes from the URL: it is verify-full, or require only
+// when TIGER_TLS_UNVERIFIED=1 (RFC §13 names; no other TLS setting exists).
 // Errors name the variable and the rule, never a value: no host, user, password or URL reaches a message (T31).
 import { secret, type Env, type Secret } from '../config.ts';
 
@@ -38,7 +39,6 @@ export const TIGER_ENV = Object.freeze({
   importer: 'TIGER_DATABASE_URL',
   admin: 'TIGER_ADMIN_DATABASE_URL',
   liveWrite: 'TIGER_LIVE_WRITE_URL',
-  sslMode: 'TIGER_SSL_MODE',
   tlsUnverified: 'TIGER_TLS_UNVERIFIED',
 });
 
@@ -82,28 +82,22 @@ function parseUrl(env: Env, name: string): { url: Secret; host: string } {
   if (url.hostname === '') throw new TigerConfigError('INVALID_URL', `${name} has no host`);
   for (const key of url.searchParams.keys()) {
     if (URL_TLS_PARAMS.includes(key.toLowerCase())) {
-      throw new TigerConfigError('URL_SETS_TLS', `${name} must not carry TLS parameters (${URL_TLS_PARAMS.join(', ')}); remove them and use ${TIGER_ENV.sslMode}`);
+      throw new TigerConfigError('URL_SETS_TLS', `${name} must not carry TLS parameters (${URL_TLS_PARAMS.join(', ')}); remove them (TLS is verify-full, or require with ${TIGER_ENV.tlsUnverified}=1)`);
     }
   }
   return { url: secret(raw), host: url.hostname };
 }
 
 /**
- * TIGER_SSL_MODE: `verify-full` (default) or `require`. `require` (encrypted, server not authenticated: free services
- * have no certificate) is accepted only with TIGER_TLS_UNVERIFIED=1, and its risks are in RFC §13. Every other value
- * (`disable`, `prefer`, `allow`, `no-verify`, `verify-ca`, …) is refused.
+ * The RFC §13 names only: `verify-full` by default; `require` (encrypted, server not authenticated: free services have
+ * no certificate) only when TIGER_TLS_UNVERIFIED=1, with the risks RFC §13 lists. Any other value of the flag is
+ * refused rather than guessed (`true`, `yes` and `0` are not `1`), and no other mode exists.
  */
 function sslFrom(env: Env, host: string): { sslMode: TigerSslMode; ssl: TigerSsl } {
-  const raw = (env[TIGER_ENV.sslMode] ?? '').trim();
-  const mode = raw === '' ? 'verify-full' : raw;
-  if (mode === 'verify-full') return { sslMode: 'verify-full', ssl: Object.freeze({ rejectUnauthorized: true, servername: host }) };
-  if (mode === 'require') {
-    if ((env[TIGER_ENV.tlsUnverified] ?? '').trim() !== '1') {
-      throw new TigerConfigError('TLS_UNVERIFIED_NOT_ACKNOWLEDGED', `${TIGER_ENV.sslMode}=require needs ${TIGER_ENV.tlsUnverified}=1 (encrypted, but the server is not authenticated)`);
-    }
-    return { sslMode: 'require', ssl: Object.freeze({ rejectUnauthorized: false }) };
-  }
-  throw new TigerConfigError('INVALID_SSL_MODE', `${TIGER_ENV.sslMode} must be verify-full or require`);
+  const flag = (env[TIGER_ENV.tlsUnverified] ?? '').trim();
+  if (flag === '') return { sslMode: 'verify-full', ssl: Object.freeze({ rejectUnauthorized: true, servername: host }) };
+  if (flag === '1') return { sslMode: 'require', ssl: Object.freeze({ rejectUnauthorized: false }) };
+  throw new TigerConfigError('INVALID_TLS_FLAG', `${TIGER_ENV.tlsUnverified} must be 1 (TLS require) or unset (TLS verify-full)`);
 }
 
 function settings(env: Env, name: string, statementTimeoutMs: number): TigerConnSettings {

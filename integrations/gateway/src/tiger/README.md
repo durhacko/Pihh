@@ -48,20 +48,20 @@ Three credentials, one per process (RFC §13). Each process refuses a credential
 | `TIGER_DATABASE_URL` | the importer CLI, from `src/tiger/.env.importer` (`encore_importer`) | the HTTP server |
 | `TIGER_ADMIN_DATABASE_URL` | `tiger:migrate`, the live-test harness, the owner tools; supplied only for that command | the HTTP server and the importer |
 | `TIGER_LIVE_WRITE_URL` | the TIG-11 live writer only | the HTTP server |
-| `TIGER_SSL_MODE` | every Tiger process: `verify-full` (default) or `require` | — |
-| `TIGER_TLS_UNVERIFIED` | required as `1` for `require` | — |
+| `TIGER_TLS_UNVERIFIED` | every Tiger process: unset = TLS `verify-full` (default); `1` = TLS `require`; any other value is refused | — |
 
-**TLS:**
+**TLS** (RFC §13 names only; there is no other TLS setting):
 - A URL carrying `sslmode`, `sslrootcert`, `sslcert`, `sslkey` or `ssl` (any value, any letter case) is refused. Tiger's console strings carry `?sslmode=require`, so strip it.
 - `require` is encrypted, but the server is not authenticated. It is the only mode a free service supports. The conditions in RFC §13 apply: channel binding, long passwords, trusted networks only, and rotation afterwards.
 - `tlsModeLine()` gives the one start-up line stating the effective mode.
 - Error messages name the variable and the rule, never a value.
 
-`TIGER_SSL_MODE` is a name this module introduces: the RFC fixes only the `sslMode` field and `TIGER_TLS_UNVERIFIED`.
-
 ## Known gaps
 
-- **The server does not refuse to start (T31).** The skeleton's registry catches a throwing module factory and disables that module only. So a forbidden credential in the HTTP server's environment disables `tiger` and is listed under the gateway's start-up problems, but the server still starts. Making it fatal needs a hook in the skeleton (`router.ts` / `server.ts`, owner of #218).
+- **T31 is pending a skeleton hook: the server does not yet refuse to start.** The skeleton's registry catches a throwing module factory and disables that module only. So a forbidden credential in the HTTP server's environment disables `tiger` and is listed under the gateway's start-up problems, but the server still starts.
+  - The ruling is that the security rule wins: the server must stop.
+  - The skeleton is getting a `FatalConfigError` (in `errors.ts`) that `buildGateway` re-throws.
+  - When it lands, `createModule` throws it for a forbidden credential.
 - **No `.env.importer.example` yet.** TIG-03 lists it, but two shared files refuse it:
   - the skeleton test "no committed .env file" (`test/offline.test.ts`) allows only `.env.example`;
   - the root `.env.*` rule in `.gitignore` ignores it.
@@ -69,8 +69,7 @@ Three credentials, one per process (RFC §13). Each process refuses a credential
   Until the skeleton allows names-only `.env.*.example` files, the importer's file is described here instead. `src/tiger/.env.importer` is local, never committed, and holds names and values for the importer CLI only:
   ```
   TIGER_DATABASE_URL=      # encore_importer; no TLS parameters in the URL
-  TIGER_SSL_MODE=          # verify-full (default) or require
-  TIGER_TLS_UNVERIFIED=    # 1 only if TIGER_SSL_MODE=require (RFC §13)
+  TIGER_TLS_UNVERIFIED=    # unset = verify-full; 1 = require (encrypted, server not authenticated; RFC §13)
   ```
   Never put `TIGER_ADMIN_DATABASE_URL` (the importer refuses to start) or `TIGER_READ_DATABASE_URL` there.
 - **Provider checklist** (tier, region, versions, TLS mode, date): recorded here by hand after TIG-D1, per TIG-03.
