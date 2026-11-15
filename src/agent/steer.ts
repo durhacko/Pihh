@@ -4,6 +4,7 @@
 import { DT } from '../contracts';
 import type { Params, Score, Sensed, Vec3 } from '../contracts';
 import { currentMovement, expandRecipe, launchPos } from '../score';
+import type { PaceAnchor } from './state';
 
 /** Velocity-tracking gain, per second (section 10). */
 const TRACK_GAIN = 4;
@@ -124,4 +125,35 @@ export function pacedSlotPos(score: Score, tick: number, slot: number, n0: numbe
     : expandRecipe(score.movements[cm.index - 1].recipe, n0, params).slots[slot].pos;
   const f = Math.max(0, (tick - begin) / span);
   return [from[0] + (to[0] - from[0]) * f, from[1] + (to[1] - from[1]) * f, from[2] + (to[2] - from[2]) * f];
+}
+
+/** True while `tick` is inside a movement's paced flight: after its begin and before its paced point reaches the slot. */
+export function midTransition(startTick: number, holdStart: number, tick: number): boolean {
+  return tick > Math.max(startTick, 0) && tick < holdStart - PACE_SETTLE_TICKS;
+}
+
+/**
+ * Adoption pacing (section 10, #123). A drone that adopts a score, or changes slot, while that movement is
+ * mid-transition paces from where it is now, not from the movement's start: begin = tick, from = pos, and
+ * end = max(holdStart - PACE_SETTLE_TICKS, tick + minTicks). On adoption, minTicks is the movement's whole paced
+ * span, so the drones that adopt together (e.g. a group joining when a partition heals) move in step, as a
+ * transition does. On a slot change it is the time to fly |to - pos| at 0.5 vMax (the authoring speed), so a heal
+ * is not slowed beyond that.
+ */
+export function adoptionSpan(startTick: number, holdStart: number): number {
+  return holdStart - PACE_SETTLE_TICKS - Math.max(startTick, 0);
+}
+export function flightTicks(pos: Vec3, to: Vec3, params: Params): number {
+  return Math.ceil(Math.hypot(to[0] - pos[0], to[1] - pos[1], to[2] - pos[2]) / (0.5 * params.vMax) / DT);
+}
+export function anchorPace(mv: number, slot: number, tick: number, pos: Vec3, holdStart: number, minTicks: number): PaceAnchor {
+  const end = Math.max(holdStart - PACE_SETTLE_TICKS, tick + minTicks);
+  return { mv, slot, begin: tick, end, from: [pos[0], pos[1], pos[2]] };
+}
+
+/** The point on an anchored segment at `tick`: linear from `a.from` at a.begin to `to` at a.end. Always a new array. */
+export function anchoredPos(a: PaceAnchor, tick: number, to: Vec3): Vec3 {
+  const span = a.end - a.begin;
+  const f = span > 0 ? Math.min(1, Math.max(0, (tick - a.begin) / span)) : 1;
+  return [a.from[0] + (to[0] - a.from[0]) * f, a.from[1] + (to[1] - a.from[1]) * f, a.from[2] + (to[2] - a.from[2]) * f];
 }

@@ -3,7 +3,14 @@
 // random stream. Not a contract: owned by the agent package. The inspector shows it as a JSON tree.
 // Everything here is plain JSON data: arrays indexed by drone id or by slot, no Map, no typed array,
 // no undefined, no Infinity. Imports only the contracts.
-import type { Params, Score, ScoreVersion } from '../contracts';
+import type { Params, Score, ScoreVersion, Vec3 } from '../contracts';
+
+/**
+ * Adoption pacing (section 10, #123): a per-drone paced segment from where the drone was (`from`, at tick
+ * `begin`) to slot `slot` of movement `mv`, reached at tick `end`. Set only when a score is adopted, or the slot
+ * changes, in the middle of that movement's transition.
+ */
+export interface PaceAnchor { mv: number; slot: number; begin: number; end: number; from: Vec3 }
 
 /** A slot a drone holds or held, and the tick at which it took it (0 for the launch slot). */
 export interface HeldSlot { slot: number; heldSince: number }
@@ -38,6 +45,10 @@ export interface EncoreState {
   // itself has to remember what belief() reports about "now". Neither is read by any decision.
   now: number;                  // tick of my last step (0 before the first)
   canHeal: boolean;             // canHeal as last evaluated, on my last scan tick (false before the first)
+
+  // Adoption pacing (section 10, #123). ABSENT (the key is deleted, never undefined) unless a score was adopted
+  // mid-transition, so a run without such an adoption has the same state, and stateHash, as before #123.
+  pace?: PaceAnchor;
 }
 
 /** "Never heard anybody": stands in for minus infinity, which JSON cannot carry. */

@@ -16,7 +16,7 @@ import type {
 import { currentMovement, expandRecipe, newerVersion } from '../score';
 import { NEVER_HEARD, nextRandom } from './state';
 import type { EncoreState } from './state';
-import { pacedSlotPos, steer, steerTarget } from './steer';
+import { adoptionSpan, anchorPace, anchoredPos, flightTicks, midTransition, pacedSlotPos, steer, steerTarget } from './steer';
 
 /** "Slow" for being settled at a slot, in m/s (section 8.2, condition 3). */
 const SETTLED_SPEED = 0.5;
@@ -303,6 +303,7 @@ export const encoreBrain: AgentBrain<EncoreState> = {
     s.now = now;
 
     // 1. Inbox (already sorted by the medium).
+    const scoreBefore = s.score;
     readInbox(s, input.inbox, now);
 
     // 2. Target: my slot of the formation that is current by the clock.
@@ -310,6 +311,11 @@ export const encoreBrain: AgentBrain<EncoreState> = {
     if (mv.index !== s.mvIndex) { s.mvIndex = mv.index; targetChanged(s, now); }
     const slots = expandRecipe(mv.movement.recipe, s.n0, p).slots;   // shared and frozen: read only
     const target = slots[s.slot].pos;
+    // Adoption pacing (section 10, #123): adopted mid-transition, so pace from here and now, not from the movement start.
+    if (s.score !== scoreBefore) {
+      delete s.pace;
+      if (midTransition(mv.movement.startTick, mv.holdStart, now)) s.pace = anchorPace(mv.index, s.slot, now, input.pos, mv.holdStart, adoptionSpan(mv.movement.startTick, mv.holdStart));
+    }
     const off = dist(input.pos, target);
     const atSlot = off < p.rOcc && Math.hypot(input.vel[0], input.vel[1], input.vel[2]) < SETTLED_SPEED;
     s.settledSince = atSlot ? (s.settledSince ?? now) : null;
@@ -350,7 +356,11 @@ export const encoreBrain: AgentBrain<EncoreState> = {
 
     // 6. Move and light (section 10). The slot may have changed in steps 3 and 4: fly to the one I hold now.
     const mine = slots[s.slot];
-    const paced = pacedSlotPos(s.score, now, s.slot, s.n0, p);
+    // An anchored segment ends when its point reaches the slot or the movement changes; a slot change (a heal)
+    // re-anchors from here and now, so a late adopter never falls back to a far-advanced pacedSlotPos (#123).
+    if (s.pace !== undefined && (s.pace.mv !== mv.index || now >= s.pace.end)) delete s.pace;
+    if (s.pace !== undefined && s.pace.slot !== s.slot) s.pace = anchorPace(mv.index, s.slot, now, input.pos, mv.holdStart, flightTicks(input.pos, mine.pos, p));
+    const paced = s.pace !== undefined ? anchoredPos(s.pace, now, mine.pos) : pacedSlotPos(s.score, now, s.slot, s.n0, p);
     let aim = paced;
     if (p.transitLanes) {
       const lane = steerTarget(s.id, input.pos, mine.pos, p);
