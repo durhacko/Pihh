@@ -28,9 +28,7 @@ export type TrialCompile =
  * It always answers `not-yet-compiled`; it never claims a scene compiled, and never rejects one. Replace its body
  * with `compileGeneratedScene` at each of `n0s` once #212 lands (GF-T33 (9) is pending until then).
  */
-export function trialCompileHook(_scene: SceneSpec, _n0s: readonly number[]): TrialCompile {
-  return { status: 'not-yet-compiled' };
-}
+export const trialCompileHook: (scene: SceneSpec, n0s: readonly number[]) => TrialCompile = () => ({ status: 'not-yet-compiled' });
 
 /** The real validator: shared pure code only. `compile` is injectable so GF-T33 (9) can be tested now. */
 export function createSceneValidator(compile: (scene: SceneSpec, n0s: readonly number[]) => TrialCompile = trialCompileHook): SceneValidator {

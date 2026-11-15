@@ -81,8 +81,15 @@ test('GF-T34 fuzz: hostile titles and ids are rejected or carried as inert text;
     const asTitle = validator.validate({ ...base, title: text }, 'silhouette2d');
     if (asTitle.ok) assert.equal((asTitle.scene as { title: string }).title, text, 'kept verbatim as data, never interpreted');
     const parts = (base.parts as Record<string, unknown>[]).map(p => ({ ...p, id: text }));
-    assert.ok(!validator.validate({ ...base, parts }, 'silhouette2d').ok, `id ${text} is refused by the id pattern`);
+    const asId = validator.validate({ ...base, parts }, 'silhouette2d');
+    // `constructor` matches the spec's id pattern (^[a-z][a-z0-9_-]{0,31}$), so it may pass, as inert data;
+    // everything with markup, braces or a leading underscore is refused by that pattern.
+    if (asId.ok) {
+      assert.equal(text, 'constructor', `only a pattern-valid id may pass: ${text}`);
+      assert.equal(((asId.scene as unknown as { parts: { id: string }[] }).parts[0])?.id, text);
+    }
   }
+  assert.equal(Object.prototype.hasOwnProperty.call(Object.prototype, 'polluted'), false);
   const polluted = JSON.parse('{"__proto__": {"polluted": true}, "version": 1}');
   assert.ok(!validator.validate(polluted, 'silhouette2d').ok);
   assert.equal(({} as Record<string, unknown>).polluted, undefined);

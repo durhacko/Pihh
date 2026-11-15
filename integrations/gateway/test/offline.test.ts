@@ -75,7 +75,8 @@ test('every XI-2 bridge target is one the boundaries allow (src/contracts, src/s
 test('no child processes (XI-23) and no module imports another module', () => {
   for (const file of source) {
     const text = code(file);
-    assert.ok(!/child_process|\b(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)\s*\(/.test(text), `${rel(file)} starts a process`);
+    // A bare call only: `regex.exec(...)` (RegExp.prototype.exec) is a method call and is fine.
+    assert.ok(!/child_process|(?<![\w$.])(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)\s*\(/.test(text), `${rel(file)} starts a process`);
     const own = rel(file).split('/')[1];
     if (!['gemini', 'shows', 'tiger'].includes(own ?? '')) continue;
     for (const [, specifier] of raw(file).matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)) {

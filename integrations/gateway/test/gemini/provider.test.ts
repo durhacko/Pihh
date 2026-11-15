@@ -67,7 +67,7 @@ test('no retry after the whole-request deadline aborts, even during the backoff'
 
 test('each attempt is bounded by attemptTimeoutMs; a timeout is final, and the provider sees its signal abort', async () => {
   let aborted = false;
-  const fake = scriptedProvider([(_request: ProviderRequest) => new Promise<ProviderOutcome>(() => {})]);
+  const fake = scriptedProvider([() => new Promise<ProviderOutcome>(() => {})]);
   const hanging = { model: fake.model, generate: (request: ProviderRequest, signal: AbortSignal) => {
     signal.addEventListener('abort', () => { aborted = true; });
     return fake.generate(request, signal);
