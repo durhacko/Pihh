@@ -41,12 +41,21 @@ describe('the worker job (handleCompileRequest)', () => {
     expect(reply.result.slotsDigest).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('a 2D fixture returns #259\'s typed rejection (unsupported-mode until GF-WP-04 plugs in), never a throw', () => {
-    const reply = handleCompileRequest({ requestId: 'fc:2', scene: scene('valid-2d-disc.json'), n0: 40, params });
+  it('an invalid committed scene returns the compiler\'s typed rejection, never a throw', () => {
+    const reply = handleCompileRequest({ requestId: 'fc:2', scene: scene('invalid-range-centre.json'), n0: 40, params });
+    expect(reply.requestId).toBe('fc:2');
     expect(reply.result.ok).toBe(false);
     if (reply.result.ok) return;
     expect(typeof reply.result.code).toBe('string');
     expect(reply.result.code.length).toBeGreaterThan(0);
+  });
+
+  it('a 2D fixture compiles (#212 2D path): exactly n0 slots and a digest', () => {
+    const reply = handleCompileRequest({ requestId: 'fc:2d', scene: scene('valid-2d-disc.json'), n0: 40, params });
+    expect(reply.result.ok).toBe(true);
+    if (!reply.result.ok) return;
+    expect(reply.result.formation.slots).toHaveLength(40);
+    expect(reply.result.slotsDigest).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('registers only in a dedicated worker scope: never in Node or on a page with a document', () => {
