@@ -1,23 +1,35 @@
 // The readout's phase and transition state come per arm from the observer, and a mid-transition nPWC is greyed and
 // labelled "in transition · measured against the new formation" (DESIGN §7). The value shown is always the
-// observer's own sample: labelled, never hidden or replaced. Real worlds; the slot feed main.ts uses.
+// observer's own sample: labelled, never hidden or replaced. Real worlds; the slot feed and the per-arm step
+// (src/app/armPhase.ts readArmPhases) main.ts uses.
 import { describe, expect, it } from 'vitest';
-import { composeNext } from '../../../src/score';
+import type { Score } from '../../../src/contracts';
+import { composeNext, currentMovement, expandRecipe } from '../../../src/score';
 import { createSlotStatusFeed } from '../../../src/app/render/layers/GhostSlotLayer';
-import { expandRecipe } from '../../../src/score';
-import { armPhase, createPhaseTracker, NOT_COMPARABLE_LABEL, readoutItems, referenceScore, TRANSITION_LABEL, TRANSITION_TITLE, TRANSITION_VALUE, type ArmPhase } from '../../../src/app/ui/Readout';
+import { armPhase, movementName, observedRecipe, readArmPhases, type ArmPhase } from '../../../src/app/armPhase';
+import { NOT_COMPARABLE_LABEL, readoutItems, TRANSITION_LABEL, TRANSITION_TITLE, TRANSITION_VALUE } from '../../../src/app/ui/Readout';
 import { formatPercent, HudModel } from '../../../src/app/ui/Hud';
 import { ARMS, createWorlds, hudPayload, type Arm, type Pair, type Worlds } from '../../../src/app/worlds';
 import { fmt } from '../../../src/app/ui/dom';
 
 function toSample(worlds: Worlds) { do worlds.stepBoth(); while (worlds.tick % 5 !== 0); }
 type Feeds = Pair<ReturnType<typeof createSlotStatusFeed>>;
-/** What main.ts's armPhases computes: read the throttled feed, then name the movement at the READING's own tick. */
-function phases(worlds: Worlds, feeds: Feeds, track = createPhaseTracker()): Pair<ArmPhase | null> {
-  const snaps = worlds.latest()!;
-  const samples = worlds.samples();
-  const at = (arm: Arm) => { feeds[arm].read(snaps[arm]); const r = feeds[arm].latest(); return track(arm, worlds.observers[arm], r && { tick: r.tick, inHold: r.slots.inHold }, samples[arm], worlds.scores()); };
-  return { encore: at('encore'), static: at('static') };
+const unthrottled = (worlds: Worlds): Feeds => ({ encore: createSlotStatusFeed(() => worlds.observers.encore, { intervalMs: 0 }), static: createSlotStatusFeed(() => worlds.observers.static, { intervalMs: 0 }) });
+/** main.ts's armPhases: the shared step, on the newest snapshots. */
+const phases = (worlds: Worlds, feeds: Feeds): Pair<ArmPhase | null> => readArmPhases(worlds, worlds.latest()!, feeds);
+/** Inject a helix once the show reaches `after`, let every live Encore drone adopt it, then kill every drone.
+ *  Returns the injected score (composeNext: the movement current at the inject, then the helix). */
+function injectAdoptKillAll(worlds: Worlds, n0: number, after = worlds.score.movements[0].transitionTicks + 40, onSample = () => {}): Score {
+  while (worlds.tick < after) toSample(worlds);
+  const tick = worlds.tick + 1;
+  const score = composeNext(worlds.score, tick, { kind: 'helix' }, 0, n0, worlds.params);
+  worlds.scheduleBoth({ type: 'INJECT_SCORE', tick, droneId: 0, score });
+  while (worlds.tick < tick + worlds.params.scoreLead + 30) { toSample(worlds); onSample(); }
+  expect(Object.keys(worlds.samples().encore!.versions)).toEqual([`${tick}:0`]);   // every live Encore drone adopted it
+  worlds.scheduleBoth({ type: 'KILL', tick: worlds.tick + 1, ids: Array.from({ length: n0 }, (_, id) => id) });
+  toSample(worlds);
+  expect(worlds.samples().encore!.alive).toBe(0);
+  return score;
 }
 
 describe('readout phase and transition, per arm, from the observer', () => {
@@ -70,7 +82,7 @@ describe('readout phase and transition, per arm, from the observer', () => {
     expect(shown.encore!.transitioning).toBe(true);
     expect(shown.static!.transitioning).toBe(false);
     expect(shown.encore!.npwc).toBe(formatPercent(samples.encore!.npwc));   // the observer's value, unchanged
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('the pair is comparable again once both arms fly the same formation, and while they always did', () => {
     const same = { encore: { inHold: true, name: 'Sphere' }, static: { inHold: true, name: 'Sphere' } };
@@ -84,7 +96,7 @@ describe('readout phase and transition, per arm, from the observer', () => {
     toSample(worlds);
     expect('inHold' in hudPayload(worlds, { fps: null, layout: 'split' })).toBe(false);
     expect(hudPayload(worlds, { fps: null, layout: 'split', inHold: { encore: null, static: true } }).inHold).toEqual({ encore: undefined, static: true });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('marks an arm in transition whenever the observer says it is not in hold, and only then', () => {
     const samples = { encore: null, static: null };
@@ -101,45 +113,78 @@ describe('readout phase and transition, per arm, from the observer', () => {
     expect(none.some(item => item.key === 'phase' || item.key === 'transition')).toBe(false);
   });
 
-  it('reference falls back to the preloaded score only before any is believed; armPhase needs a reading and a reference', () => {
+  it('the name is the registered movement whose expansion IS the reading\'s formation; no reading, no phase', () => {
     const worlds = createWorlds({ seed: 3, n0: 30 });
     toSample(worlds);
-    const preloaded = worlds.scores()[0];
-    expect(referenceScore(null, worlds.scores(), null)).toBe(preloaded);
-    expect(armPhase(null, preloaded)).toBeNull();
-    expect(armPhase({ tick: worlds.tick, inHold: false }, null)).toBeNull();
-    expect(armPhase({ tick: worlds.tick, inHold: false }, preloaded)).toEqual({ inHold: false, name: '“ENCORE”' });
+    const status = worlds.observers.encore.slotStatus(worlds.latest()!.encore);
+    const reading = { tick: worlds.tick, slots: status };
+    expect(armPhase(null, worlds.scores(), worlds.params)).toBeNull();
+    expect(armPhase(reading, worlds.scores(), worlds.params)).toEqual({ inHold: status.inHold, name: '“ENCORE”' });
+    expect(observedRecipe(status.formation, worlds.tick, worlds.scores(), worlds.params)).toEqual({ kind: 'text', text: 'ENCORE' });
+    // A formation no registered movement expands to is not given a made-up name.
+    const other = { tick: worlds.tick, slots: { ...status, formation: expandRecipe({ kind: 'text', text: 'XYZ' }, 30, worlds.params) } };
+    expect(armPhase(other, worlds.scores(), worlds.params)).toEqual({ inHold: status.inHold, name: '—' });
     worlds.reset();
     expect(worlds.scores()).toHaveLength(1);   // a reset forgets injected scores along with the observers
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
-  it('inject → adopt → kill all: the label keeps the observer\'s retained reference, not the preloaded score', () => {
+  it('a text that differs only by spaces the font does not draw is the same formation, so it has the same name', () => {
     const worlds = createWorlds({ seed: 101, n0: 40 });
-    const feeds: Feeds = { encore: createSlotStatusFeed(() => worlds.observers.encore, { intervalMs: 0 }), static: createSlotStatusFeed(() => worlds.observers.static, { intervalMs: 0 }) };
-    const track = createPhaseTracker();
+    const at = (text: string) => expandRecipe({ kind: 'text', text }, 40, worlds.params).slots.map(slot => slot.pos);
+    expect(at('ENCORE ')).toEqual(at('ENCORE'));   // a trailing space lights no cell: identical slot positions
     while (worlds.tick < worlds.score.movements[0].transitionTicks + 40) toSample(worlds);
-    phases(worlds, feeds, track);
     const tick = worlds.tick + 1;
-    worlds.scheduleBoth({ type: 'INJECT_SCORE', tick, droneId: 0, score: composeNext(worlds.score, tick, { kind: 'helix' }, 0, 40, worlds.params) });
-    while (worlds.tick < tick + worlds.params.scoreLead + 30) { toSample(worlds); phases(worlds, feeds, track); }
-    expect(Object.keys(worlds.samples().encore!.versions)).toEqual([`${tick}:0`]);   // every live Encore drone adopted it
-    // Kill every drone: no live drone believes any version any more.
-    worlds.scheduleBoth({ type: 'KILL', tick: worlds.tick + 1, ids: Array.from({ length: 40 }, (_, id) => id) });
-    toSample(worlds);
-    expect(worlds.samples().encore!.alive).toBe(0);
-    const p = phases(worlds, feeds, track);
-    // The observer keeps measuring against the helix (its retainedScore); the label must say so.
+    worlds.scheduleBoth({ type: 'INJECT_SCORE', tick, droneId: 0, score: composeNext(worlds.score, tick, { kind: 'text', text: 'ENCORE ' }, 0, 40, worlds.params) });
+    while (worlds.tick < tick + worlds.params.scoreLead + 10) toSample(worlds);
+    // Static never adopts the injected score and is still measured against the preloaded "ENCORE"; its formation also
+    // matches the newer "ENCORE " movement. Either way it is one formation, and it is named as drawn.
+    const p = phases(worlds, unthrottled(worlds));
+    expect(p.static!.name).toBe('“ENCORE”');
+    expect(p.encore!.name).toBe('“ENCORE”');
+    expect(readoutItems({ samples: worlds.samples(), view: 'split', n0: 40, phases: p, fps: null, stopped: null }).some(item => item.key === 'comparable')).toBe(false);
+    expect(movementName({ kind: 'text', text: ' hi  ' })).toBe('“HI”');
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
+
+  it('inject → adopt → kill all: the label is the observer\'s retained reference, read from its formation alone', () => {
+    const worlds = createWorlds({ seed: 101, n0: 40 });
+    injectAdoptKillAll(worlds, 40);
+    // No live drone believes any version, so the samples cannot name the reference: a sample-based rule falls back.
+    expect(worlds.samples().encore!.versions).toEqual({});
+    // The observer keeps measuring against the helix (its retainedScore) and its formation says so.
     const helix = expandRecipe({ kind: 'helix' }, 40, worlds.params).slots.map(slot => slot.pos);
     expect(worlds.observers.encore.slotStatus(worlds.latest()!.encore).formation.slots.map(slot => slot.pos)).toEqual(helix);
+    // The first and only read, with no history from before the kill: still the helix.
+    const p = phases(worlds, unthrottled(worlds));
     expect(p.encore!.name).toBe('Double helix');
+    expect(p.static!.name).toBe('“ENCORE”');
     // ...and the arms still differ (static never held the injected score), so the pair stays "not comparable".
     expect(readoutItems({ samples: worlds.samples(), view: 'split', n0: 40, phases: p, fps: null, stopped: null }).some(item => item.key === 'comparable')).toBe(true);
-    // Without retention (a fresh tracker) the label would wrongly fall back to the preloaded score:
-    expect(phases(worlds, feeds, createPhaseTracker()).encore!.name).not.toBe('Double helix');
-    // A reset rebuilds the observers: the retained reference is dropped with them.
-    worlds.reset(); toSample(worlds);
-    expect(phases(worlds, feeds, track).encore!.name).toBe('“ENCORE”');
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
+
+  it('after a reset, ticks 1–4 (no sample yet) name the new observer\'s formation, never the old run\'s retained one', () => {
+    const worlds = createWorlds({ seed: 101, n0: 40 });
+    let now = 0;
+    // The app's throttled feed (250 ms) on a clock that stops at the reset: only the reset itself forces a new reading.
+    const feeds: Feeds = { encore: createSlotStatusFeed(() => worlds.observers.encore, { now: () => now }), static: createSlotStatusFeed(() => worlds.observers.static, { now: () => now }) };
+    // Injected during the sphere, the score's first movement IS the sphere (startTick well past 4). So the old run's
+    // retained score names ticks 1–4 "Sphere": a label that kept it across the reset would show, not hide, the bug.
+    // Read on every sample through the adoption, as the app's 4 Hz refresh does, so any history a label could keep is there.
+    const injected = injectAdoptKillAll(worlds, 40, worlds.score.movements[1].startTick + 5, () => { now += 300; phases(worlds, feeds); });
+    expect(injected.movements[0].startTick).toBeGreaterThan(4);
+    for (let tick = 1; tick <= 4; tick++) expect(movementName(currentMovement(injected, tick).movement.recipe)).toBe('Sphere');
+    now += 300;
+    expect(phases(worlds, feeds).encore!.name).toBe('Double helix');   // retained by the old run's observer
+    worlds.reset();
+    for (let tick = 1; tick <= 4; tick++) {
+      worlds.stepBoth();
+      expect(worlds.tick).toBe(tick);
+      expect(worlds.samples()).toEqual({ encore: null, static: null });   // nothing for a sample-based rule to go on
+      const p = phases(worlds, feeds);
+      for (const arm of ARMS) {
+        expect(p[arm]).toEqual({ inHold: worlds.observers[arm].slotStatus(worlds.latest()![arm]).inHold, name: '“ENCORE”' });
+      }
+    }
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('a cached reading straddling a movement start is named at its own tick, so name and hold agree', () => {
     const worlds = createWorlds({ seed: 101, n0: 40 });
@@ -156,5 +201,5 @@ describe('readout phase and transition, per arm, from the observer', () => {
     expect(phases(worlds, feeds).encore).toEqual({ inHold: true, name: '“ENCORE”' });
     now += 300;                                           // the throttle lets a fresh reading through
     expect(phases(worlds, feeds).encore).toEqual({ inHold: false, name: 'Sphere' });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
