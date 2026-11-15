@@ -4,17 +4,20 @@
 import { describe, expect, it } from 'vitest';
 import { composeNext } from '../../../src/score';
 import { createSlotStatusFeed } from '../../../src/app/render/layers/GhostSlotLayer';
-import { armPhase, NOT_COMPARABLE_LABEL, readoutItems, TRANSITION_LABEL, TRANSITION_TITLE, TRANSITION_VALUE, type ArmPhase } from '../../../src/app/ui/Readout';
+import { expandRecipe } from '../../../src/score';
+import { armPhase, createPhaseTracker, NOT_COMPARABLE_LABEL, readoutItems, referenceScore, TRANSITION_LABEL, TRANSITION_TITLE, TRANSITION_VALUE, type ArmPhase } from '../../../src/app/ui/Readout';
 import { formatPercent, HudModel } from '../../../src/app/ui/Hud';
-import { ARMS, createWorlds, hudPayload, type Pair, type Worlds } from '../../../src/app/worlds';
+import { ARMS, createWorlds, hudPayload, type Arm, type Pair, type Worlds } from '../../../src/app/worlds';
 import { fmt } from '../../../src/app/ui/dom';
 
 function toSample(worlds: Worlds) { do worlds.stepBoth(); while (worlds.tick % 5 !== 0); }
-/** What main.ts's refreshChrome computes. A zero interval so every read reflects the current snapshot. */
-function phases(worlds: Worlds, feeds: Pair<ReturnType<typeof createSlotStatusFeed>>): Pair<ArmPhase | null> {
+type Feeds = Pair<ReturnType<typeof createSlotStatusFeed>>;
+/** What main.ts's armPhases computes: read the throttled feed, then name the movement at the READING's own tick. */
+function phases(worlds: Worlds, feeds: Feeds, track = createPhaseTracker()): Pair<ArmPhase | null> {
   const snaps = worlds.latest()!;
   const samples = worlds.samples();
-  return { encore: armPhase(feeds.encore.read(snaps.encore), samples.encore, worlds.scores(), worlds.tick), static: armPhase(feeds.static.read(snaps.static), samples.static, worlds.scores(), worlds.tick) };
+  const at = (arm: Arm) => { feeds[arm].read(snaps[arm]); const r = feeds[arm].latest(); return track(arm, worlds.observers[arm], r && { tick: r.tick, inHold: r.slots.inHold }, samples[arm], worlds.scores()); };
+  return { encore: at('encore'), static: at('static') };
 }
 
 describe('readout phase and transition, per arm, from the observer', () => {
@@ -98,12 +101,60 @@ describe('readout phase and transition, per arm, from the observer', () => {
     expect(none.some(item => item.key === 'phase' || item.key === 'transition')).toBe(false);
   });
 
-  it('armPhase falls back to the preloaded score when no live drone believes a registered one, and needs a reading', () => {
+  it('reference falls back to the preloaded score only before any is believed; armPhase needs a reading and a reference', () => {
     const worlds = createWorlds({ seed: 3, n0: 30 });
     toSample(worlds);
-    expect(armPhase(null, worlds.samples().encore, worlds.scores(), worlds.tick)).toBeNull();
-    expect(armPhase({ inHold: false }, null, worlds.scores(), worlds.tick)).toEqual({ inHold: false, name: '“ENCORE”' });
+    const preloaded = worlds.scores()[0];
+    expect(referenceScore(null, worlds.scores(), null)).toBe(preloaded);
+    expect(armPhase(null, preloaded)).toBeNull();
+    expect(armPhase({ tick: worlds.tick, inHold: false }, null)).toBeNull();
+    expect(armPhase({ tick: worlds.tick, inHold: false }, preloaded)).toEqual({ inHold: false, name: '“ENCORE”' });
     worlds.reset();
     expect(worlds.scores()).toHaveLength(1);   // a reset forgets injected scores along with the observers
+  });
+
+  it('inject → adopt → kill all: the label keeps the observer\'s retained reference, not the preloaded score', () => {
+    const worlds = createWorlds({ seed: 101, n0: 40 });
+    const feeds: Feeds = { encore: createSlotStatusFeed(() => worlds.observers.encore, { intervalMs: 0 }), static: createSlotStatusFeed(() => worlds.observers.static, { intervalMs: 0 }) };
+    const track = createPhaseTracker();
+    while (worlds.tick < worlds.score.movements[0].transitionTicks + 40) toSample(worlds);
+    phases(worlds, feeds, track);
+    const tick = worlds.tick + 1;
+    worlds.scheduleBoth({ type: 'INJECT_SCORE', tick, droneId: 0, score: composeNext(worlds.score, tick, { kind: 'helix' }, 0, 40, worlds.params) });
+    while (worlds.tick < tick + worlds.params.scoreLead + 30) { toSample(worlds); phases(worlds, feeds, track); }
+    expect(Object.keys(worlds.samples().encore!.versions)).toEqual([`${tick}:0`]);   // every live Encore drone adopted it
+    // Kill every drone: no live drone believes any version any more.
+    worlds.scheduleBoth({ type: 'KILL', tick: worlds.tick + 1, ids: Array.from({ length: 40 }, (_, id) => id) });
+    toSample(worlds);
+    expect(worlds.samples().encore!.alive).toBe(0);
+    const p = phases(worlds, feeds, track);
+    // The observer keeps measuring against the helix (its retainedScore); the label must say so.
+    const helix = expandRecipe({ kind: 'helix' }, 40, worlds.params).slots.map(slot => slot.pos);
+    expect(worlds.observers.encore.slotStatus(worlds.latest()!.encore).formation.slots.map(slot => slot.pos)).toEqual(helix);
+    expect(p.encore!.name).toBe('Double helix');
+    // ...and the arms still differ (static never held the injected score), so the pair stays "not comparable".
+    expect(readoutItems({ samples: worlds.samples(), view: 'split', n0: 40, phases: p, fps: null, stopped: null }).some(item => item.key === 'comparable')).toBe(true);
+    // Without retention (a fresh tracker) the label would wrongly fall back to the preloaded score:
+    expect(phases(worlds, feeds, createPhaseTracker()).encore!.name).not.toBe('Double helix');
+    // A reset rebuilds the observers: the retained reference is dropped with them.
+    worlds.reset(); toSample(worlds);
+    expect(phases(worlds, feeds, track).encore!.name).toBe('“ENCORE”');
+  });
+
+  it('a cached reading straddling a movement start is named at its own tick, so name and hold agree', () => {
+    const worlds = createWorlds({ seed: 101, n0: 40 });
+    let now = 0;
+    const throttled = (arm: Arm) => createSlotStatusFeed(() => worlds.observers[arm], { intervalMs: 250, now: () => now });
+    const feeds: Feeds = { encore: throttled('encore'), static: throttled('static') };
+    const start = worlds.score.movements[1].startTick;   // the preloaded sphere movement
+    while (worlds.tick < start - 3) worlds.stepBoth();
+    const before = phases(worlds, feeds);                // read just before the movement starts: the text holds
+    expect(before.encore).toEqual({ inHold: true, name: '“ENCORE”' });
+    while (worlds.tick < start + 3) worlds.stepBoth();   // past the start, but no time has passed: the feed is cached
+    expect(feeds.encore.latest()!.tick).toBe(start - 3);
+    // Named at the reading's tick: still "Hold · ENCORE", never the mixed "Hold · Sphere".
+    expect(phases(worlds, feeds).encore).toEqual({ inHold: true, name: '“ENCORE”' });
+    now += 300;                                           // the throttle lets a fresh reading through
+    expect(phases(worlds, feeds).encore).toEqual({ inHold: false, name: 'Sphere' });
   });
 });

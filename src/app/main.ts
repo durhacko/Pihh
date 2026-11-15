@@ -27,7 +27,7 @@ import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend } from './ui/Legend';
 import { createDisrupt, createHelp, createLenses, createMetrics, createSelectionArm, jamKeyAction, stageClick, type PopoverContext } from './ui/popovers';
-import { armPhase, createReadout, TRANSITION_TITLE, type ArmPhase } from './ui/Readout';
+import { appPhaseTracker, createReadout, TRANSITION_TITLE, type ArmPhase } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
 import { connectTimeline } from './ui/Timeline';
@@ -527,7 +527,12 @@ function ghostCounts(arm: Arm): { vacant: number; inTransit: number; contested: 
   return { vacant: count('vacant'), inTransit: count('inTransit'), contested: count('contested'), inHold: reading.slots.inHold };
 }
 // Per arm, from the observer (throttled slot feed), not the preloaded score's plan: after an injection the arms differ.
-function armPhases(): Pair<ArmPhase | null> { const s = worlds.samples(), snaps = snapshots(); return { encore: armPhase(slotFeeds.encore.read(snaps.encore), s.encore, worlds.scores(), worlds.tick), static: armPhase(slotFeeds.static.read(snaps.static), s.static, worlds.scores(), worlds.tick) }; }
+// The feed's reading (inHold) and the movement name describe ONE observer moment: the reading's own tick.
+function armPhases(): Pair<ArmPhase | null> {
+  const s = worlds.samples(), snaps = snapshots();
+  const at = (arm: Arm) => { slotFeeds[arm].read(snaps[arm]); const r = slotFeeds[arm].latest(); return appPhaseTracker(arm, worlds.observers[arm], r && { tick: r.tick, inHold: r.slots.inHold }, s[arm], worlds.scores()); };
+  return { encore: at('encore'), static: at('static') };
+}
 function feedHud(): void { const p = armPhases(); hudModel.update(hudPayload(worlds, { fps: lastFps, layout: store.state.view, inHold: { encore: p.encore?.inHold ?? null, static: p.static?.inHold ?? null } })); }
 function refreshChrome(): void {
   const samples = worlds.samples();

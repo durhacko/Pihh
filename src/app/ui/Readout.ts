@@ -53,17 +53,45 @@ const versionKey = (score: Score) => `${score.version.issuedTick}:${score.versio
  * registered score that at least one live drone in that arm believes (sample.versions), as the observer chooses it;
  * the first registered (preloaded) score when no live drone believes a registered one. null without a reading.
  */
-export function armPhase(reading: { inHold: boolean } | null, sample: MetricsSample | null, scores: readonly Score[], tick: number): ArmPhase | null {
-  if (!reading || scores.length === 0) return null;
-  let reference: Score | null = null;
-  for (const score of scores) {
-    if (!sample || !(sample.versions[versionKey(score)] > 0)) continue;
-    if (!reference || newerVersion(score.version, reference.version)) reference = score;
-  }
+export function armPhase(reading: { tick: number; inHold: boolean } | null, reference: Score | null): ArmPhase | null {
+  if (!reading || !reference) return null;
+  // Named at the reading's OWN tick: the throttled slot feed may be a few ticks old, and inHold describes that tick.
   try {
-    return { inHold: reading.inHold, name: movementName(currentMovement(reference ?? scores[0], tick).movement.recipe) };
+    return { inHold: reading.inHold, name: movementName(currentMovement(reference, reading.tick).movement.recipe) };
   } catch { return { inHold: reading.inHold, name: '—' }; }
 }
+
+/**
+ * An arm's reference score, by the observer's rule (src/observer/index.ts): the newest registered score that at least
+ * one live drone in the arm believes; when none does (every holder dead), the last such reference, which the observer
+ * keeps as `retainedScore`; before any, the first registered (preloaded) score.
+ */
+export function referenceScore(sample: MetricsSample | null, scores: readonly Score[], retained: Score | null): Score | null {
+  let believed: Score | null = null;
+  for (const score of scores) {
+    if (!sample || !(sample.versions[versionKey(score)] > 0)) continue;
+    if (!believed || newerVersion(score.version, believed.version)) believed = score;
+  }
+  return believed ?? retained ?? scores[0] ?? null;
+}
+
+type ArmKey = 'encore' | 'static';
+/**
+ * Per-arm phase with the observer's retained reference. Keeps each arm's last reference, so killing every holder of
+ * the newest score does not make the label fall back to the preloaded score while the observer still measures the new
+ * one. A new observer object for the arm (a reset rebuilds them) clears what was retained.
+ */
+export function createPhaseTracker() {
+  const kept: Record<ArmKey, { observer: object; reference: Score } | null> = { encore: null, static: null };
+  return (arm: ArmKey, observer: object, reading: { tick: number; inHold: boolean } | null, sample: MetricsSample | null, scores: readonly Score[]): ArmPhase | null => {
+    const retained = kept[arm]?.observer === observer ? kept[arm]!.reference : null;
+    const reference = referenceScore(sample, scores, retained);
+    kept[arm] = reference ? { observer, reference } : null;
+    return armPhase(reading, reference);
+  };
+}
+/** The app's one tracker (module-level, so main.ts can use it from start-up on without an ordering hazard). */
+export const appPhaseTracker = createPhaseTracker();
 
 export function readoutItems(input: ReadoutInput): ReadoutItem[] {
   const { encore, static: baseline } = input.samples;
