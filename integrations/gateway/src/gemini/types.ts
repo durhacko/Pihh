@@ -1,7 +1,7 @@
 // integrations/gateway/src/gemini/types.ts
-// The typed interface of `POST /api/generate-formation` (gemini spec §10.1, GF-WP-12 "interface only"): the request,
-// the success body, the scene-validator port and the provider port. No network code lives in this module yet; the
-// live provider is a later PR, after GF-D1 and the credentials.
+// The typed interface of `POST /api/generate-formation` (gemini spec §10.1, GF-WP-12): the request, the success body,
+// the scene-validator port and the provider port. No network code lives in this module; the live provider adapter is
+// a later PR, after GF-D1 and the credentials, and only implements `GeminiProvider`.
 
 export const FORMATION_MODES = ['silhouette2d', 'scene3d'] as const;
 export type FormationMode = (typeof FORMATION_MODES)[number];
@@ -26,24 +26,17 @@ export interface GenerateFormationRequest {
   requestId?: string;
 }
 
-/**
- * Placeholder for `SceneSpec2D | SceneSpec3D` (spec §6.2, §6.3). The real types and `validateScene` belong to
- * GF-WP-01 at `src/score/generated/`, which is not on `phase2/development` yet. Only the fields this module reads
- * are typed here; the validator port owns everything else. When GF-WP-01 lands, replace this with a type import from
- * there (XI-2 allows the gateway to import `src/score/**` by relative path).
- */
-export interface SceneSpec {
-  readonly version: number;
-  readonly mode: FormationMode;
-  readonly [field: string]: unknown;
-}
+/** `SceneSpec2D | SceneSpec3D` from GF-WP-01 (spec §6.2, §6.3), through the module's one bridge (XI-2). */
+export type { SceneSpec } from './validate.ts';
+import type { SceneSpec } from './validate.ts';
 
 /** One validator finding: a JSON pointer inside the scene (`""` = the whole scene) and a kebab-case code from
  *  V1–V11 or the compiler (spec §6.5, §7.11). The handler maps the code to SCREAMING_SNAKE (XI-16). */
 export interface SceneIssue { path: string; code: string }
 
+/** `trialCompile` says honestly what the server checked: `not-yet-compiled` until GF-WP-06 (#212) lands. */
 export type SceneCheck =
-  | { ok: true; scene: SceneSpec; sceneHash: string }
+  | { ok: true; scene: SceneSpec; sceneHash: string; trialCompile: 'compiled' | 'not-yet-compiled' }
   | { ok: false; issues: readonly SceneIssue[] };
 
 /**
