@@ -406,10 +406,14 @@ function liveVsCli(ticks: number, brains?: { encore: AgentBrain }) {
   return out;
 }
 
+const WIDE = process.env.P2_WIDE === '1';
+
 describe('invariants layer: live report equals the CLI runCustom report (snapshot-checkable subset)', () => {
+  // Default suite (WP §2.3 item 7): one short S2 n0 40 parity run, the falsification one below (130 ticks), which is
+  // also the only run where the comparison is not [] = []. The clean S2 kill run on both arms is opt-in (P2_WIDE=1).
   // Neutral too: the app's worlds stepped WITH the readout attached reach the same stateHash as the CLI's run, which
-  // has no readout (P2-T10's neutrality, on the default-suite run; the scripted demo on and off is opt-in below).
-  it('S2-like kill at n0 40 (seed 101, 450 ticks, kill at 400), both arms: same world, same INV-DUP and INV-MONO result', () => {
+  // has no readout (P2-T10's neutrality; the scripted demo on and off is opt-in below).
+  it.skipIf(!WIDE)('S2-like kill at n0 40 (seed 101, 450 ticks, kill at 400), both arms: same world, same INV-DUP and INV-MONO result (P2_WIDE=1)', () => {
     const r = liveVsCli(450);
     for (const arm of ['encore', 'static'] as const) {
       expect(r.worlds.worlds[arm].stateHash(), arm).toBe(r.cli[arm]!.record.stateHash);   // the same run
@@ -432,7 +436,16 @@ describe('invariants layer: live report equals the CLI runCustom report (snapsho
     const brains = { encore: liarBrain(BRAINS.encore!, 25, 24, 100) };
     const r = liveVsCli(130, brains);
     const live = r.live.encore, cli = r.cli.encore!.report as InvariantReport;
-    expect(r.worlds.worlds.encore.stateHash()).toBe(r.cli.encore!.record.stateHash);
+    expect(r.worlds.worlds.encore.stateHash()).toBe(r.cli.encore!.record.stateHash);   // the same run, readout attached
+    expect(live.lastTick).toBe(130);
+    expect(live.checked).toEqual(['INV-DUP', 'INV-MONO']);
+    expect(live.unavailable.map(u => u.inv).sort()).toEqual(['INV-QUIET', 'INV-SILENCE', 'INV-STATIC']);
+    expect(LIVE_REQUESTED).not.toContain('INV-CONVERGE');
+    for (const inv of LIVE_COMPARED) {
+      expect(cli.checked, inv).toContain(inv);
+      expect(live.counts[inv], inv).toBe(cli.counts[inv]);
+    }
+    console.log(`#209 live vs CLI, S2 seed 101 n0 40 130 ticks, belief-lying brain: INV-DUP ${live.counts['INV-DUP']} = ${cli.counts['INV-DUP']}, INV-MONO ${live.counts['INV-MONO']} = ${cli.counts['INV-MONO']} (checked on this run, not proofs)`);
     expect(cli.counts['INV-MONO']).toBeGreaterThan(0);  // anti-vacuity: the comparison is not [] = []
     expect(cli.counts['INV-DUP']).toBeGreaterThan(0);
     expect(pick(live.violations)).toEqual(pick(cli.violations));
