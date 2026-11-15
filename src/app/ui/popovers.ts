@@ -40,6 +40,21 @@ export interface Popover { readonly el: HTMLElement; render(): void }
 export function pickAnswered(pick: { purpose: string; radius?: number }, droneId: number | null): boolean {
   return droneId !== null || !(pick.radius === undefined || pick.purpose === 'inject' || pick.purpose === 'select');
 }
+export type StageClick =
+  | { kind: 'answer-pick'; droneId: number | null } | { kind: 'pick-in-encore' } | { kind: 'ignore' }
+  | { kind: 'select'; id: number; arm: 'encore' | 'static' } | { kind: 'deselect' };
+/**
+ * What a click on a stage pane does. A pending pick is answered only from the Encore pane (the controller resolves
+ * picks against the Encore world) and only as pickAnswered allows; otherwise a click selects the drone under it in
+ * the pane it was made in, so the selection and the inspector follow that world, or deselects on empty space.
+ */
+export function stageClick(input: { pick: { purpose: string; radius?: number } | null; arm: 'encore' | 'static'; droneId: number | null }): StageClick {
+  if (input.pick) {
+    if (input.arm !== 'encore') return { kind: 'pick-in-encore' };
+    return pickAnswered(input.pick, input.droneId) ? { kind: 'answer-pick', droneId: input.droneId } : { kind: 'ignore' };
+  }
+  return input.droneId !== null ? { kind: 'select', id: input.droneId, arm: input.arm } : { kind: 'deselect' };
+}
 /** What J does: lift the operator's jam if it is (or is about to be) on, else jam around the selected drone, else pick. */
 export function jamKeyAction(jamOn: boolean, hasSelection: boolean): 'lift' | 'around-selected' | 'pick' {
   return jamOn ? 'lift' : hasSelection ? 'around-selected' : 'pick';

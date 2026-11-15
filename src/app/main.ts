@@ -27,7 +27,7 @@ import { connectInspector, createPanel as createInspectorPanel, type InspectorSo
 import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend } from './ui/Legend';
-import { createDisrupt, createHelp, createLenses, createMetrics, jamKeyAction, pickAnswered, type PopoverContext } from './ui/popovers';
+import { createDisrupt, createHelp, createLenses, createMetrics, jamKeyAction, stageClick, type PopoverContext } from './ui/popovers';
 import { createReadout } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
@@ -139,8 +139,10 @@ const hudModel = new HudModel();
 
 // ---------- controls: the one action API ----------
 // Selection and lenses are presentation state (the store); the render layers' view mode follows the store.
+/** The world the current selection was made in: the pane clicked, or `inspect N --static`. */
+let selectedArm: Arm = 'encore';
 const display = {
-  setSelected(id: number | null) { setViewMode({ selectedDroneId: id }); store.set({ selected: id === null ? null : { id, arm: 'encore' } }); },
+  setSelected(id: number | null) { setViewMode({ selectedDroneId: id }); store.set({ selected: id === null ? null : { id, arm: selectedArm } }); if (id === null) selectedArm = 'encore'; },
   toggleXray() { store.lens('xray', !store.state.lenses.xray); },
   toggleBelief() { store.lens('colour', store.state.lenses.colour === 'belief' ? 'show' : 'belief'); },
 };
@@ -206,10 +208,12 @@ const raycaster = new Raycaster();
 const formationPlane = new Plane(new Vector3(0, 0, 1), 0);   // the formations face the audience on z = 0
 let lastAlpha = 0;
 const encoreCanvas = viewOf('encore').renderer.domElement;
-function screenPositions(): { id: number; x: number; y: number }[] {
-  if (!shown.encore) return [];
-  const rect = encoreCanvas.getBoundingClientRect();
-  const frame = buffers.encore.frame(lastAlpha);
+const canvases: Pair<HTMLCanvasElement> = { encore: encoreCanvas, static: viewOf('static').renderer.domElement };
+/** Where each live drone of `arm` is drawn in its pane (interpolated snapshot positions, shared camera). */
+function screenPositions(arm: Arm = 'encore'): { id: number; x: number; y: number }[] {
+  if (!shown[arm]) return [];
+  const rect = canvases[arm].getBoundingClientRect();
+  const frame = buffers[arm].frame(lastAlpha);
   const out: { id: number; x: number; y: number }[] = [];
   for (const drone of frame.curr.drones) {
     if (!drone.alive) continue;
@@ -219,14 +223,14 @@ function screenPositions(): { id: number; x: number; y: number }[] {
   }
   return out;
 }
-const screenOf = (id: number): [number, number] | null => { const hit = screenPositions().find(e => e.id === id); return hit ? [hit.x, hit.y] : null; };
-function pickDrone(x: number, y: number): number | null {
+const screenOf = (id: number, arm: Arm = 'encore'): [number, number] | null => { const hit = screenPositions(arm).find(e => e.id === id); return hit ? [hit.x, hit.y] : null; };
+function pickDrone(x: number, y: number, arm: Arm = 'encore'): number | null {
   let best: number | null = null;
   let bestD2 = PICK_PX ** 2;
-  for (const p of screenPositions()) { const d2 = (p.x - x) ** 2 + (p.y - y) ** 2; if (d2 < bestD2) { bestD2 = d2; best = p.id; } }
+  for (const p of screenPositions(arm)) { const d2 = (p.x - x) ** 2 + (p.y - y) ** 2; if (d2 < bestD2) { bestD2 = d2; best = p.id; } }
   return best;
 }
-/** The point under the pointer: a drone's position if one is under it, else where the ray meets the formation plane. */
+/** The point under the pointer in the Encore pane: a drone's position if one is under it, else where the ray meets the formation plane. */
 function pointAt(x: number, y: number): Vec3 | null {
   const id = pickDrone(x, y);
   if (id !== null) return [...snapshots().encore.drones[id].pos];
@@ -248,48 +252,50 @@ function pickCentre(purpose: 'killRegion' | 'jam', radius: number): void {
   } });
 }
 // A click is one primary pointer down and up within 5 px; a second pointer (pinch), a drag (orbit) or a cancel is not.
-let pressed: { pointerId: number; x: number; y: number } | null = null;
+// It belongs to the pane (world) it went down in.
+let pressed: { pointerId: number; x: number; y: number; arm: Arm } | null = null;
 let pointersDown = 0;
-const onPointerDown = (e: PointerEvent) => { pointersDown++; pressed = pointersDown === 1 && e.isPrimary && e.button === 0 ? { pointerId: e.pointerId, x: e.clientX, y: e.clientY } : null; };
+const pointerDownOn = (arm: Arm) => (e: PointerEvent) => { pointersDown++; pressed = pointersDown === 1 && e.isPrimary && e.button === 0 ? { pointerId: e.pointerId, x: e.clientX, y: e.clientY, arm } : null; };
+const onPointerDown: Pair<(e: PointerEvent) => void> = { encore: pointerDownOn('encore'), static: pointerDownOn('static') };
 const onPointerUp = (e: PointerEvent) => {
   const start = pressed?.pointerId === e.pointerId ? pressed : null;
   pressed = null;
   pointersDown = Math.max(0, pointersDown - 1);
   if (!start || e.button !== 0 || Math.hypot(e.clientX - start.x, e.clientY - start.y) > 5) return;
   const pick = store.state.pick;
-  if (pick) {
-    // Only a real stage click answers a pick. A drone pick (inject / select) needs a drone under the pointer.
-    const droneId = pickDrone(e.clientX, e.clientY);
-    if (!pickAnswered(pick, droneId)) return;   // a drone pick (no radius, inject, select) needs a drone under the pointer
+  const action = stageClick({ pick, arm: start.arm, droneId: pickDrone(e.clientX, e.clientY, start.arm) });
+  if (action.kind === 'answer-pick' && pick) {
     const point = pointAt(e.clientX, e.clientY);
-    if (point) pick.resolve({ droneId, point });
-    return;
-  }
-  const id = pickDrone(e.clientX, e.clientY);
-  if (id !== null) { connectInspector(inspectorSource, { arm: 'encore' }); controls.selectDrone(id); }
-  else if (store.state.selected) controls.selectDrone(null);
+    if (point) pick.resolve({ droneId: action.droneId, point });
+  } else if (action.kind === 'pick-in-encore') toaster.toast('Picks are answered in the Encore pane (the top one in split view).', 'info');
+  else if (action.kind === 'select') { selectedArm = action.arm; connectInspector(inspectorSource, { arm: action.arm }); controls.selectDrone(action.id); }
+  else if (action.kind === 'deselect' && store.state.selected) controls.selectDrone(null);
   refreshChrome();
 };
 const onPointerCancel = () => { pressed = null; pointersDown = Math.max(0, pointersDown - 1); };
-const onPointerMove = (e: PointerEvent) => {
-  const id = pressed ? null : pickDrone(e.clientX, e.clientY);
+const pointerMoveOn = (arm: Arm) => (e: PointerEvent) => {
+  const id = pressed ? null : pickDrone(e.clientX, e.clientY, arm);
   stage.classList.toggle('hovering', id !== null && !store.state.pick);
   if (id !== null) {
-    const d = snapshots().encore.drones[id];
+    const d = snapshots()[arm].drones[id];
     hoverLabel.hidden = false;
     Object.assign(hoverLabel.style, { left: `${e.clientX}px`, top: `${e.clientY}px` });
-    hoverLabel.textContent = `#${id} · slot ${d.belief.slot} · v${d.belief.version.issuedTick}:${d.belief.version.origin}${d.belief.deaf ? ' · deaf' : ''}`;
+    hoverLabel.textContent = `${arm === 'static' ? 'static ' : ''}#${id} · slot ${d.belief.slot} · v${d.belief.version.issuedTick}:${d.belief.version.origin}${d.belief.deaf ? ' · deaf' : ''}`;
   } else hoverLabel.hidden = true;
   const pick = store.state.pick;
-  if (pick?.radius) {
+  if (pick?.radius && arm === 'encore') {
     const centre = pointAt(e.clientX, e.clientY);
     const meta = pickbar.querySelector('.meta');
     if (meta) meta.textContent = centre ? `${idsInSphere(snapshots().encore, centre, pick.radius).length} live drones inside` : '';
   }
 };
-encoreCanvas.addEventListener('pointerdown', onPointerDown);
-encoreCanvas.addEventListener('pointermove', onPointerMove);
-encoreCanvas.addEventListener('pointerleave', () => { hoverLabel.hidden = true; });
+const onPointerMove: Pair<(e: PointerEvent) => void> = { encore: pointerMoveOn('encore'), static: pointerMoveOn('static') };
+const onPointerLeave = () => { hoverLabel.hidden = true; };
+for (const arm of ARMS) {
+  canvases[arm].addEventListener('pointerdown', onPointerDown[arm]);
+  canvases[arm].addEventListener('pointermove', onPointerMove[arm]);
+  canvases[arm].addEventListener('pointerleave', onPointerLeave);
+}
 window.addEventListener('pointerup', onPointerUp);
 window.addEventListener('pointercancel', onPointerCancel);
 
@@ -445,7 +451,7 @@ const compose = { controller: controls, store, surfaces, drafts, params, host: r
 const composer = connectComposer(compose);   // also connects the stage preview to the store
 const consoleTray = connectConsole({ ...compose, hooks: {
   step: () => { run({ type: 'step' }, true); },
-  inspect: (id, arm) => { controls.selectDrone(id); connectInspector(inspectorSource, { arm }); },
+  inspect: (id, arm) => { selectedArm = arm; connectInspector(inspectorSource, { arm }); controls.selectDrone(id); },
   demo: action => {
     if (action === 'stop') { demo.runner.stop(); refreshChrome(); return 'Demo stopped.'; }
     const problem = startDemo();
@@ -586,7 +592,8 @@ interface EncoreDebug {
   tick(): number;
   setPlaying(playing: boolean): void;
   setSpeed(speed: number): void;
-  screenOf(id: number): [number, number] | null;
+  /** Where a live drone is drawn, in client pixels, in the Encore pane (or the static one). */
+  screenOf(id: number, arm?: Arm): [number, number] | null;
   store: Store;
 }
 declare global { interface Window { encore?: EncoreDebug } }
@@ -614,8 +621,11 @@ window.encore = {
 if (import.meta.hot) import.meta.hot.dispose(() => {
   cancelAnimationFrame(animation);
   unbindKeys(); offStore(); offSurfaces();
-  encoreCanvas.removeEventListener('pointerdown', onPointerDown);
-  encoreCanvas.removeEventListener('pointermove', onPointerMove);
+  for (const arm of ARMS) {
+    canvases[arm].removeEventListener('pointerdown', onPointerDown[arm]);
+    canvases[arm].removeEventListener('pointermove', onPointerMove[arm]);
+    canvases[arm].removeEventListener('pointerleave', onPointerLeave);
+  }
   window.removeEventListener('pointerup', onPointerUp);
   window.removeEventListener('pointercancel', onPointerCancel);
   clearTimeout(hintTimer);

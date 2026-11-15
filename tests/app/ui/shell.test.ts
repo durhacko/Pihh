@@ -8,7 +8,7 @@ import { createActionController, type ControlStatus } from '../../../src/app/act
 import { liveState } from '../../../src/app/ui/commands';
 import { createDemoRunner, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoStartProblem, demoSubline } from '../../../src/app/ui/DemoScript';
 import { legendItems } from '../../../src/app/ui/Legend';
-import { disruptActions, jamKeyAction, pickAnswered, scrollByKey, type DisruptRun } from '../../../src/app/ui/popovers';
+import { disruptActions, jamKeyAction, pickAnswered, scrollByKey, stageClick, type DisruptRun } from '../../../src/app/ui/popovers';
 import { readoutItems } from '../../../src/app/ui/Readout';
 import { defaultUIState, Store } from '../../../src/app/ui/store';
 import { handleEscape, Surfaces, type SurfaceEnv } from '../../../src/app/ui/surfaces';
@@ -221,5 +221,17 @@ describe('review fixes (#113)', () => {
     expect(layouts).toEqual(['encore']);
     tick = DEMO_TICKS.SPLIT; runner.poll();
     expect(layouts).toEqual(['encore', 'split']);
+  });
+});
+
+describe('stage clicks follow the pane they are made in', () => {
+  it('selects the drone in the clicked pane (Encore or static); picks are answered only in the Encore pane', () => {
+    expect(stageClick({ pick: null, arm: 'static', droneId: 42 })).toEqual({ kind: 'select', id: 42, arm: 'static' });
+    expect(stageClick({ pick: null, arm: 'encore', droneId: 42 })).toEqual({ kind: 'select', id: 42, arm: 'encore' });
+    expect(stageClick({ pick: null, arm: 'static', droneId: null })).toEqual({ kind: 'deselect' });
+    expect(stageClick({ pick: { purpose: 'killRegion' }, arm: 'static', droneId: 42 })).toEqual({ kind: 'pick-in-encore' });
+    expect(stageClick({ pick: { purpose: 'killRegion' }, arm: 'encore', droneId: null })).toEqual({ kind: 'ignore' });
+    expect(stageClick({ pick: { purpose: 'killRegion' }, arm: 'encore', droneId: 42 })).toEqual({ kind: 'answer-pick', droneId: 42 });
+    expect(stageClick({ pick: { purpose: 'jam', radius: 12 }, arm: 'encore', droneId: null })).toEqual({ kind: 'answer-pick', droneId: null });
   });
 });
