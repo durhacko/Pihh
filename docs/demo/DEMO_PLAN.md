@@ -90,10 +90,10 @@ The "Encore arm" column was measured headless on `9f78902`: seed 101, the script
 | 23–48 | 460 | X-ray and belief colours off, so the hole and its refill show (X-ray dims the show to 25 %) | The hole stays; nPWC 0.931 | First claim heartbeat at tick 455 and first slot commit at 475; the first vacated slot is occupied at 495 (7 of 20 by 505). nPWC dips to 0.921 at 490 while the claimers leave their own slots, then 0.958 at 505 and 0.972 from 675 (measured with this script's events, recorded in `DemoScript.ts`) |
 | 48 | 963 | Preloaded sphere movement | Re-forms as a sphere, formed from tick 1216 | Same |
 | 61 | 1220 | `JAM_ON`; X-ray and belief colours on; select drone 151 | Jam sphere on the formed cap | The 18 drones inside are deaf by 64 s |
-| 64 | 1280 | `INJECT_SCORE` (helix) into drone 151, selected again as the injection is sent at 61 s, so a presenter's click cannot change the target; 0.5× | Nothing changes; the static brain ignores injection | 162 of 180 drones adopt within 1 s; none of the 18 inside the jam do |
+| 64 | 1280 | `INJECT_SCORE` (helix) into drone 151, selected again as the injection is sent at 61 s, so a presenter's click cannot change the target; deselected as it lands, so X-ray draws every drone's links during the spread and the jam-off (with a drone selected it draws only that drone's); 0.5× | Nothing changes; the static brain ignores injection | 162 of 180 drones adopt within 1 s; none of the 18 inside the jam do |
 | 67 | 1340 | 1× (new movement starts) | Still a sphere | Adopters fly the helix; the cut-off cap keeps the sphere |
 | 73 | 1460 | `JAM_OFF` | Jam sphere gone | All 180 hold the new score within 1 s and join the helix by the clock |
-| 82 | 1640 | X-ray and belief colours off; Audience; split view | Final view; the readout shows nPWC for both arms | Helix above, sphere below |
+| 82 | 1640 | X-ray and belief colours off; Audience; split view | Final view. The observer measures each arm against its own formation (Encore: the injected helix; static: its preloaded sphere), so the readout marks the two nPWC values **not comparable · different formations** | Helix above, sphere below |
 | 90 | 1800 | End | "End of the 90-second demo" | |
 
 The brain note in the caption's sub-line follows the brains the live worlds actually fly (their `config.brain.kind`, the same source as the Metrics popover's Brains row). It appears only when the Encore arm is not flying the Encore brain, so with the Encore brain in the app it no longer shows.

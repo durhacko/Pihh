@@ -16,7 +16,7 @@ Use this with the scripted show in [`DemoScript.ts`](../../src/app/ui/DemoScript
 | 48–64 s | The sphere forms; at 61 s a jam over its top cap, with X-ray and belief colours back on | “This cap is jammed. Drones inside keep flying but cannot exchange messages across it. Their belief colours show what each one knows.” |
 | 64–73 s | 64 s: a helix score injected into one drone below the jam (0.5× playback); 67 s: the new movement starts (1×) | “We inject a helix score into one drone below the jam. Real SCORE messages spread it to the connected drones; cut-off drones keep the old score. Static cannot adopt it.” |
 | 73–82 s | Jam off at 73 s; the versions reunite | “Jam off: the new version reaches the separated drones, and they join the new formation by the clock. These colours come from each drone’s recorded belief.” |
-| 82–90 s | Split audience view, X-ray off; the readout shows nPWC for both arms | “The readout measures both arms. Encore repairs some gaps and relays scores, but it also sends more messages and can pay a collision cost.” |
+| 82–90 s | Split audience view, X-ray off; the readout marks the two arms' nPWC **not comparable · different formations** | “Each arm is now measured against its own formation, Encore against the helix and static against the sphere, so the readout does not compare them. Encore repairs some gaps and relays scores, but it also sends more messages and can pay a collision cost.” |
 
 The beat times, seed, roster, regional kill, jam and injection above come from the [demo script](../../src/app/ui/DemoScript.ts). The information boundary between the world and the brains is specified in the [contracts](../design/contracts-and-algorithms.md). The show is software only, under [NFR-10](../specification/requirements.md).
 
