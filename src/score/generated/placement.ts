@@ -4,7 +4,7 @@
 // uniform scale so the closest pair of slots is slotSpacingMin·1.001, then the centre of the bounds of
 // slots ∪ dense moves to (0, 30, 0). William's caps are validation limits on the result, never clamps.
 // Pure and deterministic (§7.12): arithmetic and Math.sqrt only.
-import { CENTRE, closestPair, SPACING_MARGIN } from '../expand';
+import { boundsOf, CENTRE, closestPair, SPACING_MARGIN } from '../expand';
 import type { Vec3 } from './types';
 
 /** §7.6 table: William's proposed caps (warnings) and the hard limits (rejections), metres. */
@@ -34,24 +34,10 @@ export type PlacementCheck =
   | { ok: true; warnings: PlacementWarning[] }
   | { ok: false; code: 'below-floor' | 'too-large-world'; detail: string; warnings: PlacementWarning[] };
 
-export function boundsOf(groups: readonly (readonly Vec3[])[]): Box {
-  const min: Vec3 = [Infinity, Infinity, Infinity];
-  const max: Vec3 = [-Infinity, -Infinity, -Infinity];
-  for (const points of groups) {
-    for (const p of points) {
-      for (let a = 0; a < 3; a++) {
-        if (p[a] < min[a]) min[a] = p[a];
-        if (p[a] > max[a]) max[a] = p[a];
-      }
-    }
-  }
-  return { min, max };
-}
-
-/** §7.6 steps 2–3 on FPS-ordered unit-space slots and the unit-space dense cloud. */
+/** §7.6 steps 2–3 on FPS-ordered unit-space slots and the unit-space dense cloud (expand.ts step 3, its own helpers). */
 export function placeP1(slotsUnit: readonly Vec3[], denseUnit: readonly Vec3[], slotSpacingMin: number): Placed {
   const scale = slotsUnit.length > 1 ? (slotSpacingMin * SPACING_MARGIN) / closestPair(slotsUnit as Vec3[]) : 1;
-  const unit = boundsOf([slotsUnit, denseUnit]);
+  const unit = boundsOf([slotsUnit as Vec3[], denseUnit as Vec3[]]);
   const cx = (unit.min[0] + unit.max[0]) / 2;
   const cy = (unit.min[1] + unit.max[1]) / 2;
   const cz = (unit.min[2] + unit.max[2]) / 2;

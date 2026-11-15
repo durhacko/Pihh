@@ -3,7 +3,7 @@
 // GF-WP-08 (memo), GF-WP-10 (Composer preview) and the tests. Nothing outside src/score/generated imports
 // it yet; expandRecipe reaches it only through GF-WP-07.
 export {
-  COMPILER_VERSION, compileGeneratedScene, colourWarningsFor, linearLuminance, repairReport, repairWarnings, srgbToLinear,
+  COMPILER_VERSION, compileGeneratedScene, colourWarningsFor, denseCoverage, linearLuminance, MAX_N0, MIN_SLOT_SPACING, repairReport, repairWarnings, srgbToLinear,
   type CompileParams, type CompileResult, type CompileStats, type CompileWarning, type GeneratedFormation, type RejectCode,
   type RepairComponent, type RepairReport,
 } from './compile';

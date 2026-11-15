@@ -13,7 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LOOPBACK, type Env } from './config.ts';
-import { errorResponse, type RouteResponse } from './errors.ts';
+import { errorResponse, sanitise, type RouteResponse } from './errors.ts';
 import { guardRequest, type GuardSettings, type RequestFacts } from './guard.ts';
 import type { ModuleEntry } from './modules.ts';
 import { buildGateway, type Gateway } from './router.ts';
@@ -33,6 +33,8 @@ export interface StartOptions {
   readonly port?: number;
   /** Overrides the module registry (tests). */
   readonly registry?: readonly ModuleEntry[];
+  /** Receives one entry per finished request (the entry point prints them). Defaults to no logging. */
+  readonly log?: AccessLog;
 }
 
 const HEADERS = {
@@ -96,9 +98,36 @@ function header(req: IncomingMessage, name: string): string | undefined {
   return Array.isArray(value) ? value.join(',') : value;
 }
 
-/** The request listener: guard, body, router. Exported for tests; `settings` is read per request. */
-export function requestListener(gateway: Gateway, settings: () => GuardSettings) {
+/** One access-log entry (spec §10.3 "Logging", GF-T33 (8)). The gateway's own id, never the client's `requestId`;
+ *  the path without its query; no body, header, prompt or key. */
+export interface AccessEntry {
+  readonly serverId: string;
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+  readonly ms: number;
+}
+export type AccessLog = (entry: AccessEntry) => void;
+
+function logPath(url: string): string {
+  const q = url.indexOf('?');
+  return sanitise(q === -1 ? url : url.slice(0, q)).slice(0, 120);
+}
+
+/** The request listener: guard, body, router. Exported for tests; `settings` is read per request. Each request
+ *  gets a server id (`g-1`, `g-2`, …) that goes to `log` when its response finishes. */
+export function requestListener(gateway: Gateway, settings: () => GuardSettings, log: AccessLog = () => {}) {
+  let next = 0;
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const serverId = `g-${++next}`;
+    const started = Date.now();
+    res.on('finish', () => {
+      try {
+        log({ serverId, method: sanitise(req.method ?? '').slice(0, 16), path: logPath(req.url ?? ''), status: res.statusCode, ms: Date.now() - started });
+      } catch {
+        // A failing logger never affects a response.
+      }
+    });
     try {
       const facts: RequestFacts = {
         method: req.method ?? '',
@@ -143,7 +172,7 @@ export async function startGateway(env: Env, options: StartOptions = {}): Promis
   const server = createServer(requestListener(gateway, () => {
     if (settings === null) throw new Error('not listening');
     return settings;
-  }));
+  }, options.log));
   server.headersTimeout = 10_000;
   server.requestTimeout = 60_000;
   server.maxHeadersCount = 64;
@@ -182,7 +211,7 @@ export function startupLines(running: RunningGateway): string[] {
 
 /** The entry point: environment in, one server out. */
 export async function main(env: Env, log: (line: string) => void): Promise<RunningGateway> {
-  const running = await startGateway(env);
+  const running = await startGateway(env, { log: e => log(`access ${e.serverId} ${e.method} ${e.path} ${e.status} ${e.ms}ms`) });
   for (const line of startupLines(running)) log(line);
   return running;
 }

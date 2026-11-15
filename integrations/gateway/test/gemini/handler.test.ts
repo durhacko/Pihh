@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readGeminiConfig, type GeminiConfig } from '../../src/gemini/config.ts';
-import { defaultGeminiDeps, handleGenerateFormation, type GeminiDeps, type ProviderOutcome } from '../../src/gemini/index.ts';
+import { defaultGeminiDeps, handleGenerateFormation, type GeminiDeps, type ProviderOutcome, type SceneSpec } from '../../src/gemini/index.ts';
 import { isErrorEnvelope } from '../../src/errors.ts';
 import { acceptingValidator, fakeProvider, fakeValidator } from './fakes.ts';
 
@@ -148,7 +148,7 @@ test('a validator that returns the other mode, or throws, is refused', async () 
   const otherMode = await errorOf({
     config: enabled(),
     provider: fakeProvider(async () => output(JSON.stringify(SCENE))),
-    validator: fakeValidator(() => ({ ok: true, scene: { version: 1, mode: 'silhouette2d' }, sceneHash: 'h' })),
+    validator: fakeValidator(() => ({ ok: true, scene: { version: 1, mode: 'silhouette2d' } as unknown as SceneSpec, sceneHash: 'h', trialCompile: 'not-yet-compiled' })),
   });
   assert.deepEqual([otherMode.status, otherMode.paths, otherMode.reasons], [400, ['', '/scene/mode'], ['SCENE_INVALID', 'SCHEMA']]);
 

@@ -24,7 +24,7 @@ function distinct(points: Vec3[]): Vec3[] {
   return out;
 }
 
-function boundsOf(groups: Vec3[][]): { min: Vec3; max: Vec3 } {
+export function boundsOf(groups: Vec3[][]): { min: Vec3; max: Vec3 } {
   const min: Vec3 = [Infinity, Infinity, Infinity];
   const max: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const points of groups) {

@@ -111,7 +111,8 @@ export async function handleGenerateFormation(rawBody: string, deps: GeminiDeps)
   }
 
   // Untrusted model text: size gate, parse, shape gate, then the shared validator. Never repaired (§10.3).
-  if (typeof outcome.text !== 'string' || utf8Bytes(outcome.text) > GEMINI_LIMITS.rawOutputMaxBytes) {
+  // A string's UTF-8 size is at least its length, so an overlong string is refused before it is encoded.
+  if (typeof outcome.text !== 'string' || outcome.text.length > GEMINI_LIMITS.rawOutputMaxBytes || utf8Bytes(outcome.text) > GEMINI_LIMITS.rawOutputMaxBytes) {
     return errorResponse('PROVIDER_ERROR', 'The model output is too large.', { details: [{ path: '', reason: 'RESPONSE_TOO_LARGE' }], requestId });
   }
   let candidate: unknown;
