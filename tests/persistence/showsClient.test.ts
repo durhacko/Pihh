@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeParams } from '../../src/contracts';
 import { Drafts } from '../../src/app/ui/Composer';
-import { getShow, listShows, newOperationId, probeShows, saveShow, summaryOf, type ClientOptions } from '../../src/app/live/shows';
+import { fallbackDelayMs, getShow, listShows, newOperationId, probeShows, retryAfterMs, saveShow, summaryOf, type ClientOptions } from '../../src/app/live/shows';
 import { createPanel, MESSAGES } from '../../src/app/live/SavedCompositions';
 import { FakeDocument, FakeElement } from '../app/ui/fakeDom';
 
@@ -88,6 +88,19 @@ describe('client: save, list, get (§10.2, §10.3, §10.5, §10.6)', () => {
     expect(failing.calls).toHaveLength(3);
   });
 
+  it('Retry-After: absent or empty is null, never 0 ms; the fallback is about 1 s × attempt with jitter (#270 review 2)', async () => {
+    expect([retryAfterMs(null), retryAfterMs(''), retryAfterMs('  '), retryAfterMs('Wed, 21 Oct 2026 07:28:00 GMT'), retryAfterMs('-1')]).toEqual([null, null, null, null, null]);
+    expect([retryAfterMs('0'), retryAfterMs('2'), retryAfterMs('999')]).toEqual([0, 2000, 30000]);
+    expect([fallbackDelayMs(1, () => 0), fallbackDelayMs(1, () => 1), fallbackDelayMs(2, () => 0.5)]).toEqual([800, 1200, 2000]);
+    const waits: number[] = [];
+    const api = fakeApi({ 'POST /api/shows': [{ status: 503, body: {} }, { status: 429, body: {}, headers: { 'Retry-After': '3' } }, { status: 201, body: { show: show(), idempotentReplay: false } }] });
+    const r = await saveShow(request, 'k', { ...api.options, sleep: async ms => { waits.push(ms); } });
+    expect(r.ok).toBe(true);
+    expect(waits[0]).toBeGreaterThanOrEqual(800);    // no header: the jittered ~1 s fallback, not 0
+    expect(waits[0]).toBeLessThanOrEqual(1200);
+    expect(waits[1]).toBe(3000);                      // Retry-After: 3
+  });
+
   it('never retries a definitive failure, and maps the error envelope (code, details) as data', async () => {
     for (const [status, code] of [[400, 'VALIDATION_FAILED'], [409, 'CONFLICT'], [403, 'FORBIDDEN'], [413, 'PAYLOAD_TOO_LARGE']] as const) {
       const api = fakeApi({ 'POST /api/shows': { status, body: { error: { code, message: 'm', details: [{ path: 'title', reason: 'INVALID_FIELD' }, { path: 'x', reason: '<b>' }] } } } });
@@ -128,20 +141,23 @@ describe('client: save, list, get (§10.2, §10.3, §10.5, §10.6)', () => {
 
 // ---------------------------------------------------------------------------------------------- panel
 const params = makeParams(40);
-async function mount(routes: Record<string, Reply | Reply[]>, drafts = new Drafts()) {
+interface MountExtras { wrap?: (f: typeof globalThis.fetch) => typeof globalThis.fetch; sleep?: (ms: number) => Promise<void> }
+async function mount(routes: Record<string, Reply | Reply[]>, drafts = new Drafts(), extras: MountExtras = {}) {
   const doc = new FakeDocument();
   vi.stubGlobal('document', doc);
   const api = fakeApi(routes);
   let clock = 0;
   const host = doc.createElement('div');
-  const panel = createPanel({ host: host as unknown as HTMLElement, drafts, params, client: api.options, now: () => clock });
+  const client: ClientOptions = { ...api.options, ...(extras.wrap ? { fetch: extras.wrap(api.options.fetch!) } : {}), ...(extras.sleep ? { sleep: extras.sleep } : {}) };
+  const panel = createPanel({ host: host as unknown as HTMLElement, drafts, params, client, now: () => clock });
   await panel.idle();
   await panel.open();
   await panel.idle();
   const el = panel.el as unknown as FakeElement;
   const text = () => el.textContent;
   const button = (label: string) => el.findTag('button').find(b => b.textContent.trim().startsWith(label));
-  return { panel, api, el, text, button, drafts, advance: (ms: number) => { clock += ms; } };
+  const input = (label: string) => el.findTag('input').find(i => i.getAttribute('aria-label') === label) as unknown as (FakeElement & { value: string }) | undefined;
+  return { panel, api, el, text, button, input, doc, drafts, advance: (ms: number) => { clock += ms; } };
 }
 const healthCalls = (calls: Call[]) => calls.filter(c => c.url === '/api/health').length;
 
@@ -178,7 +194,7 @@ describe('panel: states (§12) with a fake client', () => {
     expect(p.text()).toContain(MESSAGES.readOnly);
     expect(p.button('Save composition')!.hasAttribute('disabled')).toBe(true);
     p.button('Hello')!.click(); await p.panel.idle();
-    expect(p.text()).toContain('Hello · 2 movements');                         // state 9
+    expect(p.el.findTag('b').map(b => b.textContent)).toEqual(['Hello · 2 movements']);   // state 9: the selection heading
     const before = p.drafts.list.length;
     p.button('Load as drafts')!.click();
     expect(p.drafts.list.length).toBe(before + 2);                            // state 10b
@@ -272,6 +288,67 @@ describe('panel: states (§12) with a fake client', () => {
     const r = await saveShow(request, 'k', api.options);
     expect(r.ok ? 'ok' : [r.code, r.retryable]).toEqual(['DATABASE_UNAVAILABLE', false]);
     expect(api.calls).toHaveLength(1);                                                        // POST not retried
+  });
+
+  it('typing keeps the same input nodes: an edit never rebuilds or detaches the title or hold field (#270 review 1)', async () => {
+    const p = await mount({ 'GET /api/health': UP, 'GET /api/shows': { status: 200, body: { items: [], nextCursor: null } } });
+    const title = p.input('Composition title')!;
+    const hold = p.input('Hold ticks for Durhack')!;
+    expect(title && hold).toBeTruthy();
+    title.focus();
+    for (const ch of 'ABC') { title.value += ch; title.dispatch('input'); }
+    hold.value = '900'; hold.dispatch('input');
+    expect(p.input('Composition title')).toBe(title);                 // the same node after every keystroke
+    expect(p.input('Hold ticks for Durhack')).toBe(hold);
+    expect(p.doc.detachments.get(title)).toBeUndefined();              // never detached, so focus is never lost
+    expect(p.doc.detachments.get(hold)).toBeUndefined();
+    expect(p.doc.activeElement).toBe(title);
+    p.button('Save composition')!.click(); await p.panel.idle();       // the edits are what gets sent
+    expect(p.api.calls.filter(c => c.method === 'POST').map(c => JSON.parse(c.body!)).map(b => [b.title, b.composition.movements[0].holdTicks])).toEqual([['DurhackABC', 900]]);
+  });
+
+  it('an edit while saving discards the request: a retryable failure goes to idle, not Retry (#270 review 3)', async () => {
+    const ref: { p?: Awaited<ReturnType<typeof mount>> } = {};
+    let edits = 0;
+    // The client's retry wait is where the edit lands: the request is in flight when the user types.
+    const sleep = async () => { if (edits++ === 0) { const t = ref.p!.input('Composition title')!; t.value = 'Edited'; t.dispatch('input'); } };
+    const p = ref.p = await mount({ 'GET /api/health': UP, 'GET /api/shows': { status: 200, body: { items: [], nextCursor: null } }, 'POST /api/shows': [{ status: 503, body: {} }, { status: 503, body: {} }, { status: 503, body: {} }, { status: 201, body: { show: show(), idempotentReplay: false } }] }, new Drafts(), { sleep });
+    p.button('Save composition')!.click(); await p.panel.idle();
+    expect(edits).toBeGreaterThan(0);
+    expect(p.button('Retry')).toBeUndefined();
+    expect(p.text()).not.toContain('Not saved');
+    p.button('Save composition')!.click(); await p.panel.idle();
+    const posts = p.api.calls.filter(c => c.method === 'POST');
+    expect(new Set(posts.map(c => c.headers['Idempotency-Key'])).size).toBe(2);   // the next Save has a new key
+    expect(JSON.parse(posts.at(-1)!.body!).title).toBe('Edited');
+  });
+
+  it('a stale getShow reply is ignored: only the latest selection lands (#270 review 4)', async () => {
+    const B = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+    let releaseA!: () => void;
+    const gateA = new Promise<void>(resolve => { releaseA = resolve; });
+    const wrap = (f: typeof globalThis.fetch) => (async (url: string, init?: RequestInit) => {
+      if (url === `/api/shows/${ID}`) await gateA;   // A's reply arrives late
+      return f(url, init);
+    }) as unknown as typeof globalThis.fetch;
+    const p = await mount({
+      'GET /api/health': UP,
+      'GET /api/shows': { status: 200, body: { items: [item(), item({ id: B, title: 'Bravo' })], nextCursor: null } },
+      [`GET /api/shows/${ID}`]: { status: 200, body: { show: show() } },
+      [`GET /api/shows/${B}`]: { status: 200, body: { show: show({ id: B, title: 'Bravo', composition: { v: 1, movements: [{ recipe: { kind: 'helix' }, holdTicks: 600 }] }, movementCount: 1, kinds: ['helix'] }) } },
+    }, new Drafts(), { wrap });
+    p.button('Hello')!.click();                      // A: in flight
+    p.button('Bravo')!.click();                      // B: answers at once
+    releaseA(); await p.panel.idle();
+    // The selection's own heading (the list chips also show titles, so the whole text cannot tell them apart).
+    expect(p.el.findTag('b').map(b => b.textContent)).toEqual(['Bravo · 1 movements']);
+  });
+
+  it('a reply for another id than the one asked for is never loadable', async () => {
+    const p = await mount({ 'GET /api/health': UP, 'GET /api/shows': { status: 200, body: { items: [item()], nextCursor: null } }, [`GET /api/shows/${ID}`]: { status: 200, body: { show: show({ id: 'cccccccccccccccccccccccc' }) } } });
+    p.button('Hello')!.click(); await p.panel.idle();
+    expect(p.text()).toContain(MESSAGES.damaged);
+    expect(p.button('Load as drafts')).toBeUndefined();
   });
 
   it('stored strings render as text: a hostile title creates no img or script element', async () => {

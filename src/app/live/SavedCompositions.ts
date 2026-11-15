@@ -128,12 +128,16 @@ export function createPanel(o: SavedCompositionsOptions): SavedCompositionsHandl
     return checked.ok ? checked.request : { problems: checked.errors.map(e => `${e.path || 'request'}: ${e.reason}`) };
   }
 
+  let editedDuringSave = false;
   async function submit(request: ShowRequest, key: string): Promise<void> {
-    save = { kind: 'saving', title: request.title }; render();
+    save = { kind: 'saving', title: request.title }; editedDuringSave = false; render();
     await probe();
     const r = await saveShow(request, key, client);
     if (disposed) return;
     if (r.ok) { save = { kind: 'saved', title: request.title }; await refreshList(); }
+    // An edit while saving discarded this request (§10.5, 6a): a failure is not offered for Retry; the next Save
+    // takes the edited form with a new key.
+    else if (editedDuringSave) save = { kind: 'idle' };
     else if (r.details.some(d => d.reason === 'MODULE_DISABLED')) { availability = 'disabled'; save = { kind: 'failed-definitive', message: MESSAGES.notConfigured, reasons: [], conflict: false }; }
     else if (r.retryable) save = { kind: 'failed-retryable', reason: r.code === 'NETWORK' || r.code === 'TIMEOUT' ? 'the gateway did not answer' : r.status === 429 ? 'too many requests' : 'the library is unavailable', request, key };
     else if (r.status === 409) save = { kind: 'failed-definitive', message: MESSAGES.conflict, reasons: [], conflict: true };
@@ -148,14 +152,25 @@ export function createPanel(o: SavedCompositionsOptions): SavedCompositionsHandl
     void track(submit(request, newOperationId()));
   }
 
-  /** Any edit to the form or its source drafts discards a pending or failed request; the next Save gets a new key. */
-  function edited(): void { if (save.kind !== 'saving') save = { kind: 'idle' }; loaded = null; render(); }
+  /**
+   * Any edit to the form or its source drafts discards a pending or failed request; the next Save gets a new key.
+   * It re-renders only the save status and the library notes, never the inputs (so typing keeps focus).
+   */
+  function edited(): void {
+    if (save.kind === 'saving') editedDuringSave = true;
+    else save = { kind: 'idle' };
+    loaded = null;
+    renderSave(); renderLibrary();
+  }
 
   // ------------------------------------------------------------------------------------------------- load
+  let selectSeq = 0;
   async function select(summary: ShowSummary): Promise<void> {
+    const seq = ++selectSeq;   // only the latest selection may land: a stale getShow reply is ignored
     loaded = null;
     if (!summary.loadable) { selection = { kind: 'invalid', message: summary.problem === 'unsupported-schema' ? MESSAGES.newer : MESSAGES.damaged }; render(); return; }
     const r = await getShow(summary.id, client);
+    if (seq !== selectSeq || disposed) return;
     if (!r.ok) {
       selection = { kind: 'retrieve-failed', message: r.status === 404 ? MESSAGES.gone : r.code === 'SCHEMA_VERSION_UNSUPPORTED' ? MESSAGES.newer : r.status === 503 || r.status <= 0 ? MESSAGES.unavailable : MESSAGES.damaged };
       render(); return;
@@ -164,7 +179,8 @@ export function createPanel(o: SavedCompositionsOptions): SavedCompositionsHandl
     const show = r.value.show as { composition?: unknown };
     // Validation point (c), app side: the strict validator, as stored data (non-canonical text is rejected).
     const checked = validateComposition(show.composition, o.params, { mode: 'stored' });
-    if (!shown.loadable) selection = { kind: 'invalid', message: shown.problem === 'unsupported-schema' ? MESSAGES.newer : MESSAGES.damaged };
+    if (shown.id !== summary.id) selection = { kind: 'invalid', message: MESSAGES.damaged };   // the reply is not the show asked for
+    else if (!shown.loadable) selection = { kind: 'invalid', message: shown.problem === 'unsupported-schema' ? MESSAGES.newer : MESSAGES.damaged };
     else if (!checked.ok) {
       const onlyExpansion = checked.errors.every(e => e.reason === 'EXPANSION_FAILED');
       selection = { kind: 'invalid', message: onlyExpansion ? `This show cannot be flown with ${o.params.n0} drones on this page.` : MESSAGES.damaged };
@@ -181,35 +197,66 @@ export function createPanel(o: SavedCompositionsOptions): SavedCompositionsHandl
   }
 
   // ----------------------------------------------------------------------------------------------- render
+  // Regions. The form's inputs (the title, and one checkbox and hold field per draft) are created ONCE and never
+  // re-inserted while they exist: re-inserting a node detaches it, and a detached field loses focus. Typing therefore
+  // re-renders only the save status and the library notes (#270 review 1). The other regions hold no inputs.
   const text = (s: string, cls = 'hint') => h('div', { class: cls }, s);
-  function render(): void {
-    if (disposed || body.hidden) return;
-    const parts: HTMLElement[] = [];
-    const usable = availability === 'up' || availability === 'read-only';
-    if (availability === 'probing') parts.push(h('div', { class: 'hint', role: 'status', 'aria-busy': 'true' }, MESSAGES.fetching));
-    else if (availability === 'disabled') parts.push(text(MESSAGES.notConfigured), checkAgain());
-    else if (!usable) parts.push(h('div', { class: 'hint', role: 'status' }, MESSAGES.unavailable), checkAgain());
+  const usableNow = () => availability === 'up' || availability === 'read-only';
+  const availBox = h('div', {});
+  const titleInput = h('input', { class: 'input', 'aria-label': 'Composition title', maxlength: 80 });
+  titleInput.addEventListener('input', () => { title = titleInput.value; titleTouched = true; edited(); });
+  const rowsBox = h('div', {});
+  const saveBtn = h('button', { type: 'button', class: 'btn primary', onclick: () => startSave() }, 'Save composition');
+  const saveStatus = h('div', {});
+  const libraryBox = h('div', {});
+  body.append(availBox, h('div', { class: 'sec-title' }, h('span', { class: 'eyebrow' }, 'Save composition')), h('div', { class: 'field' }, titleInput), rowsBox, saveBtn, saveStatus, libraryBox);
 
-    // Save composition (state 4, 5, 6a, 6b); disabled with a reason when the library cannot take it.
+  interface Row { el: HTMLElement; label: HTMLElement; box: HTMLInputElement; hold: HTMLInputElement }
+  const rows = new Map<string, Row>();
+  let rowOrder = '';
+
+  function renderAvailability(): void {
+    const usable = usableNow();
+    if (availability === 'probing') availBox.replaceChildren(h('div', { class: 'hint', role: 'status', 'aria-busy': 'true' }, MESSAGES.fetching));
+    else if (availability === 'disabled') availBox.replaceChildren(text(MESSAGES.notConfigured), checkAgain());
+    else if (!usable) availBox.replaceChildren(h('div', { class: 'hint', role: 'status' }, MESSAGES.unavailable), checkAgain());
+    else availBox.replaceChildren();
+  }
+
+  /** One row per valid draft, reused across renders; the box is re-filled only when the set or order changes. */
+  function renderRows(): void {
     const valid = validDrafts();
-    if (!titleTouched) title = valid.find(d => chosen.has(d.id))?.name ?? valid[0]?.name ?? '';
     if (chosen.size === 0 && valid[0]) {   // the current draft by default (§12), else the first valid one
       const current = o.drafts.find(null);
       chosen.add(current && valid.some(d => d.id === current.id) ? current.id : valid[0].id);
     }
-    const titleInput = h('input', { class: 'input', 'aria-label': 'Composition title', maxlength: 80, value: title });
-    titleInput.addEventListener('input', () => { title = titleInput.value; titleTouched = true; edited(); });
-    const rows = valid.map(d => {
-      const box = h('input', { type: 'checkbox', 'aria-label': `Include ${d.name}` });
-      box.checked = chosen.has(d.id);
-      box.addEventListener('change', () => { if (box.checked) chosen.add(d.id); else chosen.delete(d.id); edited(); });
-      const hold = h('input', { class: 'input mono', type: 'number', min: 0, max: 6000, step: 1, 'aria-label': `Hold ticks for ${d.name}`, value: String(holds.get(d.id) ?? DEFAULT_HOLD) });
-      hold.addEventListener('input', () => { holds.set(d.id, Number(hold.value)); edited(); });
-      return h('div', { class: 'field' }, box, ` ${d.name} `, hold);
-    });
-    const saveReason = availability === 'read-only' ? MESSAGES.readOnly : !usable ? MESSAGES.unavailable : save.kind === 'saving' ? '' : valid.length === 0 ? 'Compose a valid draft first.' : '';
-    const saveBtn = h('button', { type: 'button', class: 'btn primary', disabled: !!saveReason || save.kind === 'saving' || save.kind === 'failed-retryable', onclick: () => startSave() }, 'Save composition');
-    parts.push(h('div', { class: 'sec-title' }, h('span', { class: 'eyebrow' }, 'Save composition')), h('div', { class: 'field' }, titleInput), ...rows, saveBtn);
+    if (!titleTouched && document.activeElement !== titleInput) titleInput.value = title = valid.find(d => chosen.has(d.id))?.name ?? valid[0]?.name ?? '';
+    for (const id of [...rows.keys()]) if (!valid.some(d => d.id === id)) { rows.delete(id); chosen.delete(id); }
+    for (const d of valid) {
+      let row = rows.get(d.id);
+      if (!row) {
+        const box = h('input', { type: 'checkbox', 'aria-label': `Include ${d.name}` });
+        box.addEventListener('change', () => { if (box.checked) chosen.add(d.id); else chosen.delete(d.id); edited(); });
+        const hold = h('input', { class: 'input mono', type: 'number', min: 0, max: 6000, step: 1, 'aria-label': `Hold ticks for ${d.name}`, value: String(holds.get(d.id) ?? DEFAULT_HOLD) });
+        hold.addEventListener('input', () => { holds.set(d.id, Number(hold.value)); edited(); });
+        const label = h('span', {});
+        row = { el: h('div', { class: 'field' }, box, label, hold), label, box, hold };
+        rows.set(d.id, row);
+      }
+      row.box.checked = chosen.has(d.id);
+      if (row.label.textContent !== ` ${d.name} `) row.label.textContent = ` ${d.name} `;
+    }
+    const order = valid.map(d => d.id).join('|');
+    if (order !== rowOrder) { rowOrder = order; rowsBox.replaceChildren(...valid.map(d => rows.get(d.id)!.el)); }
+  }
+
+  /** Save composition's status (states 4, 5, 6a, 6b) and the Save button's enabled state. No inputs here. */
+  function renderSave(): void {
+    if (disposed || body.hidden) return;
+    const usable = usableNow();
+    const saveReason = availability === 'read-only' ? MESSAGES.readOnly : !usable ? MESSAGES.unavailable : save.kind === 'saving' ? '' : rows.size === 0 ? 'Compose a valid draft first.' : '';
+    if (saveReason || save.kind === 'saving' || save.kind === 'failed-retryable') saveBtn.setAttribute('disabled', ''); else saveBtn.removeAttribute('disabled');
+    const parts: HTMLElement[] = [];
     if (saveReason) parts.push(text(saveReason));
     if (save.kind === 'saving') parts.push(h('div', { class: 'hint', role: 'status' }, `Saving “${save.title}”…`));
     if (save.kind === 'saved') parts.push(h('div', { class: 'hint', role: 'status' }, `Saved “${save.title}”.`));
@@ -223,9 +270,14 @@ export function createPanel(o: SavedCompositionsOptions): SavedCompositionsHandl
       parts.push(h('div', { class: 'hint err', role: 'alert' }, save.message), ...save.reasons.map(r => text(r, 'hint err')));
       if (save.conflict) parts.push(h('button', { type: 'button', class: 'btn', onclick: () => { save = { kind: 'idle' }; startSave(); } }, 'Save as new'));
     }
+    saveStatus.replaceChildren(...parts);
+  }
 
-    // The library (states 2, 3, list) and the selection (8, 9, retrieve failures) and Load as drafts (10b).
-    if (usable) {
+  /** The library (states 2, 3, the list), the selection (8, 9, retrieve failures) and Load as drafts (10b). */
+  function renderLibrary(): void {
+    if (disposed || body.hidden) return;
+    const parts: HTMLElement[] = [];
+    if (usableNow()) {
       parts.push(h('div', { class: 'sec-title' }, h('span', { class: 'eyebrow' }, 'Library')));
       if (listing && !items) parts.push(h('div', { class: 'hint', role: 'status', 'aria-busy': 'true' }, MESSAGES.fetching));
       else if (items && items.length === 0) parts.push(text(MESSAGES.empty));
@@ -242,7 +294,12 @@ export function createPanel(o: SavedCompositionsOptions): SavedCompositionsHandl
         h('button', { type: 'button', class: 'btn', onclick: () => loadAsDrafts() }, 'Load as drafts'));
     }
     if (loaded !== null) parts.push(h('div', { class: 'hint', role: 'status' }, `Added ${loaded} drafts to the Composer. Inject each one when you are ready.`));
-    body.replaceChildren(...parts);
+    libraryBox.replaceChildren(...parts);
+  }
+
+  function render(): void {
+    if (disposed || body.hidden) return;
+    renderAvailability(); renderRows(); renderSave(); renderLibrary();
   }
 
   function checkAgain(): HTMLElement {

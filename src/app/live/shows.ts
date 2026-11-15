@@ -48,6 +48,18 @@ const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typ
 
 interface Raw { status: number; body: unknown; retryAfterMs: number | null }
 
+/**
+ * Retry-After in delta-seconds, capped at 30 s; null when absent, empty or not a number (an HTTP-date is not used).
+ * `Number(null)` and `Number('')` are 0, so absent or empty must be mapped to null explicitly (#270 review 2).
+ */
+export function retryAfterMs(header: string | null): number | null {
+  if (header === null || header.trim() === '' || !/^\d+$/.test(header.trim())) return null;
+  return Math.min(Number(header.trim()), 30) * 1000;
+}
+
+/** The fallback wait before retry `attempt` (1-based): about 1 s × attempt, with ±20 % jitter (§10.6). */
+export const fallbackDelayMs = (attempt: number, random: () => number = Math.random): number => Math.round(1000 * attempt * (0.8 + 0.4 * random()));
+
 /** One request, never throws: a network failure is status 0, a timeout status -1. */
 async function send(method: 'GET' | 'POST', path: string, o: ClientOptions, body?: string, headers: Record<string, string> = {}): Promise<Raw> {
   const doFetch = o.fetch ?? globalThis.fetch;
@@ -57,8 +69,7 @@ async function send(method: 'GET' | 'POST', path: string, o: ClientOptions, body
     const res = await doFetch(`${o.base ?? ''}${path}`, { method, headers: { Accept: 'application/json', ...headers }, body, signal: controller.signal, credentials: 'same-origin' });
     let parsed: unknown = null;
     try { parsed = await res.json(); } catch { parsed = null; }
-    const retryAfter = Number(res.headers?.get?.('Retry-After'));
-    return { status: res.status, body: parsed, retryAfterMs: Number.isFinite(retryAfter) && retryAfter >= 0 ? Math.min(retryAfter, 30) * 1000 : null };
+    return { status: res.status, body: parsed, retryAfterMs: retryAfterMs(res.headers?.get?.('Retry-After') ?? null) };
   } catch {
     return { status: controller.signal.aborted ? -1 : 0, body: null, retryAfterMs: null };
   } finally {
@@ -89,7 +100,7 @@ async function sendWithRetry(retries: number, method: 'GET' | 'POST', path: stri
   const sleep = o.sleep ?? realSleep;
   let raw = await send(method, path, o, body, headers);
   for (let attempt = 1; attempt <= retries && retryable(raw); attempt++) {
-    await sleep(raw.retryAfterMs ?? 1000 * attempt);
+    await sleep(raw.retryAfterMs ?? fallbackDelayMs(attempt));
     raw = await send(method, path, o, body, headers);
   }
   return raw;
