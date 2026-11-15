@@ -29,7 +29,7 @@ describe('completion', () => {
   it('completes subcommands with their usage and status', () => {
     expect(inserts('fault kill')).toEqual(['fault kill ', 'fault kill-region ', 'fault kill-random ']);
     const partition = complete('fault part', ctx)[0];
-    expect(partition).toMatchObject({ insert: 'fault partition ', label: 'fault partition on|off', status: 'proto' });
+    expect(partition).toMatchObject({ insert: 'fault partition ', label: 'fault partition on|off', status: 'main' });
     expect(complete('cue ', ctx).every(s => s.status === 'later')).toBe(true);
   });
 
