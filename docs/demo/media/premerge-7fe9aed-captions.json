@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "status": "PREMERGE UNMERGED PR #113 evidence; not merged main and not freeze-approved",
+  "sourceRevision": "7fe9aed2ef0e57659e8542714d4e340518be1799",
+  "sourcePullRequest": 113,
+  "issue": 141,
+  "capturedOn": "2026-11-15",
+  "seed": 101,
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "reviewNote": "The user explicitly waived the #113 merge prerequisite. Revalidate these stills against the final app before publishing if the UI changes. These are actual demo snapshots, not frozen-matrix validation or performance evidence.",
+  "processing": "Original browser PNG bytes copied unchanged; no cropping, repainting, compositing or numeric edits.",
+  "captureMethod": "Existing scripts/perf/cdp.mjs helpers, headless installed Chrome, gl auto. Transport paused before screenshot and unchanged tick checked after screenshot.",
+  "captures": [
+    {
+      "file": "premerge-7fe9aed-01-formation-hold.png",
+      "status": "PREMERGE UNMERGED PR #113 evidence; not merged main and not freeze-approved",
+      "sourceRevision": "7fe9aed2ef0e57659e8542714d4e340518be1799",
+      "seed": 101,
+      "tick": 390,
+      "view": "encore",
+      "caption": "Initial ENCORE formation before any disruption: 200 live drones in each arm. Single Encore view; independent default-score seed 101 run, not a scripted-demo frame.",
+      "run": "independent initial default-score run",
+      "alive": {
+        "encore": 200,
+        "static": 200
+      },
+      "versions": {
+        "encore": {
+          "0:-1": 200
+        },
+        "static": {
+          "0:-1": 200
+        }
+      },
+      "browser": "Chrome/157.0.8103.51",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (AMD)",
+        "renderer": "ANGLE (AMD, AMD Radeon 780M Graphics (0x000015BF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 85676,
+      "sha256": "bdcc4a34440e5ce46dfd159a1d8cae4414e9cb792b68bbb874672151a3efbf27"
+    },
+    {
+      "file": "premerge-7fe9aed-02-kill-split.png",
+      "status": "PREMERGE UNMERGED PR #113 evidence; not merged main and not freeze-approved",
+      "sourceRevision": "7fe9aed2ef0e57659e8542714d4e340518be1799",
+      "seed": 101,
+      "tick": 405,
+      "view": "split",
+      "caption": "Immediately after the scripted regional kill at tick 400: the same 20 ids have failed in both arms, leaving 180 live drones each. Split view shows the original hole; X-ray lines come from the real radio log.",
+      "run": "one continuous scripted seed 101 demo, paused for stills",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "versions": {
+        "encore": {
+          "0:-1": 180
+        },
+        "static": {
+          "0:-1": 180
+        }
+      },
+      "browser": "Chrome/157.0.8103.51",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (AMD)",
+        "renderer": "ANGLE (AMD, AMD Radeon 780M Graphics (0x000015BF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 164589,
+      "sha256": "3f0c409df6fc7473ece7c0820ace77a779629416cfaabb74f34d1baac7758747"
+    },
+    {
+      "file": "premerge-7fe9aed-03-repair-split.png",
+      "status": "PREMERGE UNMERGED PR #113 evidence; not merged main and not freeze-approved",
+      "sourceRevision": "7fe9aed2ef0e57659e8542714d4e340518be1799",
+      "seed": 101,
+      "tick": 850,
+      "view": "split",
+      "caption": "Later in the same seed 101 demo after the regional kill: Encore locally reassigns surviving drones while the static baseline retains the original hole. Both arms still have 180 live drones; this is not a claim of full or globally optimal repair.",
+      "run": "one continuous scripted seed 101 demo, paused for stills",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "versions": {
+        "encore": {
+          "0:-1": 180
+        },
+        "static": {
+          "0:-1": 180
+        }
+      },
+      "browser": "Chrome/157.0.8103.51",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (AMD)",
+        "renderer": "ANGLE (AMD, AMD Radeon 780M Graphics (0x000015BF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 164059,
+      "sha256": "7f361c0d85cd249564c1150b6cdaaef02a8b065fb72a7d66d7e237d4ae34167f"
+    },
+    {
+      "file": "premerge-7fe9aed-04-jam-xray.png",
+      "status": "PREMERGE UNMERGED PR #113 evidence; not merged main and not freeze-approved",
+      "sourceRevision": "7fe9aed2ef0e57659e8542714d4e340518be1799",
+      "seed": 101,
+      "tick": 1260,
+      "view": "split",
+      "caption": "Active jam volume over the sphere, actual radio X-ray and the selected drone inspector. Both arms still have 180 live drones. Orange geometry is the simulated jam, not physical hardware.",
+      "run": "one continuous scripted seed 101 demo, paused for stills",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "versions": {
+        "encore": {
+          "0:-1": 180
+        },
+        "static": {
+          "0:-1": 180
+        }
+      },
+      "browser": "Chrome/157.0.8103.51",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (AMD)",
+        "renderer": "ANGLE (AMD, AMD Radeon 780M Graphics (0x000015BF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 229025,
+      "sha256": "6b68aadd305f2e512e127d4645db327c93e4a5cddf3049befd93ae9c480d6312"
+    },
+    {
+      "file": "premerge-7fe9aed-05-injection-spread.png",
+      "status": "PREMERGE UNMERGED PR #113 evidence; not merged main and not freeze-approved",
+      "sourceRevision": "7fe9aed2ef0e57659e8542714d4e340518be1799",
+      "seed": 101,
+      "tick": 1320,
+      "view": "split",
+      "caption": "After a helix score was injected into drone 151 at tick 1280: 162 live Encore drones hold version 1280:151 and 18 retain the preloaded score while the jam remains active. Static retains the preloaded score.",
+      "run": "one continuous scripted seed 101 demo, paused for stills",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "versions": {
+        "encore": {
+          "1280:151": 162,
+          "0:-1": 18
+        },
+        "static": {
+          "0:-1": 180
+        }
+      },
+      "browser": "Chrome/157.0.8103.51",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (AMD)",
+        "renderer": "ANGLE (AMD, AMD Radeon 780M Graphics (0x000015BF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 239574,
+      "sha256": "7d309bc8c44ffa1d7824aac98d91445323b07c579bf5a39712748234dd1c663d"
+    },
+    {
+      "file": "premerge-7fe9aed-06-final-readout.png",
+      "status": "PREMERGE UNMERGED PR #113 evidence; not merged main and not freeze-approved",
+      "sourceRevision": "7fe9aed2ef0e57659e8542714d4e340518be1799",
+      "seed": 101,
+      "tick": 1790,
+      "view": "split",
+      "caption": "Final scripted split view with the real observer metrics panel open. All 180 live Encore drones now hold the injected score; static remains on its preloaded score. Readouts belong to this demo tick, not the frozen evaluation matrix; static ignoring injection is a capability difference.",
+      "run": "one continuous scripted seed 101 demo, paused for stills",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "versions": {
+        "encore": {
+          "1280:151": 180
+        },
+        "static": {
+          "0:-1": 180
+        }
+      },
+      "browser": "Chrome/157.0.8103.51",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (AMD)",
+        "renderer": "ANGLE (AMD, AMD Radeon 780M Graphics (0x000015BF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 245550,
+      "sha256": "95f97009414abc1d8982c855f3db0c86e2794dddc153ab6290cd608c522d4ffd"
+    }
+  ]
+}
