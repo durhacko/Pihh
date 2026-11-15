@@ -6,7 +6,7 @@
 // This module also holds the inject path the console shares (drafts, validation, plan dispatch, picks, adoption),
 // because the issue's allowed files are Composer.ts, Console.ts and PreviewLayer.ts. No createPanel export: the
 // panel loader skips it, and the shell mounts it with connectComposer(ctx).
-import type { EnvEvent, MetricsSample, Params, Recipe, RGB, WorldSnapshot } from '../../contracts';
+import type { EnvEvent, MetricsSample, Params, Recipe, RGB, Score, WorldSnapshot } from '../../contracts';
 import { expandRecipe } from '../../score';
 import { defaultPalette } from '../../score/shapes';
 import type { ControlIntent, ControlResult, ControlStatus } from '../actions';
@@ -16,6 +16,7 @@ import { connectPreview } from '../render/layers/PreviewLayer';
 import type { Pair } from '../worlds';
 import { liveState, NAME_MAX, parse, shouldDispatch, TEXT_MAX, validateText, withRecipe, type ControlPlan, type InjectPlan, type ParseContext } from './commands';
 import { h } from './dom';
+import { lintWarnings, type DraftLintContext } from './draftLint';
 import { icon } from './icons';
 import { hexToRgb, rgbToHex, type PickRequest, type Store } from './store';
 import type { Surfaces } from './surfaces';
@@ -81,8 +82,12 @@ export function draftFromRecipe(name: string, recipe: Recipe): DraftInput {
 
 export interface Validation { ok: boolean; errors: string[]; warnings: string[]; recipe: Recipe | null }
 
-/** Validates a draft against the score package itself (its font table and expandRecipe), not a UI copy of its rules. */
-export function validateDraft(draft: Draft, params: Params): Validation {
+/**
+ * Validates a draft against the score package itself (its font table and expandRecipe), not a UI copy of its rules.
+ * A valid draft also gets the score linter's findings as warnings (draftLint.ts, #208): the transition checks only with
+ * `lint`, the formation checks always. Lint never changes `ok` or `errors`.
+ */
+export function validateDraft(draft: Draft, params: Params, lint?: DraftLintContext): Validation {
   const errors: string[] = [];
   const warnings: string[] = [];
   if (!draft.name.trim()) errors.push('Give the formation a name.');
@@ -103,6 +108,7 @@ export function validateDraft(draft: Draft, params: Params): Validation {
   if (!errors.length) {
     try { expandRecipe(recipe, params.n0, params); } catch (error) { errors.push(`The score package rejected it: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!errors.length) warnings.push(...lintWarnings(recipe, params, lint));
   return { ok: errors.length === 0, errors, warnings: [...new Set(warnings)], recipe: errors.length ? null : recipe };
 }
 
@@ -124,6 +130,11 @@ export interface ComposeContext {
   snapshots(): Pair<WorldSnapshot>;
   /** Newest observer MetricsSample per world (worlds.samples()). The adoption bar reads only this. */
   samples(): Pair<MetricsSample | null>;
+  /**
+   * The authored score the controller composes from. When given, the panel lints the transition the draft would fly
+   * (#208); without it, the panel shows formation checks only and says the transition was not linted.
+   */
+  score?(): Score;
   /** Where bindControls emits 'encore:control-status' (the app root). The Composer listens there to follow the selection. */
   events?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
 }
@@ -360,7 +371,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
   function render() {
     if (!visible()) return;
     const draft = drafts.current;
-    const v = validateDraft(draft, params);
+    const v = validateDraft(draft, params, ctx.score ? { score: ctx.score(), tick: ctx.snapshots().encore.tick } : undefined);
     if (draft.id !== paletteDraft) { paletteDraft = draft.id; nextEnd = 0; }
     if (document.activeElement !== nameInput && nameInput.value !== draft.name) nameInput.value = draft.name;
     if (document.activeElement !== textInput && textInput.value !== draft.text) textInput.value = draft.text;
@@ -450,7 +461,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     if (!visible()) return;
     targetSig = targetSignature();
     const draft = drafts.current;
-    const v = validateDraft(draft, params);
+    const v = validateDraft(draft, params, ctx.score ? { score: ctx.score(), tick: ctx.snapshots().encore.tick } : undefined);
     const status = ctx.controller.status();
     const targetId = pickedDrone ?? status.selectedId;
     const snapshot = ctx.snapshots().encore;
