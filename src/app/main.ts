@@ -394,6 +394,32 @@ const unbindKeys = bindShortcuts({
   timeline: () => surfaces.toggle('timeline'), console: () => surfaces.open('console'), demo: () => toggleDemo(),
 }, () => { handleEscape(store, surfaces, () => controls.selectDrone(null)); refreshChrome(); });
 
+// ---------- #104: the scripted demo, driven by Show and D; its captions sit above the dock ----------
+// (Set up before the composer and console: connecting them updates the store, which refreshes the chrome, which reads the demo.)
+const caption = h('div', { class: 'caption surface chrome', hidden: true, 'aria-live': 'polite' });
+// connectDemo queries the controls while connecting, so `changed` fires before `demo` is assigned: wait for it.
+let demoReady = false;
+const demo = connectDemo(root, { camera: preset => setCamera(preset), changed: () => { if (demoReady) renderCaption(); } });
+demoReady = true;
+function toggleDemo(): void {
+  if (demo.runner.state === 'running') demo.runner.stop(); else demo.runner.start();
+  refreshChrome();
+}
+let lastCaption = '';
+function renderCaption(): void {
+  if (!demoReady) return;
+  const runner = demo.runner;
+  const running = runner.state === 'running';
+  const note = running ? brainNote(demo.status(), runner.captionBeat) : '';
+  const sub = running ? `Scripted show · ${Math.min(90, Math.floor(worlds.tick * DT))} s${note ? ` · ${note}` : ''}` : runner.caption ? 'Scripted show' : '';
+  const key = `${runner.caption}|${sub}`;
+  if (key === lastCaption) return;
+  lastCaption = key;
+  caption.hidden = !runner.caption;
+  caption.replaceChildren(runner.caption, sub ? h('small', {}, sub) : '');
+  layoutBottom();
+}
+
 // ---------- #112: the Composer panel and the Console tray (they register their own surfaces) ----------
 const drafts = new Drafts();
 const compose = { controller: controls, store, surfaces, drafts, params, host: root, snapshots, samples: () => worlds.samples() };
@@ -407,27 +433,6 @@ const consoleTray = connectConsole({ ...compose, hooks: {
     return demo.runner.state === 'running' ? 'Demo running: the scripted 90-second show.' : `The demo did not start. ${demo.runner.problems.join(' ')}`.trim();
   },
 } });
-
-// ---------- #104: the scripted demo, driven by Show and D; its captions sit above the dock ----------
-const caption = h('div', { class: 'caption surface chrome', hidden: true, 'aria-live': 'polite' });
-const demo = connectDemo(root, { camera: preset => setCamera(preset), changed: () => renderCaption() });
-function toggleDemo(): void {
-  if (demo.runner.state === 'running') demo.runner.stop(); else demo.runner.start();
-  refreshChrome();
-}
-let lastCaption = '';
-function renderCaption(): void {
-  const runner = demo.runner;
-  const running = runner.state === 'running';
-  const note = running ? brainNote(demo.status(), runner.captionBeat) : '';
-  const sub = running ? `Scripted show · ${Math.min(90, Math.floor(worlds.tick * DT))} s${note ? ` · ${note}` : ''}` : runner.caption ? 'Scripted show' : '';
-  const key = `${runner.caption}|${sub}`;
-  if (key === lastCaption) return;
-  lastCaption = key;
-  caption.hidden = !runner.caption;
-  caption.replaceChildren(runner.caption, sub ? h('small', {}, sub) : '');
-  layoutBottom();
-}
 
 // ---------- #109: the Show timeline tray (T) ----------
 const timeline = connectTimeline({
@@ -454,6 +459,12 @@ function layoutBottom(): void {
     const trayTop = [consoleTray.el, timeline.el].filter(el => !el.hidden).map(el => el.getBoundingClientRect().top);
     stage.style.bottom = trayTop.length ? `${Math.max(0, window.innerHeight - Math.min(...trayTop) + 8)}px` : '0';
     legend.el.style.left = surfaces.isOpen('composer') ? '384px' : '';   // beside the composer panel, never under it
+    // The inspector (#102, right, from top 120 px) ends above the bottom stack, so it never covers an open tray.
+    const inspector = root.querySelector<HTMLElement>('.encore-inspector');
+    if (inspector) {
+      inspector.style.maxHeight = `${Math.max(160, top - 120 - 12)}px`;
+      inspector.style.width = 'min(336px, calc(100vw - 48px))';   // room for the vertical scrollbar, so rows never scroll sideways
+    }
   });
 }
 window.addEventListener('resize', layoutBottom);
@@ -511,7 +522,7 @@ function refreshChrome(): void {
   if (surfaces.isOpen('metrics')) metrics.render();
   if (surfaces.isOpen('timeline')) timeline.update();
   if (surfaces.isOpen('composer')) composer.render();
-  dock.buttons.show.setAttribute('aria-pressed', String(demo.runner.state === 'running'));
+  if (demoReady) dock.buttons.show.setAttribute('aria-pressed', String(demo.runner.state === 'running'));
   renderCaption();
 }
 
