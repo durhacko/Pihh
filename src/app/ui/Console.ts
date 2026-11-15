@@ -10,7 +10,7 @@ import type { EnvEvent } from '../../contracts';
 import { checkReplayLog, makeReplayLog, parseReplayLog, serializeReplayLog } from '../../cli/generated';
 import { versionKey } from '../render/colourModes/belief';
 import { readViewMode } from '../render/colourModes/viewMode';
-import { complete, parse, type Lens, type Suggestion, type UiAction } from './commands';
+import { complete, parse, type CameraPreset, type Lens, type Suggestion, type UiAction } from './commands';
 import { adoption, cancelPendingPick, dispatchInject, draftFromRecipe, parseContext, runControlPlan, setPreview, validateDraft, type ComposeContext, type PlanOutcome, type SentRecord } from './Composer';
 import { h } from './dom';
 import { icon } from './icons';
@@ -27,6 +27,8 @@ export interface ConsoleHooks {
   inspect?(id: number, arm: 'encore' | 'static'): void;
   /** The scripted demo (FE-E, #94). Returns what to print. */
   demo?(action: 'run' | 'stop'): string;
+  /** `camera PRESET`: move the camera rig, the same hook the Lenses popover uses (main.ts setCamera → rig.preset). */
+  camera?(preset: CameraPreset): void;
   /** `replay save` (#214): write a file; false if it cannot. Default: a browser download. */
   saveFile?(name: string, text: string): boolean;
   /** `replay load` (#214): the chosen file's text, or null if none. Default: a browser file picker. */
@@ -212,7 +214,11 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
       }
       case 'inspect-off': { cancelPendingPick(ctx); const result = ctx.controller.handle({ type: 'select', id: null }); surface('inspector', 'close'); return say(result.ok ? 'info' : 'error', result.message); }
       case 'view': return view(action.lens, action.on);
-      case 'camera': ctx.store.set({ camera: null }); ctx.store.set({ camera: action.preset }); return say('info', `Camera: ${action.preset} (visual only).`);
+      case 'camera':
+        // Setting store.camera alone moved nothing (no one applies it; audit E6): the rig moves only through the hook.
+        if (!ctx.hooks?.camera) return say('error', 'Camera presets are not connected to this console yet.');
+        ctx.hooks.camera(action.preset);
+        return say('info', `Camera: ${action.preset} (visual only).`);
       case 'compare': ctx.store.set({ view: action.mode === 'on' ? 'split' : action.mode === 'off' ? 'encore' : 'static' }); return say('info', `View: ${action.mode === 'on' ? 'split, Encore above static' : action.mode === 'off' ? 'Encore' : 'static'} (visual only).`);
       case 'metrics': case 'timeline': return surface(action.type, 'toggle') ? say('info', `Toggled ${action.type}.`) : say('error', `The ${action.type} surface is not available yet (#92).`);
       case 'clear': return onClear();

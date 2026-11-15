@@ -235,7 +235,12 @@ export function createActionController(context: ControlContext) {
       const result = schedule(event); message = result.message; return result;
     } catch (error) { message = error instanceof Error ? error.message : String(error); return { ok: false, message }; }
   }
-  return { handle, status, getEventLog: () => structuredClone(log), selectDrone: (id: number | null) => handle({ type: 'select', id }) };
+  return {
+    handle, status, getEventLog: () => structuredClone(log), selectDrone: (id: number | null) => handle({ type: 'select', id }),
+    /** The score the next injection is composed from (a copy): the preloaded score, then each scheduled INJECT_SCORE's.
+     *  For the Composer's transition lint (#208) through ComposeContext.score. */
+    authoredScore: (): Score => structuredClone(authoredScore),
+  };
 }
 
 /** Panels dispatch DOM intents only; the bootstrap explicitly connects real-world authority here. */
