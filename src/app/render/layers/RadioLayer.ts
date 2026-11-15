@@ -11,6 +11,8 @@ export default function createLayer(): Layer {
   group.add(new LineSegments(geometry, material));
   let scene: Scene;
   let visible = true;
+  /** Quality level >= 1 drops the sampled plain heartbeat lines; claims, SCOREs and drop stubs stay. */
+  let plainLines = true;
   let counter: HTMLOutputElement | undefined;
   return {
     id: 'radio',
@@ -29,7 +31,7 @@ export default function createLayer(): Layer {
       const mode = readViewMode();
       const enabled = visible && mode.xray;
       trace.update(frame.prev, frame.curr);
-      const plan = trace.plan(frame.curr.tick, frame.alpha, mode.selectedDroneId, enabled);
+      const plan = trace.plan(frame.curr.tick, frame.alpha, mode.selectedDroneId, enabled, plainLines);
       const positions: number[] = [];
       const colours: number[] = [];
       for (const segment of [...plan.segments, ...plan.stubs]) {
@@ -51,6 +53,7 @@ export default function createLayer(): Layer {
     },
     ingest(snapshot) { trace.ingest(snapshot); },
     reset() { trace.reset(); },
+    setQuality(level) { plainLines = level < 1; },
     setVisible(value) { visible = value; group.visible = value && readViewMode().xray; if (counter) counter.hidden = !group.visible; },
     dispose() { scene?.remove(group); geometry.dispose(); material.dispose(); counter?.remove(); },
   };

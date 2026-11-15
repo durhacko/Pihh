@@ -49,7 +49,7 @@ export class RadioTrace {
     this.history = this.history.filter(broadcast => (snapshot.tick - broadcast.tick) * DT < 1);
   }
 
-  plan(tick: number, alpha: number, selectedDroneId: number | null = null, enabled = true) {
+  plan(tick: number, alpha: number, selectedDroneId: number | null = null, enabled = true, plainLines = true) {
     const segments: RadioSegment[] = [];
     const stubs: DropStub[] = [];
     let logged = 0;
@@ -64,7 +64,8 @@ export class RadioTrace {
       const age = Math.max(0, (tick - broadcast.tick + Math.max(0, Math.min(alpha, 1))) * DT);
       const opacity = Math.max(0, 1 - age / RADIO_FADE_SECONDS);
       const candidates = event.delivered.filter(id => positions.has(id) && (selectedDroneId === null || event.from === selectedDroneId || id === selectedDroneId));
-      const recipients = highlight ? candidates.slice(0, HIGHLIGHT_RECEIVER_CAP) : broadcast.ordinal % 4 === 0 ? candidates.slice(0, 3) : [];
+      // plainLines false (quality level >= 1): plain heartbeats draw nothing; claims and SCOREs are unaffected.
+      const recipients = highlight ? candidates.slice(0, HIGHLIGHT_RECEIVER_CAP) : plainLines && broadcast.ordinal % 4 === 0 ? candidates.slice(0, 3) : [];
       if (opacity > 0 && enabled) {
         const colour = event.type === 'SCORE' ? score : event.claimSlot !== null ? claim : plain;
         for (const receiver of recipients) {

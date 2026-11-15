@@ -12,6 +12,7 @@ import { composeNext, makeScore } from '../score';
 import { createWorld } from '../sim';
 import type { ControlContext } from './actions';
 import { readViewMode, setViewMode } from './render/colourModes/viewMode';
+import { sharedQuality } from './render/quality';
 
 // The Encore arm flies the decentralised Encore brain (#16); the static arm the pre-programmed baseline.
 const ENCORE_BRAIN: AgentBrain = encoreBrain as AgentBrain;
@@ -200,6 +201,7 @@ export const viewModeDisplay: NonNullable<ControlContext['display']> = {
 export function hudPayload(worlds: Pick<Worlds, 'samples' | 'params' | 'worlds'>, view: { fps: number | null; layout: Arm | 'split' }) {
   return {
     ...worlds.samples(), rosterSize: worlds.params.n0, fps: view.fps, layout: view.layout,
+    quality: sharedQuality().describe(),   // render quality ladder level (render/quality.ts)
     brainKinds: { encore: worlds.worlds.encore.config.brain.kind, static: worlds.worlds.static.config.brain.kind },
   };
 }
