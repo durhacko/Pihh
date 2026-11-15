@@ -460,3 +460,50 @@ describe.runIf(process.env.P2_PERF === '1')('P2-T18: invariant checker cost at n
     expect(mean).toBeGreaterThan(0);
   }, 120_000);
 });
+
+// #280: §8.5 limit 3 as a wave chain. The late commit is the FIRST commit of a drone that filled a slot vacated by a
+// drone hopping twice; only a double hop IN THAT CAUSAL CHAIN tags it. Anchor: SET_LOSS at tick 10, Q = 400.
+describe('#280 INV-QUIET limit-3 tag: wave chain with one double hop', () => {
+  const params = makeParams(12);
+  /** `moves[id]` = list of [tick, slot] the drone commits to, in order. */
+  function quietRun(moves: Record<number, [number, number][]>, last: number) {
+    const k = createInvariantChecker({ params, arm: 'encore', checks: ['INV-QUIET'] });
+    k.registerScore(SCORE);
+    k.recordEvent({ type: 'SET_LOSS', tick: 10, loss: 0.05 });
+    return feed(k, last, (t) => {
+      const specs: Record<number, Spec> = {};
+      for (const [id, list] of Object.entries(moves)) {
+        let slot = Number(id);
+        for (const [tick, to] of list) if (t >= tick) slot = to;
+        specs[Number(id)] = { slot };
+      }
+      return snap(t, 12, specs);
+    });
+  }
+  it('tags the late first commit of a drone whose slot was vacated by a drone that hopped twice (the G1 shape)', () => {
+    // Drone 11 hops twice (11 -> 7 at 200, 7 -> 3 at 300); drone 10 fills 7 at 420 (410 after the anchor), its FIRST commit.
+    const v = quietRun({ 11: [[200, 7], [300, 3]], 10: [[420, 7]] }, 425);
+    expect(v).toEqual([expect.objectContaining({ inv: 'INV-QUIET', tick: 420, ids: [10], slot: 7, knownLimit: KNOWN_LIMIT_3 })]);
+    expect(v[0]!.detail).toMatch(/wave chain: drone 11 hopped twice since the anchor \(ticks 200, 300\)/);
+  });
+  it('follows the chain further back: the double hop may be two links up', () => {
+    // Drone 11 hops twice (11 -> 6 at 150, 6 -> 2 at 250); drone 9 fills 6 (9 -> 6 at 300); drone 10 fills 9 at 420.
+    const v = quietRun({ 11: [[150, 6], [250, 2]], 9: [[300, 6]], 10: [[420, 9]] }, 425);
+    expect(v).toEqual([expect.objectContaining({ tick: 420, ids: [10], knownLimit: KNOWN_LIMIT_3 })]);
+  });
+  it('stays a COUNTEREXAMPLE when every drone in the chain hopped once (no limit-3 shape)', () => {
+    // Drone 7 commits once (7 -> 3 at 300); drone 10 fills 7 at 420: a late chain, but no double hop in it.
+    const v = quietRun({ 7: [[300, 3]], 10: [[420, 7]] }, 425);
+    expect(v).toEqual([expect.objectContaining({ tick: 420, ids: [10], slot: 7, knownLimit: null })]);
+  });
+  it('a double hop ELSEWHERE in the swarm does not excuse an unrelated late commit', () => {
+    // Drone 11 hops twice into slots 8 and 4 (unrelated); drone 7 -> 3 once; drone 10 fills 7 at 420.
+    const v = quietRun({ 11: [[100, 8], [200, 4]], 7: [[300, 3]], 10: [[420, 7]] }, 425);
+    expect(v).toEqual([expect.objectContaining({ tick: 420, ids: [10], slot: 7, knownLimit: null })]);
+  });
+  it('a double hop before the anchor does not count (the chain is only searched after it)', () => {
+    // Drone 11 hops twice at 5 and 8, before the SET_LOSS anchor at 10; drone 10 fills 7 at 420.
+    const v = quietRun({ 11: [[5, 7], [8, 3]], 10: [[420, 7]] }, 425);
+    expect(v).toEqual([expect.objectContaining({ tick: 420, ids: [10], knownLimit: null })]);
+  });
+});

@@ -323,6 +323,7 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
       // INV-QUIET
       lastVersionChange: new Float64Array(n0),
       lastCommit: new Float64Array(n0).fill(-1),
+      commitLog: [] as { tick: number; id: number; from: number; to: number }[],   // every commit, in order (INV-QUIET chains)
       derivedEventTick: 0,
       prevEnvKey: '|',
       // INV-CONVERGE
@@ -507,6 +508,39 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
   }
 
   // ---------- INV-QUIET (§4) ----------
+  /**
+   * §8.5 limit 3 is a wave chain in which one drone hops twice: its second hop waits tStable + tVacant + claimWindow
+   * after its first commit, and the commits behind it wait for its vacancy (G1 trace, g1.beyond.test.ts). So the
+   * late commit is often the FIRST commit of a drone further down the chain, not the double-hopper's own.
+   * Walk the chain backward from a commit into `slot` at `c`: the latest earlier commit that LEFT `slot` (after the
+   * anchor) is the drone whose vacancy this commit filled; then the same for the slot that drone moved to, and so on.
+   * The shape matches limit 3 only if a drone IN THIS CHAIN committed twice since the anchor. A double hop elsewhere in
+   * the swarm does not count, and a chain that ends at a killed slot without one stays a counterexample.
+   */
+  function doubleHopInChain(slot: number, c: number, anchor: number): { id: number; first: number; second: number } | null {
+    const log = state.commitLog;
+    const inChain = new Set<number>();
+    let target = slot, before = c;
+    for (let hops = 0; hops <= n0; hops++) {
+      let vacater: { tick: number; id: number; from: number; to: number } | undefined;
+      for (let k = log.length - 1; k >= 0; k--) {
+        const x = log[k]!;
+        if (x.tick >= before) continue;
+        if (x.tick <= anchor) break;
+        if (x.from === target) { vacater = x; break; }
+      }
+      if (vacater === undefined || inChain.has(vacater.id)) return null;
+      // Its move out of `target` was a second hop if it committed earlier since the anchor.
+      for (const x of log) {
+        if (x.tick > anchor && x.tick < vacater.tick && x.id === vacater.id) return { id: vacater.id, first: x.tick, second: vacater.tick };
+      }
+      inChain.add(vacater.id);
+      target = vacater.to;
+      before = vacater.tick;
+    }
+    return null;
+  }
+
   function lastEventAtOrBefore(c: number): number {
     if (!eventsRecorded) return state.derivedEventTick;
     let best = 0;
@@ -667,14 +701,19 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
           const hold = currentMovement(quietScore, s.tick).holdStart;
           const anchor = Math.max(lastEventAtOrBefore(s.tick), hold, state.lastVersionChange[d.id]);
           if (s.tick - anchor > thresholds.Q) {
-            const tagged = state.lastCommit[d.id] > anchor;
+            const ownHop = state.lastCommit[d.id] > anchor;
+            const chain = ownHop ? null : doubleHopInChain(to, s.tick, anchor);
+            const tagged = ownHop || chain !== null;
+            const why = ownHop ? `; second commit since the anchor (first at ${state.lastCommit[d.id]})`
+              : chain !== null ? `; wave chain: drone ${chain.id} hopped twice since the anchor (ticks ${chain.first}, ${chain.second})` : '';
             emit({
               inv: 'INV-QUIET', tick: s.tick, ids: [d.id], slot: to, knownLimit: tagged ? KNOWN_LIMIT_3 : null,
-              detail: `commit ${from} -> ${to} ${s.tick - anchor} ticks after its anchor ${anchor} (Q = ${thresholds.Q})${tagged ? `; second commit since the anchor (first at ${state.lastCommit[d.id]})` : ''}`,
+              detail: `commit ${from} -> ${to} ${s.tick - anchor} ticks after its anchor ${anchor} (Q = ${thresholds.Q})${why}`,
             }, out);
           }
         }
         if (commit) state.lastCommit[d.id] = s.tick;
+        if (commit && on('INV-QUIET')) state.commitLog.push({ tick: s.tick, id: d.id, from, to });
       }
       state.prevSlot[d.id] = to;
       state.prevHeldSince[d.id] = d.belief.heldSince;
