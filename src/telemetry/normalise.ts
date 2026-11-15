@@ -87,12 +87,16 @@ export interface SummaryRow {
 
 export interface RunRows { run: RunRow; metrics: MetricRow[]; events: EventRow[]; summary: SummaryRow }
 
-/** A deep copy of JSON data, so rows never alias the record (and the record never aliases rows). */
+/** A deep copy of JSON data, so rows never alias the record (and the record never aliases rows). Keys are defined
+ *  as own data properties (CreateDataProperty), so an own `__proto__` key is copied as data: it can neither vanish
+ *  nor re-parent the copy, and digest verification sees exactly what the rows hold. */
 function copy<T>(value: T): T {
   if (Array.isArray(value)) return value.map(copy) as T;
   if (typeof value === 'object' && value !== null) {
     const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value)) out[key] = copy((value as Record<string, unknown>)[key]);
+    for (const key of Object.keys(value)) {
+      Object.defineProperty(out, key, { value: copy((value as Record<string, unknown>)[key]), enumerable: true, writable: true, configurable: true });
+    }
     return out as T;
   }
   return value;

@@ -15,13 +15,14 @@ export default tseslint.config(
   {
     files: ['src/telemetry/**/*.{ts,tsx,js,mjs}'],
     rules: {
-      'no-restricted-globals': ['error', 'fetch', 'WebSocket', 'XMLHttpRequest', 'EventSource', 'Date', 'performance'],
+      'no-restricted-globals': ['error', 'fetch', 'WebSocket', 'XMLHttpRequest', 'EventSource', 'Date', 'performance', 'window', 'self', 'navigator'],
       'no-restricted-properties': ['error',
         { object: 'Math', property: 'random', message: 'src/telemetry is pure: no randomness.' },
         { object: 'globalThis', property: 'fetch', message: 'src/telemetry makes no network call.' },
         { object: 'globalThis', property: 'WebSocket', message: 'src/telemetry makes no network call.' },
         { object: 'globalThis', property: 'XMLHttpRequest', message: 'src/telemetry makes no network call.' },
         { object: 'globalThis', property: 'EventSource', message: 'src/telemetry makes no network call.' },
+        { object: 'globalThis', property: 'navigator', message: 'src/telemetry makes no network call (sendBeacon).' },
       ],
     },
   },

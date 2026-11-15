@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SCENARIO_TICKS } from '../../src/cli/scenarios';
 import {
-  canonicalHash, computeIdentity, digestMismatches, digestsFromRows, hashOf, recordDigests, recordToRows,
+  canonicalHash, computeIdentity, digestMismatches, digestsFromRows, hashOf, recordDigests, recordToRows, rowsToRecord,
   validateRunRecord, type RunRows, type Sha256,
 } from '../../src/telemetry';
 
@@ -56,6 +56,20 @@ describe('digests from rows', () => {
     expect(digestMismatches(expected, digestsFromRows(eventChanged, sha256))).toEqual(['eventsDigest']);
     expect(digestMismatches(expected, digestsFromRows(summary, sha256))).toEqual(['summaryDigest']);
     for (const changed of [ulp, eventChanged, summary]) expect(counts(changed)).toEqual(counts(rows));
+  });
+
+  it('detect an own __proto__ key injected into summary_json; the copy keeps it as data (#253 review)', () => {
+    const rows = rowsOf('S0_n200_encore_s1.json');
+    const expected = digestsFromRows(rows, sha256);
+    const injected: Record<string, number | null> = { ...rows.summary.summary_json };
+    Object.defineProperty(injected, '__proto__', { value: { polluted: 1 }, enumerable: true, writable: true, configurable: true });
+    expect(Object.keys(injected)).toContain('__proto__');
+    const tampered: RunRows = { ...rows, summary: { ...rows.summary, summary_json: injected } };
+    expect(digestMismatches(expected, digestsFromRows(tampered, sha256))).toEqual(['summaryDigest']);
+    const back = rowsToRecord(tampered).summary;
+    expect(Object.keys(back)).toContain('__proto__');
+    expect(Object.getPrototypeOf(back)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
   it('are order-sensitive for events and samples only through tick and event_index', () => {

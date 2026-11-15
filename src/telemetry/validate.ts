@@ -136,26 +136,58 @@ function hasBadString(text: string): boolean {
   return false;
 }
 
-/** RFC §3.1 rules 2–3 over every reachable value: strings (keys included) and numbers. */
-function scanValues(c: Collector, root: unknown): void {
-  const stack: { value: unknown; path: string }[] = [{ value: root, path: '' }];
+/** Nesting deeper than this is refused before any recursive step (JSON.stringify, canonicalJson) can run. A real
+ *  RunRecord is at most 9 levels deep (events → score → movements → recipe → palette → RGB). */
+export const MAX_DEPTH = 64;
+
+/** True iff the array's own keys are exactly '0'..'n-1' (no hole, no extra named key). Checked without walking
+ *  `length` indices, so a huge sparse length costs only its own keys. */
+function isDenseArray(value: unknown[]): boolean {
+  const keys = Object.keys(value);
+  if (keys.length !== value.length) return false;
+  for (let i = 0; i < keys.length; i++) if (keys[i] !== String(i)) return false;
+  return true;
+}
+
+/**
+ * RFC §3.1 rules 2–3 over every reachable value: strings (keys included) and numbers. Iterative, depth-bounded and
+ * cycle-safe. Returns false when the structure itself is unusable (too deep, a cycle, or a non-JSON array): the
+ * caller then stops before any rule that recurses or walks array indices.
+ */
+function scanValues(c: Collector, root: unknown): boolean {
+  let usable = true;
+  const seen = new WeakSet<object>();
+  const stack: { value: unknown; path: string; depth: number }[] = [{ value: root, path: '', depth: 0 }];
   while (stack.length > 0) {
-    const { value, path } = stack.pop()!;
+    const { value, path, depth } = stack.pop()!;
     if (typeof value === 'string') {
       if (hasBadString(value)) c.error('BAD_STRING', path, 'string contains U+0000 or an unpaired surrogate');
-    } else if (typeof value === 'number') {
+      continue;
+    }
+    if (typeof value === 'number') {
       if (!Number.isFinite(value)) c.error('NON_FINITE', path, 'number is not finite');
-    } else if (Array.isArray(value)) {
-      // A hole (sparse array) is not JSON: canonicalJson would emit `[,…]`. Only in-memory values can have one.
-      if (Object.keys(value).length !== value.length) c.error('BAD_VALUE', path, 'array has a hole (not JSON)');
-      value.forEach((item, i) => stack.push({ value: item, path: pointer(path, i) }));
-    } else if (isObj(value)) {
+      continue;
+    }
+    if (typeof value !== 'object' || value === null) continue;
+    if (depth > MAX_DEPTH) { c.error('TOO_DEEP', path, `nesting is deeper than ${MAX_DEPTH}`); usable = false; continue; }
+    // A parsed JSON value is a tree. In memory, a cycle (or a shared reference, which would make a depth-bounded walk
+    // exponential) is refused; JSON.parse output never has either.
+    if (seen.has(value)) { c.error('CYCLE', path, 'value is reachable twice (a cycle or shared reference; JSON data is a tree)'); usable = false; continue; }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      // A hole (sparse array) or an extra named key is not JSON: canonicalJson would emit `[,…]` or drop the key.
+      // Only in-memory values can have either. Never walk such an array's indices.
+      if (!isDenseArray(value)) { c.error('BAD_VALUE', path, 'array is not a JSON array (hole or named key)'); usable = false; continue; }
+      for (let i = value.length - 1; i >= 0; i--) stack.push({ value: value[i], path: pointer(path, i), depth: depth + 1 });
+    } else {
       for (const key of Object.keys(value)) {
-        if (hasBadString(key)) c.error('BAD_STRING', path, 'a key contains U+0000 or an unpaired surrogate');
-        stack.push({ value: value[key], path: hasBadString(key) ? path : pointer(path, key) });
+        const bad = hasBadString(key);
+        if (bad) c.error('BAD_STRING', path, 'a key contains U+0000 or an unpaired surrogate');
+        stack.push({ value: (value as Obj)[key], path: bad ? path : pointer(path, key), depth: depth + 1 });
       }
     }
   }
+  return usable;
 }
 
 function utf8Length(text: string): number {
@@ -280,6 +312,7 @@ function checkSeries(c: Collector, series: unknown, n0: number, expectedTicks: n
   if (!Array.isArray(series)) { c.error('BAD_VALUE', '/series', 'series must be an array'); return null; }
   const expected = expectedTicks / SAMPLE_EVERY;
   if (series.length !== expected) c.error('BAD_TICKS', '/series', `series must have exactly expectedTicks / ${SAMPLE_EVERY} samples`);
+  if (series.length > expected) return null;   // the sample cap (§3.6): never walk an over-long series
   const samples: Obj[] = [];
   let previous: Obj | null = null;
   series.forEach((sample, i) => {
@@ -389,7 +422,11 @@ function checkParsed(parsed: unknown, ctx: ValidationContext, text: string | nul
     return { ok: false, errors: [{ code: 'SCHEMA_VERSION_UNSUPPORTED', path: '/v', message: 'only RunRecord v 1 is supported' }], warnings: [] };
   }
   const c = new Collector();
-  scanValues(c, parsed);
+  if (!scanValues(c, parsed)) {
+    // Too deep, a cycle or a non-JSON array: the rules below recurse or walk indices, so stop here.
+    c.finish();
+    return { ok: false, errors: c.errors, warnings: c.warnings };
+  }
   exactKeys(c, parsed, RECORD_KEYS, '');
   checkTop(c, parsed);
   const n0 = isInt(parsed.n0) && parsed.n0 >= 1 ? parsed.n0 : 0;
@@ -398,8 +435,11 @@ function checkParsed(parsed: unknown, ctx: ValidationContext, text: string | nul
   checkSummary(c, parsed.summary, parsed.events, samples, ctx.expectedTicks);
 
   let fileForm: FileForm | null = null;
-  if (text !== null) {
-    fileForm = !bom && text === `${JSON.stringify(parsed)}\n` ? 'cli-writer' : 'other';
+  if (text !== null && c.errors.length === 0) {
+    // Only for a record that passed every rule (so its depth and size are bounded); never throws out of here.
+    let writerText: string | null = null;
+    try { writerText = `${JSON.stringify(parsed)}\n`; } catch { writerText = null; }
+    fileForm = !bom && writerText !== null && text === writerText ? 'cli-writer' : 'other';
     if (fileForm === 'other') c.warn('WRITER_FORM', '', "bytes are not the CLI writer's form (re-serialised, pretty-printed or duplicate keys)");
   }
   c.finish();
@@ -408,7 +448,8 @@ function checkParsed(parsed: unknown, ctx: ValidationContext, text: string | nul
 }
 
 /** §3.2–§3.5 over an in-memory value (no bytes, so no size, UTF-8 or writer-form check). Used for values that never
- *  went through JSON, where a NaN or Infinity can still be present (T03). Never mutates `value`. */
+ *  went through JSON, where a NaN or Infinity can still be present (T03). The value must be JSON-shaped: a tree (no
+ *  cycle or shared reference), dense arrays, depth ≤ MAX_DEPTH. Never mutates `value`. */
 export function validateRecordObject(value: unknown, ctx: ValidationContext): Validation {
   checkContext(ctx);
   return checkParsed(value, ctx, null);

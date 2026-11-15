@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SCENARIO_IDS as CLI_SCENARIO_IDS, SCENARIO_TICKS } from '../../src/cli/scenarios';
-import { CAPS, MAX_ISSUES, SCENARIO_IDS, SUMMARY_BASE_KEYS, validateRecordObject, validateRunRecord, type Validation } from '../../src/telemetry';
+import { CAPS, MAX_DEPTH, MAX_ISSUES, SCENARIO_IDS, SUMMARY_BASE_KEYS, validateRecordObject, validateRunRecord, type Validation } from '../../src/telemetry';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const RESULTS = join(root, 'results');
@@ -348,6 +348,46 @@ describe('review follow-ups', () => {
     const errors = errorsOf(validateRecordObject(record, CTX));
     expect(errors).toContainEqual({ code: 'BAD_VALUE', path: `/events/${jam}/centre` });
     expect(errors).toContainEqual({ code: 'BAD_VALUE', path: '/series' });
+  });
+
+  it('returns ok:false, never throws, for 5000-deep nesting at the top level or under /summary (#253 review)', () => {
+    const deep = `${'['.repeat(5000)}${']'.repeat(5000)}`;
+    const top = new TextEncoder().encode(`{"v":1,"x":${deep}}`);
+    expect(top.byteLength).toBeLessThan(CAPS.fileBytes);
+    let result: Validation | undefined;
+    expect(() => { result = validateRunRecord(top, CTX); }).not.toThrow();
+    expect(result && errorsOf(result).map(e => e.code)).toContain('TOO_DEEP');
+    const text = readFileSync(join(RESULTS, 'S0_n200_encore_s1.json'), 'utf8').replace('"summary":{', `"summary":{"zz":${deep},`);
+    expect(() => { result = validateRunRecord(new TextEncoder().encode(text), CTX); }).not.toThrow();
+    expect(result && errorsOf(result).map(e => e.code)).toContain('TOO_DEEP');
+  });
+
+  it('accepts real records, which are far below MAX_DEPTH', () => {
+    expect(MAX_DEPTH).toBe(64);
+    expect(validateRunRecord(read('S5_n200_encore_s1.json'), CTX).ok).toBe(true);
+  });
+
+  it('rejects an in-memory cycle without running out of memory', () => {
+    const record = parse('S0_n200_encore_s1.json');
+    record.summary.self = record;
+    expect(errorsOf(validateRecordObject(record, CTX)).map(e => e.code)).toContain('CYCLE');
+  });
+
+  it('rejects a huge sparse series quickly, without walking its length', () => {
+    const record = parse('S0_n200_encore_s1.json');
+    record.series.length = 2e8;
+    const start = process.hrtime.bigint();
+    expect(errorsOf(validateRecordObject(record, CTX))).toContainEqual({ code: 'BAD_VALUE', path: '/series' });
+    expect(Number(process.hrtime.bigint() - start) / 1e6).toBeLessThan(1000);
+  });
+
+  it('rejects an array where a named key cancels out a hole', () => {
+    const record = parse('S1_n200_encore_s1.json');
+    const ids = record.events[0].ids;
+    delete ids[0];
+    ids.extra = 1;
+    expect(Object.keys(ids).length).toBe(ids.length);
+    expect(errorsOf(validateRecordObject(record, CTX))).toContainEqual({ code: 'BAD_VALUE', path: '/events/0/ids' });
   });
 
   it('reports dropped warnings with TOO_MANY_WARNINGS', () => {
