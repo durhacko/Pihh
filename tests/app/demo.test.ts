@@ -13,7 +13,8 @@ import { bindControls } from '../../src/app/actions';
 import { readViewMode, resetViewMode } from '../../src/app/render/colourModes/viewMode';
 import { controlContext, createWorlds, DEFAULT_N0, viewModeDisplay, type Pair, type ShellHooks, type Worlds } from '../../src/app/worlds';
 import { createSelectionArm } from '../../src/app/ui/popovers';
-import { createPhaseTracker, readoutItems, type ArmPhase, type ReadoutItem } from '../../src/app/ui/Readout';
+import { armPhase } from '../../src/app/armPhase';
+import { readoutItems, type ArmPhase, type ReadoutItem } from '../../src/app/ui/Readout';
 import {
   BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoViewAt, dispatchTick,
   INJECT_DRONE, INJECT_RECIPE, JAM_CENTRE, JAM_RADIUS, KILL_CENTRE, KILL_RADIUS, LEAD_TICKS, type DemoBeat,
@@ -140,11 +141,10 @@ describe('scripted demo run', () => {
       if (tick === DEMO_TICKS.INJECT + 2) selectedAt.spread = readViewMode().selectedDroneId;
       if (tick === DEMO_TICKS.JAM_OFF + 2) selectedAt.jamOff = readViewMode().selectedDroneId;
       if (tick === DEMO_TICKS.FINAL) {
-        // What main.ts shows (armPhases + readout.update): each arm's phase from its observer's slot status, named by the
-        // observer's reference score (newest registered score its live drones believe), in split view.
-        const track = createPhaseTracker();
+        // What main.ts shows (armPhases + readout.update): each arm's phase from one reading of its observer's slot
+        // status, named by the registered movement that formation is (src/app/armPhase.ts), in split view.
         const samples = r.worlds.samples();
-        const phaseOf = (arm: 'encore' | 'static') => track(arm, r.worlds.observers[arm], { tick, inHold: r.worlds.observers[arm].slotStatus(snapshots[arm]).inHold }, samples[arm], r.worlds.scores());
+        const phaseOf = (arm: 'encore' | 'static') => armPhase({ tick, slots: r.worlds.observers[arm].slotStatus(snapshots[arm]) }, r.worlds.scores(), r.worlds.params);
         finalPhases = { encore: phaseOf('encore'), static: phaseOf('static') };
         finalReadout = readoutItems({ samples, view: 'split', n0: DEMO_N0, phases: finalPhases, fps: null, stopped: null });
       }
