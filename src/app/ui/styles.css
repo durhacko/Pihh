@@ -346,3 +346,6 @@ details.json[open] summary::before { transform: rotate(90deg); }
 .readout .npwc.transit .v { color: var(--text-3); }
 .cue .lbl { position: absolute; left: 8px; top: 0; bottom: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; white-space: nowrap; pointer-events: none; text-shadow: 0 0 6px #03080e, 0 0 2px #03080e; }
 .cue { position: absolute; }
+/* Inspector (#102) inside the shell: its grid children may shrink, so long decision lines ellipsize inside the box. */
+.encore-inspector .body > *, .encore-inspector [data-agent-section] { min-width: 0; }
+.encore-inspector [data-agent-section] dl, .encore-inspector [data-agent-section] ol { max-width: 100%; min-width: 0; }

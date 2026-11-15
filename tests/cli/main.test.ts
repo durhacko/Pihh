@@ -9,6 +9,39 @@ describe('CLI arguments', () => {
     expect(() => parseSeeds('x')).toThrow(/Bad seed list/);
   });
 
+  it('preserves uint32 boundaries, evaluation ranges, first-occurrence order and deduplication', () => {
+    expect(parseSeeds('0,4294967295')).toEqual([0, 4294967295]);
+    expect(parseSeeds('4294967294-4294967295')).toEqual([4294967294, 4294967295]);
+    expect(parseSeeds('1-20')).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+    expect(parseSeeds('101-105')).toEqual([101, 102, 103, 104, 105]);
+    expect(parseSeeds(' 3,1-3,0,3,4294967295,0 ')).toEqual([3, 1, 2, 0, 4294967295]);
+  });
+
+  it.each(['4294967296', '0-4294967296', '4294967296-4294967297',
+    '9007199254740992', '9007199254740992-9007199254740994', '9'.repeat(400)])(
+    'rejects unsafe or non-uint32 endpoints before expansion: %s', text => {
+      expect(() => parseSeeds(text)).toThrow(/safe uint32 integers/);
+    },
+  );
+
+  it('bounds expansion before deduplication, including combined and repeated ranges', () => {
+    const boundary = parseSeeds('0-9999');
+    expect(boundary).toHaveLength(10_000);
+    expect(boundary[0]).toBe(0); expect(boundary.at(-1)).toBe(9999);
+    expect(parseSeeds('0-4999,5000-9999')).toEqual(boundary);
+    expect(() => parseSeeds('0-4294967295')).toThrow(/10000 expanded entries before deduplication/);
+    expect(() => parseSeeds('0-10000')).toThrow(/10000 expanded entries before deduplication/);
+    expect(() => parseSeeds('0-4999,5000-10000')).toThrow(/10000 expanded entries before deduplication/);
+    expect(() => parseSeeds('0-9999,0')).toThrow(/10000 expanded entries before deduplication/);
+    expect(() => parseSeeds('1-5001,1-5001')).toThrow(/10000 expanded entries before deduplication/);
+  });
+
+  it('reports the seed validation boundary in normal CLI usage errors', () => {
+    expect(() => parseArgs(['--scenario', 'S0', '--seeds', '0-10000'])).toThrow(/Usage:[\s\S]*at most 10000 expanded entries/);
+    expect(() => parseSeeds('')).toThrow(/No seeds given/);
+    expect(() => parseSeeds('-1')).toThrow(/Bad seed list/);
+  });
+
   it('parses a batch command', () => {
     expect(parseArgs(['--scenario', 'S2', '--seeds', '1-5', '--arms', 'static,encore', '--n0', '200', '--out', 'results/'])).toEqual({
       scenarios: ['S2'], seeds: [1, 2, 3, 4, 5], arms: ['static', 'encore'], n0: 200, out: 'results/', report: null, reportOut: null,

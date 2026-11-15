@@ -110,10 +110,11 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
       case 'PARTITION_OFF': return `PARTITION_OFF at t${event.tick}: ${snapshot.partitions.some(p => p.id === event.id) ? 'the partition is still in the snapshot' : 'the partition is lifted'}.`;
       case 'SET_LOSS': return `SET_LOSS at t${event.tick}: packet loss ${Math.round(event.loss * 100)} % from this tick.`;
       case 'INJECT_SCORE': {
+        // Inferred from the snapshot (alive at the tick) and the world's rule, not read from the drone's inbox.
         const target = snapshot.drones[event.droneId];
         return target && (target.alive || (target.diedTick !== null && target.diedTick > event.tick))
-          ? `INJECT_SCORE at t${event.tick}: the uplink is in drone ${event.droneId}'s inbox; nothing else was sent to any other drone.`
-          : `INJECT_SCORE at t${event.tick}: drone ${event.droneId} was dead, so the world discarded the uplink.`;
+          ? `INJECT_SCORE at t${event.tick}: delivered to drone ${event.droneId} (alive at tick ${event.tick}); the world sends uplinks only to that drone.`
+          : `INJECT_SCORE at t${event.tick}: drone ${event.droneId} was dead at tick ${event.tick}, so the world discarded the uplink.`;
       }
     }
   }
@@ -134,10 +135,10 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
         watch.first = false;
         say('observed', `v${watch.sent.key} at t${reading.sampleTick}: Encore ${count}/${alive} live drones hold it · ${staticPart} (observer).`);
       }
-      while (watch.next < MILESTONES.length && share >= MILESTONES[watch.next]) {
-        say('observed', `v${watch.sent.key} reached ${Math.round(MILESTONES[watch.next] * 100)} % of live Encore drones (${count}/${alive}) at t${reading.sampleTick} (observer).`);
-        watch.next++;
-      }
+      // Several milestones crossed in one sample: report only the highest, once (one count, one line).
+      let reached = -1;
+      while (watch.next < MILESTONES.length && share >= MILESTONES[watch.next]) reached = watch.next++;
+      if (reached >= 0) say('observed', `v${watch.sent.key} reached ${Math.round(MILESTONES[reached] * 100)} % of live Encore drones (${count}/${alive}) at t${reading.sampleTick} (observer).`);
     }
     watching = watching.filter(watch => watch.next < MILESTONES.length);
   }
@@ -189,19 +190,21 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
       case 'metrics': case 'timeline': return surface(action.type, 'toggle') ? say('info', `Toggled ${action.type}.`) : say('error', `The ${action.type} surface is not available yet (#92).`);
       case 'clear': return onClear();
       case 'history': return say('info', history.slice(-20).map((line, i) => `${String(history.length - Math.min(20, history.length) + i + 1).padStart(3)}  ${line}`).join('\n') || 'No history yet.');
-      case 'drafts': return say('info', ctx.drafts.list.map(draft => {
+      case 'drafts': if (!ctx.drafts.list.length) return say('info', 'No drafts. Create one with form text "WORD" (or form sphere).');
+        return say('info', ctx.drafts.list.map(draft => {
         const v = validateDraft(draft, ctx.params);
-        return `${draft.id === ctx.drafts.current.id ? '*' : ' '} ${draft.id.padEnd(4)} ${draft.name.padEnd(14)} ${draft.kind}${draft.kind === 'text' ? ` "${draft.text}"` : ''}${v.ok ? '' : '  (invalid)'}${draft.sent.length ? `  sent as ${draft.sent.join(', ')}` : ''}`;
+        return `${draft.id === ctx.drafts.find(null)?.id ? '*' : ' '} ${draft.id.padEnd(4)} ${draft.name.padEnd(14)} ${draft.kind}${draft.kind === 'text' ? ` "${draft.text}"` : ''}${v.ok ? '' : '  (invalid)'}${draft.sent.length ? `  sent as ${draft.sent.join(', ')}` : ''}`;
       }).join('\n'));
       case 'draft-use': {
         if (!ctx.drafts.select(action.id)) return say('error', `No draft "${action.id}". Type drafts.`);
         if (ctx.store.state.preview) setPreview(ctx, true);
-        return say('info', `Draft ${action.id} “${ctx.drafts.current.name}” is current.`);
+        return say('info', `Draft ${action.id} “${ctx.drafts.find(action.id)?.name}” is current.`);
       }
       case 'preview': {
         const v = setPreview(ctx, action.on);
-        if (action.on && !v.ok) return say('error', `Cannot preview “${ctx.drafts.current.name}”: ${v.errors[0]}`);
-        return say('info', action.on ? `Preview on: “${ctx.drafts.current.name}” drawn locally over a dimmed swarm. Nothing was sent.` : 'Preview off.');
+        const name = ctx.drafts.find(null)?.name;
+        if (action.on && !v.ok) return say('error', name === undefined ? `Cannot preview: ${v.errors[0]}` : `Cannot preview “${name}”: ${v.errors[0]}`);
+        return say('info', action.on ? `Preview on: “${name}” drawn locally over a dimmed swarm. Nothing was sent.` : 'Preview off.');
       }
       case 'demo-run': case 'demo-stop':
         return ctx.hooks?.demo ? say('info', ctx.hooks.demo(action.type === 'demo-run' ? 'run' : 'stop')) : say('error', 'The scripted demo is not available yet (#94).');
@@ -236,8 +239,8 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
       case 'ui': return ui(intent.ui);
       case 'inject': {
         // The draft is part of the command: an invalid one is reported as an error, never as "validated".
-        const draft = intent.draftId === null ? ctx.drafts.current : ctx.drafts.get(intent.draftId);
-        if (!draft) return say('error', `No draft "${intent.draftId}". Type drafts.`);
+        const draft = ctx.drafts.find(intent.draftId);
+        if (!draft) return say('error', intent.draftId === null ? 'There is no draft. Create one with form text "WORD" (or form sphere). Nothing was sent.' : `No draft "${intent.draftId}". Type drafts.`);
         const v = validateDraft(draft, ctx.params);
         if (!v.ok) return say('error', `Draft ${draft.id} “${draft.name}” is not valid: ${v.errors[0]} Nothing was sent.`);
         say('validated', `inject: draft ${draft.id} “${draft.name}” into ${intent.pick ? 'a picked drone' : intent.steps.length ? `drone ${(intent.steps[0] as { id: number }).id}` : 'the selected drone'}.`);
