@@ -172,7 +172,7 @@ describe('safety', () => {
       expect(code, String(pattern)).not.toMatch(pattern);
     }
     const imports = [...source.matchAll(/^import .* from '([^']+)';$/gm)].map(m => m[1]);
-    expect(imports).toEqual(['../../contracts', '../../score/font', '../actions']);
+    expect(imports).toEqual(['../../contracts', '../compose/validate', '../actions']);
   });
 
   it('never calls eval or the Function constructor, whatever the input', () => {

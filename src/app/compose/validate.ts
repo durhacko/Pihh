@@ -91,7 +91,9 @@ const RUNTIME_FIELDS: readonly string[] = ['version', 'startTick', 'transitionTi
 const FORBIDDEN_KEYS: readonly string[] = ['__proto__', 'constructor', 'prototype'];
 
 type Issues = CompositionIssue[];
-const at = (path: string, key: string | number) => (typeof key === 'number' ? `${path}[${key}]` : path ? `${path}.${key}` : key);
+/** JSON path: `a.b[0].c`; a key that is not an identifier (dotted, empty, …) is quoted, `a["x.y"]`, so it cannot pose as nesting. */
+const at = (path: string, key: string | number) =>
+  typeof key === 'number' ? `${path}[${key}]` : /^[A-Za-z_$][\w$]*$/.test(key) ? (path ? `${path}.${key}` : key) : `${path}[${JSON.stringify(key)}]`;
 
 /** A plain data object (JSON object): not null, not an array, prototype Object.prototype or null. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -156,7 +158,8 @@ function checkRecipe(value: unknown, path: string, mode: 'save' | 'stored', issu
   if (kind === 'text') {
     const raw = own(value, 'text');
     const textPath = at(path, 'text');
-    if (typeof raw !== 'string' || !wellFormed(raw) || validateText(raw) !== null) issues.push({ path: textPath, rule: 'R12', reason: 'INVALID_TEXT' });
+    // validateText also rejects lone surrogates: they are not in FONT.
+    if (typeof raw !== 'string' || validateText(raw) !== null) issues.push({ path: textPath, rule: 'R12', reason: 'INVALID_TEXT' });
     else if (mode === 'stored' && raw !== raw.toUpperCase()) issues.push({ path: textPath, rule: 'R12', reason: 'INVALID_TEXT' });
     else text = raw.toUpperCase();
   }

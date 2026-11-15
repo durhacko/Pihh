@@ -1,0 +1,12 @@
+{
+  "id": "FX-BAD/proto",
+  "description": "R2: __proto__ as an own key (raw JSON, so JSON.parse keeps it as an own key, at the top level and inside a recipe). Object.prototype must stay unchanged.",
+  "cases": [
+    { "name": "__proto__ at the top of a request", "target": "request",
+      "input": { "schemaVersion": 1, "title": "T", "composition": { "v": 1, "movements": [ { "recipe": { "kind": "sphere" }, "holdTicks": 600 } ] }, "source": "manual", "__proto__": { "polluted": true } },
+      "expect": { "ok": false, "errors": [ { "path": "__proto__", "reason": "UNKNOWN_KEY" } ] } },
+    { "name": "__proto__ inside a recipe", "target": "composition",
+      "input": { "v": 1, "movements": [ { "recipe": { "kind": "sphere", "__proto__": { "kind": "cube" } }, "holdTicks": 600 } ] },
+      "expect": { "ok": false, "errors": [ { "path": "movements[0].recipe.__proto__", "reason": "UNKNOWN_KEY" } ] } }
+  ]
+}

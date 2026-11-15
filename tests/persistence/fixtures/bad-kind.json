@@ -1,0 +1,154 @@
+{
+  "id": "FX-BAD/kind",
+  "description": "R10: unsupported recipe kinds (MDB-T02). Rejected at movements[i].recipe.kind, never expanded.",
+  "cases": [
+    {
+      "name": "generated (before GF-CC-01)",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "generated",
+              "scene": {
+                "shapes": []
+              }
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.kind",
+            "reason": "UNSUPPORTED_RECIPE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cube",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "cube"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.kind",
+            "reason": "UNSUPPORTED_RECIPE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty kind",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": ""
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.kind",
+            "reason": "UNSUPPORTED_RECIPE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing kind",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "text": "HI"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.kind",
+            "reason": "UNSUPPORTED_RECIPE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "numeric kind",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": 1
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.kind",
+            "reason": "UNSUPPORTED_RECIPE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "\"Text\" (case matters)",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "Text",
+              "text": "HI"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.kind",
+            "reason": "UNSUPPORTED_RECIPE"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,405 @@
+{
+  "id": "FX-BAD/text",
+  "description": "R12: text recipes (MDB-T03). Not blank, at most 20 code points, every character in the font as typed or as ASCII lower case.",
+  "cases": [
+    {
+      "name": "empty",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": ""
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "all spaces",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "   "
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "21 characters",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "AAAAAAAAAAAAAAAAAAAAA"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "!",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "HI!"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "-",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "A-B"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "é",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "ÉTÉ"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ß",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "STRAßE"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ı (dotless i)",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "ıI"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ａ (full-width)",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "Ａ"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "tab",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "A\tB"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "newline",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "A\nB"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "U+200B",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "A​B"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "emoji",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "HI 🙂"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lone surrogate",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "A\ud800"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "not a string",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": 42
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing text",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text"
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.text",
+            "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    }
+  ]
+}
