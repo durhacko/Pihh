@@ -125,3 +125,15 @@ describe('plain heartbeat lines (quality level >= 1)', () => {
     expect(t.plan(1, 0).segments).toHaveLength(9);
   });
 });
+
+describe('the level reaches the HUD (hudPayload.quality)', () => {
+  it('hudPayload carries the shared controller\'s description', async () => {
+    const { createWorlds, hudPayload } = await import('../../src/app/worlds');
+    const { sharedQuality } = await import('../../src/app/render/quality');
+    const worlds = createWorlds({ seed: 1, n0: 20 });
+    worlds.stepBoth();
+    const payload = hudPayload(worlds, { fps: 30, layout: 'encore' });
+    expect(payload.quality).toBe(sharedQuality().describe());
+    expect(payload.quality).toMatch(/^Quality [0-4]\/4 · /);
+  });
+});
