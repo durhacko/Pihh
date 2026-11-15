@@ -46,7 +46,7 @@ Capacity loss `= 1 − P*(M)`. Coordination loss `= P*(M) − pwc`. With no live
 | `npwcDeficitSec` | `Σ (1 − npwc) · 0.25 s` over hold samples after the first event | s |
 | `slotChanges`, `slotChangesMaxDrone` | Run total; largest for one drone | count |
 | `lateSlotChanges` | Slot changes in the last 200 ticks | count |
-| `dupSlotSec`, `dupSlotsEnd` | `Σ dupSlots · 0.25 s`; value at the last sample | slot·s, count |
+| `dupSlotSec`, `dupSlotsEnd` | `Σ dupSlots · 0.25 s` over hold samples only, so duplicates during a transition are not in it (the per-sample `dupSlots` series shows them); value at the last sample | slot·s, count |
 | `collisions`, `nearMisses` | Run totals | count |
 | `msgsPerDroneSec`, `deliveryRatio` | `(hb + score) / (mean alive · run seconds)`; `delivered / (delivered + lost + blocked)` | 1/s, 0–1 |
 | `adoptP50`, `adoptMax`, `unadopted` | Time from `INJECT_SCORE` to adoption over live adopters; live drones not on the newest registered score at the end (static reports all of them) | s, s, count |
@@ -83,7 +83,7 @@ Win rule on `npwcEnd`, paired by seed: win if Δ (Encore − static) `> +0.02`, 
 | S2 | Win in ≥ 15; `sfMaxEndA` below static in ≥ 15; median `tRec ≤ 20 s`, at most 5 censored | Where Encore should be visibly ahead: static keeps the hole until the formation change at tick 900, Encore thins the neighbourhood. After the change the same dead indices sit at unrelated, scattered positions, so `sfMaxEnd` is expected to tie, as in S1. `coverage` ties. `npwc` stays below 1 (local, greedy repair). Some seeds may not recover |
 | S3 | Encore `slotChanges = 0` and tie in ≥ 19 | Tie at best; Encore only adds blocked messages |
 | S4 | Δ ≥ −0.02 in ≥ 18; win in ≥ 10; `dupSlots = 0` from tick 900 in ≥ 18 | Smaller gain than S2. Claimants on opposite sides cannot hear each other: duplicates until physical yield or reconnection, more slot changes and near-misses, losses on some seeds |
-| S5 | ≥ 99% of live drones with the same `partitionSide` as `d` (read from a snapshot taken while the partition is on) adopt by tick 600; no drone in the other group adopts before `PARTITION_OFF` (tick 700); one version at the end in 20; median `tVersion ≤ 10 s`; `dupSlotsEnd = 0` | Two versions fly at once for the whole window from injection to `PARTITION_OFF`: groups are fixed at `PARTITION_ON`, wherever drones then fly. The group left behind sees the departed slots as empty and silent and repairs its old formation (contract §8.5 limit 7); those claims revert on reconnection and are counted in `slotChanges` and `dupSlotSec`. Static cannot adopt: a capability difference shown by `unadopted`, no win/tie/loss |
+| S5 | ≥ 99% of live drones with the same `partitionSide` as `d` (read from a snapshot taken while the partition is on) adopt by tick 600; no drone in the other group adopts before `PARTITION_OFF` (tick 700); one version at the end in 20; median `tVersion ≤ 10 s`; `dupSlotsEnd = 0` | Two versions fly at once for the whole window from injection to `PARTITION_OFF`: groups are fixed at `PARTITION_ON`, wherever drones then fly. The group left behind sees the departed slots as empty and silent and repairs its old formation (contract §8.5 limit 7); those claims revert on reconnection and are counted in `slotChanges`, not in `dupSlotSec`: the reference score is then the injected one, whose movement is in transition from `400 + scoreLead` until its hold (ticks 460–917 at `n0 = 200`), so read those duplicates from the `dupSlots` series. For the same reason Encore's `npwcEndA` and `sfMaxEndA` are null in S5. Static cannot adopt: a capability difference shown by `unadopted`, no win/tie/loss |
 | All | `collisions`, `nearMisses` reported for both arms; no threshold | Encore ≥ static |
 
 SHOULD: S0–S2 again at `n0 = 100`.
@@ -107,6 +107,8 @@ STRETCH central baseline, after G5 only. An assignment with instant global knowl
 3. **Run** the minimum matrix first: eval seeds 1–5 on S0, S1, S2, S3 and S5, both arms, paired by seed (50 records in `results/`). The full matrix (seeds 1–20, plus S4: 240 records) is optional and runs only if G1–G4 are green with time to spare. Pass lines written "out of 20" scale to the seeds actually run, and the report states the count.
 4. **Report** per scenario and metric: median and IQR per arm, median paired Δ, win/tie/loss counts, censored count, worst seed.
 5. **A later parameter change** is a new revision: rerun everything and keep the old table, labelled superseded.
+
+Seeds are not all independent samples. S0, S3 and S5 events do not depend on the seed, so the static arm has one distinct outcome and Encore varies only through the radio's random stream. Seeds 1–20 draw 18 distinct S2 kill sets and only 10 distinct S4 kill sets, because few formation-A slots lie within 5 m of `P`. State the distinct count beside any "out of 20" (dry run, #133).
 
 Budget: 15 minutes wall-clock for the matrix. If over, cut in this order and record the cut: `n0` 200 → 150 → 100 for the whole matrix (kills stay 10% of `n0`, `claimGap` by its formula); then S4; then seeds 1–10. Floor: S0, S1, S2, S3, S5 on 5 seeds.
 

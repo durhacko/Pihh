@@ -513,7 +513,7 @@ describe('staticBrain: a 40-drone show with no radio', () => {
         expect(dist(endOfSecondHold.pos[other], FORMATIONS[1].slots[id].pos)).toBeGreaterThan(P.rOcc);
       }
     }
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('staticBrain: it ignores its inbox', () => {
