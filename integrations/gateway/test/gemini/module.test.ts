@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readGeminiConfig } from '../../src/gemini/config.ts';
 import { createModule, defaultGeminiDeps, geminiModule, GENERATE_FORMATION_ROUTE } from '../../src/gemini/index.ts';
-import { liveGeminiDeps, loadSceneSchemas } from '../../src/gemini/module.ts';
+import { liveGeminiDeps, loadSceneSchemas, type LastUpstream } from '../../src/gemini/module.ts';
+import { readFileSync } from 'node:fs';
 import { fakeProvider, fakeValidator } from './fakes.ts';
 
 const KEY = 'test-key-not-real-0123456789';
@@ -39,6 +40,31 @@ test('gemini module (D3): the live deps send the committed scene schemas through
   const sent = JSON.parse(calls[0]!.body) as { generationConfig: { responseJsonSchema: unknown } };
   assert.deepEqual(sent.generationConfig.responseJsonSchema, loadSceneSchemas().scene3d);
   assert.equal(liveGeminiDeps(readGeminiConfig({})).provider, null, 'disabled: no provider is built');
+});
+
+test('gemini module (D3): the sent schemas drop the document-only $id/$schema; everything else is the committed file', () => {
+  for (const [mode, file] of [['silhouette2d', 'scene2d'], ['scene3d', 'scene3d']] as const) {
+    const committed = JSON.parse(readFileSync(new URL(`../../../../src/score/generated/schema/${file}.schema.json`, import.meta.url), 'utf8')) as Record<string, unknown>;
+    const sent = loadSceneSchemas()[mode] as Record<string, unknown>;
+    assert.ok(!('$id' in sent) && !('$schema' in sent));
+    const rest = Object.fromEntries(Object.entries(committed).filter(([key]) => key !== '$id' && key !== '$schema'));
+    assert.deepEqual(sent, rest);
+  }
+});
+
+test('gemini module (D3): health shows the last upstream call, sanitised (status, outcome, finish reason, latency), never secrets', async () => {
+  let last: LastUpstream | null = null;
+  const transport = async () => ({ status: 400, body: null });
+  const config = readGeminiConfig({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY });
+  const module = geminiModule(liveGeminiDeps(config, transport, l => { last = l; }), { random: () => 0.5, sleep: async () => {} }, () => last);
+  assert.deepEqual(module.health(), { enabled: true, trialCompile: false }, 'no lastUpstream before any call');
+  const route = module.routes[0]!;
+  await route.handle({ rawBody: JSON.stringify({ prompt: 'a white sphere', mode: 'scene3d' }) } as Parameters<typeof route.handle>[0]);
+  const health = module.health() as { lastUpstream?: LastUpstream };
+  assert.equal(health.lastUpstream?.httpStatus, 400);
+  assert.equal(health.lastUpstream?.outcome, 'upstream-error');
+  const text = JSON.stringify(health);
+  for (const secret of [KEY, 'a white sphere']) assert.ok(!text.includes(secret), secret);
 });
 
 test('gemini module: enabled only with config, provider and validator together', () => {

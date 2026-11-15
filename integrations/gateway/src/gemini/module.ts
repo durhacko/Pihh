@@ -25,32 +25,54 @@ export const DEFAULT_RETRY_DEPS: RetryDeps = Object.freeze({ random: Math.random
 // The ONE place the gateway's gemini code names the platform fetch (allow-listed, exactly, in test/offline.test.ts).
 const PLATFORM_TRANSPORT: Transport = fetch;
 
-/** The committed model-facing scene schemas (src/score/generated/schema), read once per live module, as data. */
+/** Schema keywords that identify the file rather than constrain output; dropped before the schema is sent (the
+ *  first live call was refused upstream, and `$id` is outside the spec §6.8 subset Gemini accepts). */
+const DOCUMENT_ONLY_KEYS: readonly string[] = Object.freeze(['$id', '$schema']);
+
+/** The committed model-facing scene schemas (src/score/generated/schema), read once per live module, as data, with the
+ *  top-level document-only keys removed. */
 export function loadSceneSchemas(): Readonly<Record<FormationMode, object>> {
-  const read = (name: string): object =>
-    JSON.parse(readFileSync(new URL(`../../../../src/score/generated/schema/${name}.schema.json`, import.meta.url), 'utf8')) as object;
+  const read = (name: string): object => {
+    const schema = JSON.parse(readFileSync(new URL(`../../../../src/score/generated/schema/${name}.schema.json`, import.meta.url), 'utf8')) as Record<string, unknown>;
+    for (const key of DOCUMENT_ONLY_KEYS) delete schema[key];
+    return schema;
+  };
   return Object.freeze({ silhouette2d: read('scene2d'), scene3d: read('scene3d') });
 }
+
+/** The last upstream call as health may show it (sanitised: no key, prompt, model text or error body). */
+export interface LastUpstream { readonly httpStatus: number; readonly outcome: string; readonly finishReason?: string; readonly latencyMs: number; readonly at: string }
 
 /** The module offline: the real validator, no provider (tests, and any run without the flag and the key). */
 export function defaultGeminiDeps(config: GeminiConfig): GeminiDeps {
   return { config, provider: null, validator: createSceneValidator() };
 }
 
-/** The module as this build runs it: live when the config is enabled (flag and key), offline otherwise. */
-export function liveGeminiDeps(config: GeminiConfig, transport: Transport = PLATFORM_TRANSPORT): GeminiDeps {
+/** The module as this build runs it: live when the config is enabled (flag and key), offline otherwise. `onUpstream`
+ *  receives each call's sanitised outcome (status, outcome kind, sanitised finish reason, latency). */
+export function liveGeminiDeps(config: GeminiConfig, transport: Transport = PLATFORM_TRANSPORT, onUpstream?: (last: LastUpstream) => void): GeminiDeps {
   if (!config.enabled) return defaultGeminiDeps(config);
-  const provider = createGeminiProvider(config, { transport, schemas: loadSceneSchemas(), now: () => performance.now() });
+  const provider = createGeminiProvider(config, {
+    transport, schemas: loadSceneSchemas(), now: () => performance.now(),
+    observe: o => onUpstream?.({
+      httpStatus: o.httpStatus, outcome: o.outcome, latencyMs: Math.round(o.latencyMs),
+      ...(o.finishReason ? { finishReason: o.finishReason } : {}), at: new Date().toISOString(),
+    }),
+  });
   return { config, provider, validator: createSceneValidator() };
 }
 
-/** Builds the module from explicit deps (tests, and the live path). A provider is always wrapped in the retry policy. */
-export function geminiModule(deps: GeminiDeps, retry: RetryDeps = DEFAULT_RETRY_DEPS): GatewayModule {
+/** Builds the module from explicit deps (tests, and the live path). A provider is always wrapped in the retry policy.
+ *  `lastUpstream`, when given, adds the last upstream call (sanitised) to health, so a failure is diagnosable. */
+export function geminiModule(deps: GeminiDeps, retry: RetryDeps = DEFAULT_RETRY_DEPS, lastUpstream?: () => LastUpstream | null): GatewayModule {
   const wired: GeminiDeps = { ...deps, provider: deps.provider === null ? null : withRetries(deps.provider, retry) };
   return {
     name: 'gemini',
     routes: [{ ...GENERATE_FORMATION_ROUTE, handle: request => handleGenerateFormation(request.rawBody, wired) }],
-    health: () => ({ enabled: geminiAvailable(wired), trialCompile: TRIAL_COMPILE_AVAILABLE }),
+    health: () => {
+      const last = lastUpstream?.() ?? null;
+      return { enabled: geminiAvailable(wired), trialCompile: TRIAL_COMPILE_AVAILABLE, ...(last ? { lastUpstream: last } : {}) };
+    },
   };
 }
 
@@ -58,6 +80,7 @@ export function geminiModule(deps: GeminiDeps, retry: RetryDeps = DEFAULT_RETRY_
  *  naming the variable, never the value. */
 export const createModule: ModuleFactory = (env: Env) => {
   const problems: string[] = [];
-  const module = geminiModule(liveGeminiDeps(readGeminiConfig(env, problems)));
+  let last: LastUpstream | null = null;
+  const module = geminiModule(liveGeminiDeps(readGeminiConfig(env, problems), PLATFORM_TRANSPORT, l => { last = l; }), DEFAULT_RETRY_DEPS, () => last);
   return { ...module, problems: Object.freeze(problems) };
 };
