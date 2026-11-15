@@ -45,6 +45,20 @@ const BUILTINS: Record<string, Record<string, string[]>> = {
   },
   // contentHash and requestHash: sha256 over canonicalJson, server-side (mongodb spec §7.3, XI-7).
   'src/shows/validate.ts': { 'node:crypto': ['createHash'] },
+  // TIG-04 offline (#261; orchestrator-approved shared-file edit): the manifest and ledger stores, and the import CLI.
+  'src/tiger/manifestFile.ts': {
+    'node:fs': ['mkdirSync', 'readFileSync', 'renameSync', 'writeFileSync', 'existsSync', 'openSync', 'fsyncSync', 'closeSync'],
+    'node:path': ['dirname', 'join'],
+  },
+  'src/tiger/ledgerFile.ts': {
+    'node:fs': ['appendFileSync', 'openSync', 'closeSync', 'fsyncSync', 'readFileSync', 'existsSync', 'mkdirSync', 'statSync', 'readSync'],
+    'node:path': ['dirname'],
+  },
+  'src/tiger/cli/import.ts': {
+    'node:fs': ['readdirSync', 'lstatSync', 'readFileSync'],
+    'node:path': ['join', 'resolve', 'relative'],
+    'node:crypto': ['createHash', 'randomUUID'],
+  },
 };
 
 /** XI-2 bridges: the one file per module that may import the app's pure src/ code, with the exact specifiers.
@@ -61,6 +75,12 @@ const BRIDGES: Record<string, string[]> = {
     '../../../../src/score/generated/types.ts',
     '../../../../src/score/generated/validation.ts',
   ],
+  // TIG-04 offline (#261; orchestrator-approved shared-file edit): repository.ts for types, importer.ts for the
+  // pure telemetry pipeline (validate, identity, manifest, rows, ledger).
+  'src/tiger/repository.ts': ['../../../../src/telemetry/index.ts'],
+  'src/tiger/importer.ts': ['../../../../src/telemetry/index.ts'],
+  // TIG-06 offline (#262, durhack-5b; same orchestrator sign-off): the read services' bridge.
+  'src/tiger/services/bridge.ts': ['../../../../../src/contracts/params.ts', '../../../../../src/telemetry/index.ts'],
 };
 
 test('every XI-2 bridge target is one the boundaries allow (src/contracts, src/score, src/telemetry, compose/validate)', () => {
@@ -188,6 +208,12 @@ function processUses(text: string): string[] {
 test('only the entry point touches process, and only env (once, into main), argv, stderr, exitCode and on', () => {
   for (const file of source) {
     const uses = processUses(raw(file));
+    // The tiger import CLI is a second entry point (#261; orchestrator-approved): argv, stdout, stderr and exitCode
+    // only, never env.
+    if (rel(file) === 'src/tiger/cli/import.ts') {
+      for (const use of uses) assert.ok(['argv', 'stdout', 'stderr', 'exitCode'].includes(use), `cli/import.ts uses process ${use}`);
+      continue;
+    }
     if (rel(file) !== 'src/server.ts') {
       assert.deepEqual(uses, [], `${rel(file)} touches process`);
       continue;

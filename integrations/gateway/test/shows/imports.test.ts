@@ -52,7 +52,8 @@ test('the scanner sees side-effect imports and imports split over lines', () => 
 
 test('the shows folder has the files this package owns, at any depth', () => {
   assert.deepEqual(showsFiles.map(f => toGateway(f)).sort(), [
-    'src/shows/memoryRepository.ts', 'src/shows/module.ts', 'src/shows/repository.ts', 'src/shows/types.ts', 'src/shows/validate.ts',
+    'src/shows/body.ts', 'src/shows/errorMap.ts', 'src/shows/memoryRepository.ts', 'src/shows/module.ts', 'src/shows/repository.ts',
+    'src/shows/routes.ts', 'src/shows/types.ts', 'src/shows/validate.ts',
   ]);
 });
 

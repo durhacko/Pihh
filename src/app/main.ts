@@ -466,6 +466,7 @@ function renderCaption(): void {
 const drafts = new Drafts();
 const compose = { controller: controls, store, surfaces, drafts, params, host: root, snapshots, samples: () => worlds.samples() };
 const composer = connectComposer(compose);   // also connects the stage preview to the store
+if (import.meta.env.VITE_SHOW_LIBRARY === '1') void import('./live/SavedCompositions').then(m => m.createPanel({ host: root, drafts, params, controls }));   // MDB-WP-05 (#264): build-time flag, off by default, not in the default bundle
 const consoleTray = connectConsole({ ...compose, hooks: {
   step: () => { run({ type: 'step' }, true); },
   inspect: (id, arm) => selectionArm.within(arm, id, () => controls.selectDrone(id)),

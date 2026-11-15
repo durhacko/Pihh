@@ -11,6 +11,7 @@ import { secret, type Env, type Secret } from '../config.ts';
 import { errorResponse, type ErrorEnvelope } from '../errors.ts';
 import type { GatewayModule, ModuleFactory } from '../module.ts';
 import type { ShowsRepository } from './repository.ts';
+import { createShowsRoutes, disabledShowsRoutes } from './routes.ts';
 import type { ShowsHealth } from './types.ts';
 
 /** Spec section 10.6 planning values. serverSelectionTimeoutMS and maxTimeMS go to the driver (live PR). */
@@ -71,6 +72,8 @@ export interface ShowsDeps {
   now?: () => number;
   /** A ping that has not answered by then counts as down. Default SHOWS_TIMEOUTS.handlerDeadlineMs. */
   pingDeadlineMs?: number;
+  /** The routes' repository deadline. Default SHOWS_TIMEOUTS.handlerDeadlineMs. */
+  routeDeadlineMs?: number;
 }
 
 export interface ShowsModule extends GatewayModule {
@@ -115,7 +118,8 @@ export function showsModule(deps: ShowsDeps): ShowsModule {
   return {
     name: 'shows',
     enabled,
-    routes: [],   // MDB-WP-04 adds POST/GET /api/shows and GET /api/shows/:id; each answers moduleDisabledResponse() while disabled
+    // POST/GET /api/shows and GET /api/shows/:id (MDB-WP-04). Registered while disabled too, answering MODULE_DISABLED.
+    routes: repository === null ? disabledShowsRoutes() : createShowsRoutes({ repository, ...(deps.routeDeadlineMs !== undefined ? { deadlineMs: deps.routeDeadlineMs } : {}) }),
     health,
     async refreshHealth() {
       if (repository === null) return health();

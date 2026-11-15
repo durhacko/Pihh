@@ -142,12 +142,12 @@ test('schemaStatements: format(%I) with the checked name as a bind parameter; ne
   assert.throws(() => schemaStatements('encore; DROP'), SchemaNameError);
 });
 
-test('module: disabled without TIGER_READ_DATABASE_URL, and in this offline build even with it; no routes', () => {
+test('module: disabled without TIGER_READ_DATABASE_URL, and in this offline build even with it; read routes registered (#262)', () => {
   for (const env of [{}, { TIGER_READ_DATABASE_URL: URL_OK }]) {
     const module = createModule(env);
     assert.equal(module.name, 'tiger');
     assert.deepEqual(module.health(), { enabled: false, db: 'disabled' });
-    assert.deepEqual(module.routes, []);
+    assert.deepEqual(module.routes.map(r => r.path), ['/api/runs', '/api/runs/:runId/metrics']);
     assert.ok(!JSON.stringify(module.health()).includes(PASSWORD));
   }
 });

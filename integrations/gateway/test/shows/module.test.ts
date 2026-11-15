@@ -129,6 +129,20 @@ test('health: a failing, throwing or hanging ping is db down and not writable; i
   }
 });
 
-test('the module answers no route yet (MDB-WP-04 adds them)', () => {
-  assert.deepEqual(createModule({}).routes, []);
+test('disabled, the three shows routes are registered and each answers 503 MODULE_DISABLED', async () => {
+  const routes = createModule({ MONGODB_URI: URI }).routes;
+  assert.deepEqual(routes.map(r => `${r.method} ${r.path}`), ['POST /api/shows', 'GET /api/shows', 'GET /api/shows/:id']);
+  for (const route of routes) {
+    const response = await route.handle({ method: route.method, path: route.path, params: { id: '0123456789abcdef01234567' }, query: {}, rawBody: '{}' });
+    assert.deepEqual(response, moduleDisabledResponse());
+  }
+});
+
+test('enabled with a repository, the module serves the routes (Save then Get)', async () => {
+  const module = showsModule({ config: readShowsConfig({ MONGODB_URI: URI }), repository: createMemoryRepository() });
+  const post = module.routes.find(r => r.method === 'POST');
+  assert.ok(post);
+  const body = { schemaVersion: 1, title: 'T', source: 'manual', operationId: '00000000-0000-4000-8000-000000000001', composition: { v: 1, movements: [{ recipe: { kind: 'sphere' }, holdTicks: 600 }] } };
+  const saved = await post.handle({ method: 'POST', path: '/api/shows', params: {}, query: {}, rawBody: JSON.stringify(body) });
+  assert.equal(saved.status, 201);
 });
