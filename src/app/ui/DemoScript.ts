@@ -9,6 +9,7 @@ import type { ControlIntent, ControlResult, ControlStatus } from '../actions';
 import type { CameraPreset } from '../render/CameraRig';
 import { readViewMode } from '../render/colourModes/viewMode';
 import { cascadeOptIn } from '../render/layers/CascadeLayer';
+import { parseQuality } from '../render/quality';
 import type { PanelContext } from './index';
 
 // --- Frozen demo inputs. Placements are measured for the app's default roster (n0 = 200) and preloaded score
@@ -103,9 +104,15 @@ export function demoBeatsFor(options: { cascade: boolean }): readonly DemoBeat[]
   ]);
 }
 
-/** The beats for this page: the URL is read once per call (off when there is no location, as in node). */
+/**
+ * The beats for this page: the URL is read once per call (off when there is no location, as in node). A forced render
+ * quality above 0 (?q=low, ?q=1..4) hides the trail layer (WP §2.4), so the flag then keeps today's script rather than
+ * an X-ray view whose caption promises arrows that are never drawn. An automatic step-down during the show cannot be
+ * known here: the rehearsal confirms the level stays at 0 (storyboard §1).
+ */
 export function activeDemoBeats(): readonly DemoBeat[] {
-  return demoBeatsFor({ cascade: typeof location !== 'undefined' && cascadeOptIn(location.search) });
+  const search = typeof location !== 'undefined' ? location.search : '';
+  return demoBeatsFor({ cascade: cascadeOptIn(search) && parseQuality(search).level === 0 });
 }
 
 /** Beats whose caption describes what only the Encore brain shows. While the live Encore world flies another brain

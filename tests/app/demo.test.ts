@@ -110,7 +110,8 @@ describe('scripted demo constants', () => {
   it('without ?p2=cascade the script is unchanged, byte for byte: the same beats array, captions and schedule (#232)', () => {
     expect(demoBeatsFor({ cascade: false })).toBe(DEMO_BEATS);
     expect(activeDemoBeats()).toBe(DEMO_BEATS);                    // node: no location
-    for (const search of ['', '?seed=101', '?p2=inv', '?p2=cascades', '?cascade=1']) {
+    // A forced quality above 0 hides the trail layer, so the flag must not keep X-ray on for arrows it cannot draw.
+    for (const search of ['', '?seed=101', '?p2=inv', '?p2=cascades', '?cascade=1', '?q=low&p2=cascade', '?q=1&p2=cascade', '?p2=cascade&q=4']) {
       vi.stubGlobal('location', { search });
       expect(activeDemoBeats(), search).toBe(DEMO_BEATS);
     }
@@ -119,9 +120,13 @@ describe('scripted demo constants', () => {
   });
 
   it('with ?p2=cascade only the repair view and caption change and one view beat is added: no world event moves (#232)', () => {
-    vi.stubGlobal('location', { search: '?q=low&p2=inv,cascade' });
+    vi.stubGlobal('location', { search: '?p2=inv,cascade' });
     const beats = activeDemoBeats();
     expect(beats).toEqual(demoBeatsFor({ cascade: true }));
+    for (const search of ['?q=high&p2=cascade', '?q=0&p2=cascade', '?p2=cascade&seed=7']) {
+      vi.stubGlobal('location', { search });
+      expect(activeDemoBeats(), search).toEqual(beats);
+    }
     const added = beats.filter(beat => !DEMO_BEATS.some(old => old.id === beat.id));
     expect(added).toEqual([{ id: 'trail-off', tick: TRAIL_OFF, action: { kind: 'view', xray: false, beliefColours: false }, caption: '' }]);
     expect(beats.filter(beat => beat.id !== 'trail-off' && beat.id !== 'repair')).toEqual(DEMO_BEATS.filter(beat => beat.id !== 'repair'));
@@ -162,6 +167,8 @@ describe('scripted demo run', () => {
   const cascadeBeats = demoBeatsFor({ cascade: true });
   const arrows = { flag: [] as number[], plain: [] as number[], all: [] as number[] };   // ticks with >= 1 arrow drawn
   let trailChanges = 0;
+  /** The trail's commit and pop counts as the repair beat lands and at TRAIL_OFF (the caption names green commits). */
+  const trailCounts: Record<'repair' | 'off', { commits: number; pops: number } | null> = { repair: null, off: null };
   const watched = [DEMO_TICKS.KILL - 1, DEMO_TICKS.KILL, DEMO_TICKS.JAM_ON, DEMO_TICKS.INJECT, DEMO_TICKS.JAM_OFF - 1, DEMO_TICKS.JAM_OFF];
   beforeAll(() => {
     r = rig();
@@ -182,6 +189,9 @@ describe('scripted demo run', () => {
       }
       setViewMode(real);
       trailChanges = trailGroup.userData.cascade.changes;
+      const counts = { commits: trailGroup.userData.cascade.commits, pops: trailGroup.userData.cascade.pops };
+      if (tick === DEMO_TICKS.REPAIR) trailCounts.repair = counts;
+      if (tick === TRAIL_OFF) trailCounts.off = counts;
       if (watched.includes(tick)) seen[tick] = structuredClone(snapshots);
       // play() refreshes status after this callback, so a view beat sent on tick t shows here on tick t + 1.
       if (readViewMode().xray !== xray) { xray = !xray; xrayChanges.push([tick - 1, xray]); }
@@ -293,7 +303,11 @@ describe('scripted demo run', () => {
     const repair = arrows.all.filter(tick => tick >= DEMO_TICKS.REPAIR && tick < DEMO_TICKS.JAM_ON);
     console.log(`#232 demo seed ${DEMO_SEED}, Encore arm, cascade layer opted in: ${trailChanges} observed slot changes (observer: ${r.worlds.observers.encore.summary().slotChanges}); ` +
       `ticks with >= 1 arrow drawn: X-ray forced on ${arrows.all.length} (${span(arrows.all)}; repair window ${repair.length}, ${span(repair)}), ` +
-      `?p2=cascade schedule ${arrows.flag.length} (${span(arrows.flag)}), default schedule ${arrows.plain.length} (${span(arrows.plain)})`);
+      `?p2=cascade schedule ${arrows.flag.length} (${span(arrows.flag)}), default schedule ${arrows.plain.length} (${span(arrows.plain)}); ` +
+      `trail commits / pops at the repair beat ${JSON.stringify(trailCounts.repair)}, at TRAIL_OFF ${JSON.stringify(trailCounts.off)}`);
+    // The flag caption says "each green arrow is one observed slot change": the window shows commits (green), no pops (violet).
+    expect(trailCounts.off!.commits).toBeGreaterThan(trailCounts.repair!.commits);
+    expect(trailCounts.off!.pops).toBe(trailCounts.repair!.pops);
     expect(trailChanges).toBe(r.worlds.observers.encore.summary().slotChanges);   // every arrow is an observed belief change
     expect(repair.length).toBeGreaterThan(0);
     expect(arrows.plain.filter(tick => tick >= DEMO_TICKS.REPAIR && tick < DEMO_TICKS.JAM_ON)).toEqual([]);   // #204's limitation
