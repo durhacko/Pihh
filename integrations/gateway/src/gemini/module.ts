@@ -47,16 +47,16 @@ export const SLIM_DROPPED_KEYWORDS: readonly string[] = Object.freeze(['minimum'
 /** The schema with SLIM_DROPPED_KEYWORDS removed at keyword positions only: a property NAMED `title` (scene3d has one)
  *  stays, because `properties` and `$defs` are maps of names to schemas, not schemas. Kept: type, properties, required,
  *  enum, items, anyOf, $defs, $ref, additionalProperties. Pure; returns a new value and never mutates its input. */
-export function slimSchema(node: unknown): unknown {
-  if (Array.isArray(node)) return node.map(slimSchema);
+export function slimSchema(node: unknown, dropped: readonly string[] = SLIM_DROPPED_KEYWORDS): unknown {
+  if (Array.isArray(node)) return node.map(n => slimSchema(n, dropped));
   if (node === null || typeof node !== 'object') return node;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(node)) {
-    if (SLIM_DROPPED_KEYWORDS.includes(key)) continue;
+    if (dropped.includes(key)) continue;
     if ((key === 'properties' || key === '$defs') && value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      out[key] = Object.fromEntries(Object.entries(value).map(([name, schema]) => [name, slimSchema(schema)]));
+      out[key] = Object.fromEntries(Object.entries(value).map(([name, schema]) => [name, slimSchema(schema, dropped)]));
     } else if (key === 'items' || key === 'anyOf' || key === 'additionalProperties') {
-      out[key] = slimSchema(value);
+      out[key] = slimSchema(value, dropped);
     } else {
       out[key] = value; // type, required, enum, $ref: data, copied as is
     }
@@ -64,10 +64,14 @@ export function slimSchema(node: unknown): unknown {
   return out;
 }
 
+/** GEMINI_RESPONSE_SCHEMA=bounded drops only array lengths and prose; numeric minimum/maximum are sent. With slim, the
+ *  live model chose a radius outside the size range (V3 RANGE), a bound slim had dropped. */
+export const BOUNDED_DROPPED_KEYWORDS: readonly string[] = Object.freeze(['minItems', 'maxItems', 'description', 'title']);
+
 /** The slim schemas, derived at load time from the committed ones (never a second hand-written copy). */
-export function loadSlimSceneSchemas(): Readonly<Record<FormationMode, object>> {
+export function loadSlimSceneSchemas(dropped: readonly string[] = SLIM_DROPPED_KEYWORDS): Readonly<Record<FormationMode, object>> {
   const full = loadSceneSchemas();
-  return Object.freeze({ silhouette2d: slimSchema(full.silhouette2d) as object, scene3d: slimSchema(full.scene3d) as object });
+  return Object.freeze({ silhouette2d: slimSchema(full.silhouette2d, dropped) as object, scene3d: slimSchema(full.scene3d, dropped) as object });
 }
 
 /** GEMINI_RESPONSE_SCHEMA=text: no responseJsonSchema; the PLACEHOLDER system instruction gains one line naming
@@ -78,6 +82,41 @@ export function schemaAsTextPrompts(): Readonly<Record<FormationMode, string>> {
   const line = (mode: FormationMode): string => `${PLACEHOLDER_PROMPTS[mode]} PLACEHOLDER line for William's review: the JSON ` +
     `object must have "version": 1 and "mode": "${mode}", and use exactly the field names and nesting of this JSON ` +
     `Schema (bounds are checked after generation): ${JSON.stringify(slim[mode])}`;
+  return Object.freeze({ silhouette2d: line('silhouette2d'), scene3d: line('scene3d') });
+}
+
+/** The committed schema's numeric ranges, as "<name> in [min, max]" (name = the property or $defs entry; array items
+ *  carry their array's name), de-duplicated, in document order. Derived, so the text cannot drift from the schema. */
+export function schemaRanges(schema: unknown): string[] {
+  const out: string[] = [];
+  const walk = (node: unknown, label: string): void => {
+    if (Array.isArray(node)) { node.forEach(n => walk(n, label)); return; }
+    if (node === null || typeof node !== 'object') return;
+    const s = node as Record<string, unknown>;
+    if (typeof s.minimum === 'number' && typeof s.maximum === 'number') {
+      const line = `${label} in [${s.minimum}, ${s.maximum}]`;
+      if (!out.includes(line)) out.push(line);
+    }
+    for (const key of ['properties', '$defs'] as const) {
+      const map = s[key];
+      if (map && typeof map === 'object' && !Array.isArray(map)) {
+        for (const [name, child] of Object.entries(map)) walk(child, key === '$defs' ? `$defs/${name}` : name);
+      }
+    }
+    walk(s.items, label);
+    walk(s.anyOf, label);
+  };
+  walk(schema, 'scene');
+  return out;
+}
+
+/** GEMINI_RESPONSE_SCHEMA=ranges: the slim responseJsonSchema, and the PLACEHOLDER system instruction gains one line
+ *  stating the numeric ranges slim drops (schemaRanges of the committed schema). PLACEHOLDER prompt change for
+ *  William's review; validateScene stays authoritative. */
+export function rangesPrompts(): Readonly<Record<FormationMode, string>> {
+  const full = loadSceneSchemas();
+  const line = (mode: FormationMode): string => `${PLACEHOLDER_PROMPTS[mode]} PLACEHOLDER line for William's review: ` +
+    `every number must be inside its inclusive range: ${schemaRanges(full[mode]).join('; ')}.`;
   return Object.freeze({ silhouette2d: line('silhouette2d'), scene3d: line('scene3d') });
 }
 
@@ -97,9 +136,12 @@ export function defaultGeminiDeps(config: GeminiConfig): GeminiDeps {
  *  receives each call's sanitised outcome (status, outcome kind, sanitised finish reason, latency). */
 export function liveGeminiDeps(config: GeminiConfig, transport: Transport = PLATFORM_TRANSPORT, onUpstream?: (last: LastUpstream) => void, schemaMode: ResponseSchemaMode = 'full'): GeminiDeps {
   if (!config.enabled) return defaultGeminiDeps(config);
-  const schemas = schemaMode === 'full' ? loadSceneSchemas() : schemaMode === 'slim' ? loadSlimSceneSchemas() : null;
+  const schemas = schemaMode === 'full' ? loadSceneSchemas()
+    : schemaMode === 'slim' || schemaMode === 'ranges' ? loadSlimSceneSchemas()
+      : schemaMode === 'bounded' ? loadSlimSceneSchemas(BOUNDED_DROPPED_KEYWORDS) : null;
+  const prompts = schemaMode === 'text' ? schemaAsTextPrompts() : schemaMode === 'ranges' ? rangesPrompts() : null;
   const provider = createGeminiProvider(config, {
-    transport, schemas, ...(schemaMode === 'text' ? { prompts: schemaAsTextPrompts() } : {}), now: () => performance.now(),
+    transport, schemas, ...(prompts ? { prompts } : {}), now: () => performance.now(),
     observe: o => onUpstream?.({
       httpStatus: o.httpStatus, outcome: o.outcome, latencyMs: Math.round(o.latencyMs),
       ...(o.finishReason ? { finishReason: o.finishReason } : {}), ...(o.error ? { error: o.error } : {}), at: new Date().toISOString(),
@@ -133,17 +175,20 @@ export const createModule: ModuleFactory = (env: Env) => {
 };
 
 /** What generationConfig carries for the scene shape. `full`: the committed schema as responseJsonSchema. `slim`: the
- *  same, derived at load time without bounds or prose (slimSchema). `off`: JSON mode, no schema. `text`: JSON mode, no
- *  schema, the slim schema as text in the PLACEHOLDER system instruction. validateScene is authoritative in all four. */
-export type ResponseSchemaMode = 'full' | 'slim' | 'off' | 'text';
+ *  same, derived at load time without bounds or prose (slimSchema). `bounded`: like slim but keeping numeric
+ *  minimum/maximum. `ranges`: slim, plus the dropped numeric ranges as one PLACEHOLDER system-instruction line. `off`:
+ *  JSON mode, no schema. `text`: JSON mode, no schema, the slim schema as text in the PLACEHOLDER system instruction.
+ *  validateScene is authoritative in all six. */
+export type ResponseSchemaMode = 'full' | 'slim' | 'bounded' | 'ranges' | 'off' | 'text';
 
-/** GEMINI_RESPONSE_SCHEMA: unset or "on" = full; "slim", "off", "text" as ResponseSchemaMode. The first live calls with
- *  the full schema were refused with 400 INVALID_ARGUMENT and no field named, the shape of a schema too complex for
- *  constrained decoding; "off" then gave 200 STOP. Any other value keeps the default and is reported by name only. */
+/** GEMINI_RESPONSE_SCHEMA: unset or "on" = full; "slim", "bounded", "off", "text" as ResponseSchemaMode. The first live
+ *  calls with the full schema were refused with 400 INVALID_ARGUMENT and no field named, the shape of a schema too
+ *  complex for constrained decoding; "off" and "slim" then gave 200 STOP. Any other value keeps the default and is
+ *  reported by name only. */
 export function responseSchemaSetting(value: string | undefined, problems: string[] = []): ResponseSchemaMode {
   const v = (value ?? '').trim().toLowerCase();
   if (v === '' || v === 'on') return 'full';
-  if (v === 'slim' || v === 'off' || v === 'text') return v;
-  problems.push('GEMINI_RESPONSE_SCHEMA is not "on", "slim", "off" or "text"; sending the full schema');
+  if (v === 'slim' || v === 'bounded' || v === 'ranges' || v === 'off' || v === 'text') return v;
+  problems.push('GEMINI_RESPONSE_SCHEMA is not "on", "slim", "bounded", "ranges", "off" or "text"; sending the full schema');
   return 'full';
 }

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readGeminiConfig } from '../../src/gemini/config.ts';
 import { createModule, defaultGeminiDeps, geminiModule, GENERATE_FORMATION_ROUTE } from '../../src/gemini/index.ts';
 import {
-  liveGeminiDeps, loadSceneSchemas, loadSlimSceneSchemas, responseSchemaSetting, schemaAsTextPrompts, SLIM_DROPPED_KEYWORDS, slimSchema, type LastUpstream,
+  BOUNDED_DROPPED_KEYWORDS, liveGeminiDeps, loadSceneSchemas, loadSlimSceneSchemas, rangesPrompts, responseSchemaSetting, schemaAsTextPrompts,
+  schemaRanges, SLIM_DROPPED_KEYWORDS, slimSchema, type LastUpstream,
 } from '../../src/gemini/module.ts';
 import { PLACEHOLDER_PROMPTS } from '../../src/gemini/geminiProvider.ts';
 import { readFileSync } from 'node:fs';
@@ -51,14 +52,16 @@ test('GEMINI_RESPONSE_SCHEMA: unset/on = full, slim, off, text; anything else ke
   assert.equal(responseSchemaSetting(' OFF '), 'off');
   assert.equal(responseSchemaSetting('Slim'), 'slim');
   assert.equal(responseSchemaSetting('text'), 'text');
+  assert.equal(responseSchemaSetting('bounded'), 'bounded');
+  assert.equal(responseSchemaSetting('ranges'), 'ranges');
   const problems: string[] = [];
   assert.equal(responseSchemaSetting('maybe', problems), 'full');
-  assert.deepEqual(problems, ['GEMINI_RESPONSE_SCHEMA is not "on", "slim", "off" or "text"; sending the full schema']);
+  assert.deepEqual(problems, ['GEMINI_RESPONSE_SCHEMA is not "on", "slim", "bounded", "ranges", "off" or "text"; sending the full schema']);
   assert.ok(!problems[0]!.includes('maybe'));
 });
 
 type SentBody = { systemInstruction: { parts: { text: string }[] }; generationConfig: Record<string, unknown> };
-async function sentBodies(modes: readonly ('full' | 'slim' | 'off' | 'text')[], mode: 'scene3d' | 'silhouette2d' = 'scene3d'): Promise<SentBody[]> {
+async function sentBodies(modes: readonly ('full' | 'slim' | 'bounded' | 'ranges' | 'off' | 'text')[], mode: 'scene3d' | 'silhouette2d' = 'scene3d'): Promise<SentBody[]> {
   const bodies: string[] = [];
   const transport = async (_url: string, init: { body: string }) => { bodies.push(init.body); return { status: 400, body: null }; };
   const config = readGeminiConfig({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY });
@@ -127,6 +130,36 @@ test('slim schema (E1): drops only bounds and prose, at keyword positions; keeps
   assert.deepEqual(props3d.properties.title, { type: 'string' }, 'a PROPERTY named title stays (its description goes)');
   assert.ok(props3d.required.includes('title'));
   assert.deepEqual(slimSchema({ properties: { minimum: { type: 'number', minimum: 0 } } }), { properties: { minimum: { type: 'number' } } });
+});
+
+test('bounded (E3a): slim but keeping every numeric minimum/maximum; sent as responseJsonSchema with the unchanged prompt', async () => {
+  for (const mode of ['silhouette2d', 'scene3d'] as const) {
+    const full = loadSceneSchemas()[mode];
+    const bounded = loadSlimSceneSchemas(BOUNDED_DROPPED_KEYWORDS)[mode];
+    walkSchemas(bounded, s => { for (const k of BOUNDED_DROPPED_KEYWORDS) assert.ok(!(k in s), `${mode}: ${k} left`); });
+    const bounds = (n: unknown): string[] => { const b: string[] = []; walkSchemas(n, s => { if ('minimum' in s || 'maximum' in s) b.push(`${String(s.minimum)},${String(s.maximum)}`); }); return b; };
+    assert.ok(bounds(full).length > 0);
+    assert.deepEqual(bounds(bounded), bounds(full), 'every numeric bound is kept, in place');
+    const [sent] = await sentBodies(['bounded'], mode);
+    assert.deepEqual(sent!.generationConfig.responseJsonSchema, bounded);
+    assert.equal(sent!.systemInstruction.parts[0]!.text, PLACEHOLDER_PROMPTS[mode]);
+  }
+});
+
+test('ranges (E3b): slim schema, plus one PLACEHOLDER line with the ranges derived from the committed schema', async () => {
+  const ranges3d = schemaRanges(loadSceneSchemas().scene3d);
+  for (const r of ['$defs/coord in [-1.5, 1.5]', '$defs/size in [0.005, 1]', '$defs/rotation in [-360, 360]', 'rgb in [0, 1]', 'importance in [1, 5]', 'topRadius in [0, 1]']) {
+    assert.ok(ranges3d.includes(r), r);
+  }
+  assert.equal(new Set(ranges3d).size, ranges3d.length, 'no duplicates');
+  for (const mode of ['silhouette2d', 'scene3d'] as const) {
+    const [sent] = await sentBodies(['ranges'], mode);
+    assert.deepEqual(sent!.generationConfig.responseJsonSchema, loadSlimSceneSchemas()[mode]);
+    const prompt = sent!.systemInstruction.parts[0]!.text;
+    assert.ok(prompt.startsWith(PLACEHOLDER_PROMPTS[mode]) && prompt.includes('PLACEHOLDER line for William\'s review'));
+    for (const r of schemaRanges(loadSceneSchemas()[mode])) assert.ok(prompt.includes(r), `${mode}: ${r}`);
+    assert.deepEqual(rangesPrompts()[mode], prompt);
+  }
 });
 
 test('gemini module (D3): the sent schemas drop the document-only $id/$schema; everything else is the committed file', () => {
