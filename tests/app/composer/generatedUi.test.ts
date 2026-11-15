@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makeParams } from '../../../src/contracts';
 import type { SceneSpec } from '../../../src/score/generated';
-import type { GenerateClient, GenerateOutcome } from '../../../src/app/live/generate';
+import { gatewayUnavailable, type GenerateClient, type GenerateOutcome } from '../../../src/app/live/generate';
+import { previewLabel } from '../../../src/app/render/layers/PreviewLayer';
 import {
   ACCEPT_ENABLED, createGeneratedSource, D3_UNAVAILABLE, INJECT_BLOCKED, OFFLINE_FIXTURE, provenanceText, rejectionReason, sourceText, statusText, type FixtureEntry,
 } from '../../../src/app/ui/GeneratedSource';
@@ -43,13 +44,61 @@ describe('honest source labels', () => {
     expect(D3_UNAVAILABLE).toBe('live Gemini unavailable (D3 not granted)');
   });
 
-  it('the shipped gateway\'s answer is shown as "live Gemini unavailable (D3 not granted)", never as a scene', async () => {
-    const unavailable: GenerateOutcome = { ok: false, kind: 'unavailable', status: 503, code: 'PROVIDER_UNAVAILABLE', message: D3_UNAVAILABLE, details: [{ path: '', reason: 'MODULE_DISABLED' }] };
+  it('the shipped gateway\'s answer is shown with its own reason, once, never as a scene', async () => {
+    const unavailable: GenerateOutcome = { ok: false, kind: 'unavailable', status: 503, code: 'PROVIDER_UNAVAILABLE', message: gatewayUnavailable('MODULE_DISABLED'), details: [{ path: '', reason: 'MODULE_DISABLED' }] };
     const { source, store } = rig(liveReturning(unavailable));
     await source.generate('a cat', 'scene3d');
     expect(source.status.state).toBe('rejected');
-    expect(statusText(source.status, 40)).toBe(`Live generation did not run: PROVIDER_UNAVAILABLE. ${D3_UNAVAILABLE}`);
+    expect(statusText(source.status, 40)).toBe('Live generation did not run: live Gemini unavailable (gateway: MODULE_DISABLED)');
     expect(store.state.preview).toBe(null);
+  });
+
+  it('a gateway preview\'s stage label never says fixture; it names the provider (#283 review)', async () => {
+    const fake: GenerateOutcome = { ok: true, scene: read('valid-3d-two-spheres.json'), model: 'offline-fake', provider: 'offline-fake provider (not Gemini)', gemini: false, mode: 'scene3d', latencyMs: 5 };
+    const { source, store } = rig(liveReturning(fake));
+    await source.generate('two spheres', 'scene3d');
+    expect(source.preview(true)).toBe(true);
+    expect(source.previewOn()).toBe(true);
+    const preview = store.state.preview!;
+    expect(preview).toMatchObject({ source: 'generated', provider: 'offline-fake provider (not Gemini)' });
+    const label = previewLabel(preview);
+    expect(label).toBe('PREVIEW · target arrangement (preview), not flown · generated “Two Overlapping Spheres” · offline-fake provider (not Gemini) · local only, nothing is sent');
+    expect(label).not.toMatch(/fixture/i);
+    expect(provenanceText(source.status)).toMatch(/· offline-fake provider \(not Gemini\)$/);   // the label alone: no "live live"
+    expect(provenanceText(source.status)).not.toMatch(/\blive\b/);
+    source.preview(false);
+    expect(store.state.preview).toBe(null);
+  });
+
+  it('an empty prompt is refused locally: nothing is sent', async () => {
+    const calls: unknown[] = [];
+    const { source } = rig(liveReturning({ ok: false, kind: 'unavailable', status: 0, code: 'UNREACHABLE', message: 'x', details: [] }, calls));
+    await source.generate('   ', 'scene3d');
+    expect(calls).toEqual([]);
+    expect(source.status.state === 'rejected' && source.status.code).toBe('empty-prompt');
+    expect(statusText(source.status, 40)).toContain('Type a prompt first.');
+  });
+
+  it('a newer request, a cancel or dispose aborts the in-flight gateway request', async () => {
+    const signals: AbortSignal[] = [];
+    const hanging: GenerateClient = { generate: (req) => new Promise((resolve) => {
+      signals.push(req.signal!);
+      req.signal!.addEventListener('abort', () => resolve({ ok: false, kind: 'cancelled', status: -2, code: 'CANCELLED', message: '', details: [] }));
+    }) };
+    const { source } = rig(hanging);
+    const first = source.generate('one', 'scene3d');
+    const second = source.generate('two', 'scene3d');
+    expect(signals[0].aborted).toBe(true);                        // superseded
+    expect(source.status.state).toBe('generating');
+    source.cancel();
+    expect(signals[1].aborted).toBe(true);                        // cancelled
+    expect(source.status.state).toBe('idle');
+    await Promise.all([first, second]);
+    expect(source.status.state).toBe('idle');                     // a cancelled outcome never becomes a rejection
+    const third = source.generate('three', 'scene3d');
+    source.dispose();
+    expect(signals[2].aborted).toBe(true);                        // disposed
+    await third;
   });
 
   it('a scene from the gateway\'s offline-fake provider compiles and previews, labelled not Gemini', async () => {
@@ -57,7 +106,7 @@ describe('honest source labels', () => {
     const fake: GenerateOutcome = { ok: true, scene: read('valid-3d-two-spheres.json'), model: 'offline-fake', provider: 'offline-fake provider (not Gemini)', gemini: false, mode: 'scene3d', latencyMs: 5 };
     const { source, store } = rig(liveReturning(fake, calls));
     await source.generate('two spheres', 'scene3d', 'tok');
-    expect(calls).toEqual([{ prompt: 'two spheres', mode: 'scene3d', token: 'tok' }]);
+    expect(calls).toEqual([{ prompt: 'two spheres', mode: 'scene3d', token: 'tok', signal: expect.any(AbortSignal) }]);
     expect(source.status.state).toBe('ready');
     expect(sourceText(source.status)).toBe('Source: offline-fake provider (not Gemini)');
     expect(statusText(source.status, 40)).toMatch(/^Generated scene “Two Overlapping Spheres” \(offline-fake provider \(not Gemini\)\) \(3D\): 40 of 40 slots/);

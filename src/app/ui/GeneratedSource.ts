@@ -122,6 +122,7 @@ const REASONS: Record<string, string> = {
   'below-floor': 'The formation would sit below the 2 m minimum altitude.',
   'too-large-world': 'The formation would be larger than 120 m.',
   internal: 'An internal error stopped the compile (a bug, not your scene).',
+  'empty-prompt': 'Type a prompt first.',
   UNREACHABLE: 'The gateway could not be reached.',
   PROVIDER_UNAVAILABLE: 'Live generation is switched off on the gateway.',
   VALIDATION_FAILED: 'The gateway refused the request or the model\'s scene as invalid.',
@@ -160,16 +161,25 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
   const listeners = new Set<() => void>();
   const emit = () => { for (const listener of [...listeners]) listener(); };
   const set = (next: GeneratedStatus) => { status = next; emit(); };
-  const previewOn = () => ctx.store.state.preview?.source === 'fixture';
+  // This tab's previews: a committed fixture, or a scene the gateway generated (#213 review: never labelled a fixture).
+  const previewOn = () => { const s = ctx.store.state.preview?.source; return s === 'fixture' || s === 'generated'; };
   const showPreview = () => {
     if (status.state !== 'ready') return false;
-    ctx.store.set({ preview: { recipe: { ...PLACEHOLDER_RECIPE }, label: status.title, formation: toFormation(status.result), source: 'fixture' } });
+    const origin = status.origin;
+    ctx.store.set({ preview: {
+      recipe: { ...PLACEHOLDER_RECIPE }, label: status.title, formation: toFormation(status.result),
+      ...(origin.kind === 'fixture' ? { source: 'fixture' as const } : { source: 'generated' as const, provider: origin.provider }),
+    } });
     return true;
   };
   /** Never leave an older scene's slots on the stage once this selection has failed. */
   const clearFixturePreview = () => { if (previewOn()) ctx.store.set({ preview: null }); };
+  /** The in-flight gateway request, aborted when superseded, cancelled or disposed. */
+  let inflight: AbortController | null = null;
+  const abortLive = () => { inflight?.abort(); inflight = null; };
   const cancel = () => {
     selection++;
+    abortLive();
     if (status.state === 'loading' || status.state === 'compiling' || status.state === 'generating') set({ state: 'idle' });
   };
   const reject = (fixtureId: string, title: string, mode: SceneSpec['mode'] | null, origin: SceneOrigin, code: string, detail: string, warnings: CompileWarning[] = [], issues?: string[]) => {
@@ -203,6 +213,7 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     get liveAvailable() { return live !== null; },
     async select(fixtureId) {
       const mine = ++selection;
+      abortLive();                                    // a fixture pick supersedes any gateway request
       const origin: SceneOrigin = { kind: 'fixture' };
       const entry = fixtures.find(f => f.id === fixtureId);
       if (!entry) { reject(fixtureId, fixtureId, null, origin, 'reference', `no fixture named ${fixtureId}`); return; }
@@ -221,9 +232,15 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     async generate(prompt, mode, token) {
       if (!live) return;                              // no client: the tab shows D3_UNAVAILABLE and never sends
       const mine = ++selection;
-      set({ state: 'generating', fixtureId: LIVE_ID, prompt, mode });
-      const outcome = await live.generate({ prompt, mode, ...(token ? { token } : {}) });
-      if (mine !== selection) return;
+      abortLive();                                    // a newer request supersedes the older one, which is aborted
+      const text = prompt.trim();
+      if (text === '') { reject(LIVE_ID, 'live request', mode, { kind: 'live', provider: 'gateway', gemini: false }, 'empty-prompt', 'Nothing was sent.'); return; }
+      const controller = new AbortController();
+      inflight = controller;
+      set({ state: 'generating', fixtureId: LIVE_ID, prompt: text, mode });
+      const outcome = await live.generate({ prompt: text, mode, ...(token ? { token } : {}), signal: controller.signal });
+      if (inflight === controller) inflight = null;
+      if (mine !== selection || (!outcome.ok && outcome.kind === 'cancelled')) return;
       if (!outcome.ok) {
         reject(LIVE_ID, 'live request', mode, { kind: 'live', provider: 'gateway', gemini: false }, outcome.code, outcome.message, [], outcome.details.map(d => `${d.reason}${d.path ? ` at ${d.path}` : ''}`));
         return;
@@ -262,6 +279,7 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     dispose() {
       selection++;
+      abortLive();
       offStore();
       listeners.clear();
       clearFixturePreview();
@@ -288,7 +306,9 @@ export function statusText(status: GeneratedStatus, n0: number): string {
     }
     case 'rejected': {
       if (status.origin.kind === 'live' && status.origin.provider === 'gateway') {
-        return `Live generation did not run: ${status.code}. ${status.detail === D3_UNAVAILABLE ? D3_UNAVAILABLE : `${rejectionReason(status.code)} ${status.detail}`.trim()}`;
+        // An unavailable gateway's message already says it all (once): "live Gemini unavailable (gateway: …)".
+        if (status.code === 'PROVIDER_UNAVAILABLE' || status.code === 'UNREACHABLE') return `Live generation did not run: ${status.detail}`;
+        return `Live generation did not run: ${status.code}. ${rejectionReason(status.code)} ${status.detail}`.trim();
       }
       return `${noun(status.origin, status.title)} was rejected: ${status.code}. ${rejectionReason(status.code)} ${status.detail}`.trim();
     }
@@ -303,7 +323,7 @@ export function statusText(status: GeneratedStatus, n0: number): string {
 export function provenanceText(status: GeneratedStatus): string | null {
   if (status.state !== 'ready') return null;
   const r = status.result;
-  const tail = status.origin.kind === 'fixture' ? `fixture ${status.fixtureId}` : `live ${status.origin.provider}`;
+  const tail = status.origin.kind === 'fixture' ? `fixture ${status.fixtureId}` : status.origin.provider;   // the provider label alone
   return `sceneHash ${r.sceneHash.slice(0, 12)}… · compiler v${r.compilerVersion} · slots ${r.slotsDigest.slice(0, 12)}… · ${tail}`;
 }
 
@@ -323,18 +343,20 @@ export function renderGeneratedSource(source: GeneratedSource, n0: number, onPre
   const actionsBox = h('div', {});
   // The live block is built once (its inputs keep focus, IME state and text across redraws).
   let liveBox: HTMLElement;
+  let go: HTMLButtonElement | null = null;
   if (source.liveAvailable) {
     const prompt = h('textarea', { class: 'input', rows: 2, maxlength: 500, placeholder: 'Describe a formation…', 'aria-label': 'Formation prompt' });
     const mode = h('select', { class: 'input', 'aria-label': 'Scene mode' }, h('option', { value: 'scene3d' }, '3D'), h('option', { value: 'silhouette2d' }, '2D'));
-    const token = h('input', { class: 'input mono', type: 'password', autocomplete: 'off', placeholder: 'gateway launch token (if required)', 'aria-label': 'Gateway launch token' });
-    const go = h('button', { type: 'button', class: 'btn small', 'data-fk': 'generate', onclick: () => { void source.generate(prompt.value.trim(), mode.value as LiveMode, token.value.trim() || undefined); } }, 'Generate');
-    liveBox = h('div', { class: 'field' }, h('span', { class: 'label' }, 'Live generation · through the gateway (D3 not granted: expect “unavailable”)'), prompt, h('div', { style: { display: 'flex', gap: '6px' } }, mode, token, go));
+    const token = h('input', { class: 'input mono', type: 'password', autocomplete: 'new-password', placeholder: 'gateway launch token (if required)', 'aria-label': 'Gateway launch token' });
+    go = h('button', { type: 'button', class: 'btn small', 'data-fk': 'generate', onclick: () => { void source.generate(prompt.value, mode.value as LiveMode, token.value.trim() || undefined); } }, 'Generate');
+    liveBox = h('div', { class: 'field' }, h('span', { class: 'label' }, 'Live generation · through the gateway'), prompt, h('div', { style: { display: 'flex', gap: '6px' } }, mode, token, go));
   } else {
     liveBox = h('div', { class: 'hint' }, `Live generation: ${D3_UNAVAILABLE}. Scenes come from offline fixtures.`);
   }
   let lastActive: string | null = null;
   const draw = () => {
     const st = source.status;
+    if (go) go.disabled = st.state === 'generating';   // one gateway request at a time
     const active = st.state === 'idle' ? null : st.fixtureId;
     chipsBox.replaceChildren(h('div', { class: 'drafts', role: 'radiogroup', 'aria-label': 'Fixture scenes' },
       ...source.fixtures.map(f => h('button', {

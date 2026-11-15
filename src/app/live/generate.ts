@@ -4,10 +4,12 @@
 // Off by default, twice over:
 // - build time: only a build with VITE_GENERATE_LIVE === '1' (a non-secret flag) offers it;
 // - run time: only with `?p2=generated,live`.
-// Otherwise no instance exists and nothing is ever sent. D3 is not granted: the shipped gateway answers every request
-// with 503 PROVIDER_UNAVAILABLE / MODULE_DISABLED, and this client says so honestly ("live Gemini unavailable (D3 not
-// granted)"). It never presents anything as Gemini output unless the gateway names a Gemini model: the gateway's
-// offline test provider (model `offline-fake`) is always labelled as not Gemini.
+// Otherwise no instance exists, nothing is ever sent, and the tab says "live Gemini unavailable (D3 not granted)". With
+// a client, the gateway's own answer is reported: the shipped gateway answers 503 PROVIDER_UNAVAILABLE /
+// MODULE_DISABLED, shown as "live Gemini unavailable (gateway: MODULE_DISABLED)". It never presents anything as Gemini
+// output unless the gateway names a Gemini model: the gateway's offline test provider (model `offline-fake`) is always
+// labelled as not Gemini. The gateway sends no CORS headers, so the page must be served from the gateway's origin or
+// through a dev proxy for `/api` (vite.config has none); otherwise every call reads "gateway unreachable".
 //
 // No secret is ever in the bundle: the per-launch gateway token (GATEWAY_REQUIRE_TOKEN) is typed in at run time, held
 // in memory only and sent as `Authorization: Bearer`. Provider keys live only in the gateway's environment.
@@ -16,8 +18,12 @@
 
 export type LiveMode = 'silhouette2d' | 'scene3d';
 
-/** The honest state when live generation cannot run. The exact wording is fixed by #213. */
+/** The honest state when this page offers no live generation at all (no client: the build or URL flag is off). */
 export const D3_UNAVAILABLE = 'live Gemini unavailable (D3 not granted)';
+/** The state when the gateway answered that it cannot generate: its own reason, never a guess about why. */
+export const gatewayUnavailable = (reason: string): string => `live Gemini unavailable (gateway: ${reason})`;
+/** The state when the gateway could not be reached at all (down, wrong origin, or the browser's CORS refusal). */
+export const GATEWAY_UNREACHABLE = 'live Gemini unavailable (gateway unreachable)';
 
 export interface ErrorDetail { path: string; reason: string }
 
@@ -25,8 +31,8 @@ export type GenerateOutcome =
   | { ok: true; scene: unknown; model: string; provider: string; gemini: boolean; mode: LiveMode; latencyMs: number; requestId?: string }
   | {
       ok: false;
-      /** `unavailable`: the module is disabled (D3 not granted) or the gateway is unreachable; nothing was generated. */
-      kind: 'unavailable' | 'rejected' | 'timeout' | 'invalid-response';
+      /** `unavailable`: the gateway says it cannot generate, or cannot be reached; `cancelled`: the caller aborted. */
+      kind: 'unavailable' | 'rejected' | 'timeout' | 'invalid-response' | 'cancelled';
       status: number; code: string; message: string; details: ErrorDetail[];
     };
 
@@ -42,8 +48,9 @@ export interface GenerateClientOptions {
 }
 
 export interface GenerateClient {
-  /** `token` (typed in at run time) overrides the option's; it is sent as `Authorization: Bearer` and never stored. */
-  generate(request: { prompt: string; mode: LiveMode; requestId?: string; token?: string }): Promise<GenerateOutcome>;
+  /** `token` (typed in at run time) overrides the option's; it is sent as `Authorization: Bearer` and never stored.
+   *  `signal` lets the caller abort the request (a newer request, a cancel, or dispose). */
+  generate(request: { prompt: string; mode: LiveMode; requestId?: string; token?: string; signal?: AbortSignal }): Promise<GenerateOutcome>;
 }
 
 /** The provider label shown next to a generated scene. Only a model id that starts with `gemini` is called Gemini. */
@@ -68,9 +75,13 @@ function readDetails(error: Record<string, unknown>): ErrorDetail[] {
 
 export function createGenerateClient(options: GenerateClientOptions = {}): GenerateClient {
   return {
-    async generate({ prompt, mode, requestId, token }) {
+    async generate({ prompt, mode, requestId, token, signal }) {
       const doFetch = options.fetch ?? globalThis.fetch;
+      const cancelled = (): GenerateOutcome => ({ ok: false, kind: 'cancelled', status: -2, code: 'CANCELLED', message: 'The request was cancelled.', details: [] });
+      if (signal?.aborted) return cancelled();
       const controller = new AbortController();
+      const onAbort = () => controller.abort();
+      signal?.addEventListener('abort', onAbort, { once: true });
       const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 50_000);
       const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
       const bearer = token ?? options.token;
@@ -85,13 +96,16 @@ export function createGenerateClient(options: GenerateClientOptions = {}): Gener
         status = res.status;
         try { body = await res.json(); } catch { body = null; }
       } catch {
+        if (signal?.aborted) return cancelled();
         const timedOut = controller.signal.aborted;
         return timedOut
           ? { ok: false, kind: 'timeout', status: -1, code: 'TIMEOUT', message: 'The gateway did not answer in time.', details: [] }
-          : { ok: false, kind: 'unavailable', status: 0, code: 'UNREACHABLE', message: `${D3_UNAVAILABLE}: the gateway could not be reached`, details: [] };
+          : { ok: false, kind: 'unavailable', status: 0, code: 'UNREACHABLE', message: GATEWAY_UNREACHABLE, details: [] };
       } finally {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
       }
+      if (signal?.aborted) return cancelled();
       if (status === 200 && isObject(body) && typeof body.model === 'string' && (body.mode === 'silhouette2d' || body.mode === 'scene3d') && isObject(body.scene)) {
         const label = providerLabel(body.model);
         return {
@@ -106,7 +120,9 @@ export function createGenerateClient(options: GenerateClientOptions = {}): Gener
       const details = readDetails(error);
       const message = typeof error.message === 'string' ? error.message : '';
       if (code === 'PROVIDER_UNAVAILABLE' || details.some(d => d.reason === 'MODULE_DISABLED')) {
-        return { ok: false, kind: 'unavailable', status, code, message: D3_UNAVAILABLE, details };
+        // The gateway's own reason (MODULE_DISABLED for the shipped gateway), not a claim about why it is off.
+        const reason = details.find(d => d.reason)?.reason ?? code;
+        return { ok: false, kind: 'unavailable', status, code, message: gatewayUnavailable(reason), details };
       }
       if (code === 'TIMEOUT') return { ok: false, kind: 'timeout', status, code, message: message || 'The model did not answer in time.', details };
       return { ok: false, kind: 'rejected', status, code, message, details };
