@@ -1,0 +1,675 @@
+{
+  "schemaVersion": 1,
+  "issue": 141,
+  "supersedesPullRequest": 160,
+  "sourceRevision": "1962fe5a0658c4c6e8ad2b631204cb436ea3e622",
+  "seed": 101,
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "browser": "Chrome/157.0.8103.78",
+  "gl": {
+    "webgl": true,
+    "vendor": "Google Inc. (Intel)",
+    "renderer": "ANGLE (Intel, Intel(R) Arc(TM) 140T GPU (16GB) (0x00007D51) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "processing": "PNG bytes written exactly as Chrome returned them: no cropping, repainting, compositing or numeric edits.",
+  "captureMethod": "node scripts/perf/gallery.mjs: headless Chrome via scripts/perf/cdp.mjs, --gl auto, refused on a software renderer. Beat 01 is an independent seed 101 run; 02-06 are one continuous scripted demo run (D). Paused on the exact tick; the show's own speed is restored before the screenshot; the tick is checked unchanged after it.",
+  "note": "Numbers in captions and on screen are observer measurements of this demo run at that tick, not the evaluation matrix (results/RESULTS.md). nPWC uses our own slot priority order. Static ignoring an injected score is a capability difference, not a performance result.",
+  "captures": [
+    {
+      "file": "gallery-01-formation-hold.png",
+      "sourceRevision": "1962fe5a0658c4c6e8ad2b631204cb436ea3e622",
+      "seed": 101,
+      "tick": 390,
+      "view": "encore",
+      "lenses": {
+        "colour": "show",
+        "xray": false,
+        "ghosts": false,
+        "tethers": false,
+        "zones": true,
+        "neighbourhood": true
+      },
+      "panels": [],
+      "selectedDrone": null,
+      "speedShown": "1×",
+      "jams": {
+        "encore": [],
+        "static": []
+      },
+      "partitions": {
+        "encore": [],
+        "static": []
+      },
+      "caption": "The opening ENCORE formation in its hold, before any disruption: 200 live drones, each flying its preloaded score on the shared clock. Single Encore view; an independent seed 101 run, not a frame of the scripted demo. Observer nPWC 1.000.",
+      "run": "independent seed 101 run, default score, no disruption",
+      "alive": {
+        "encore": 200,
+        "static": 200
+      },
+      "observer": {
+        "encore": {
+          "npwc": 1.0000000000000004,
+          "coverage": 1,
+          "sfMean": 0.7008423845254823,
+          "sfMax": 1.5983782437293745,
+          "versions": {
+            "0:-1": 200
+          },
+          "collisions": 8,
+          "nearMisses": 188,
+          "slotChanges": 0,
+          "msgs": {
+            "hb": 15600,
+            "score": 0,
+            "delivered": 1503838,
+            "lost": 79343,
+            "blocked": 0
+          }
+        },
+        "static": {
+          "npwc": 1.0000000000000004,
+          "coverage": 1,
+          "sfMean": 0.7008423845254823,
+          "sfMax": 1.5983782437293745,
+          "versions": {
+            "0:-1": 200
+          },
+          "collisions": 8,
+          "nearMisses": 188,
+          "slotChanges": 0,
+          "msgs": {
+            "hb": 0,
+            "score": 0,
+            "delivered": 0,
+            "lost": 0,
+            "blocked": 0
+          }
+        }
+      },
+      "browser": "Chrome/157.0.8103.78",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (Intel)",
+        "renderer": "ANGLE (Intel, Intel(R) Arc(TM) 140T GPU (16GB) (0x00007D51) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 90910,
+      "sha256": "0a01c00e3988f85bdea454f6cc40a1c8f964a0b6d54e950dd19382bd006b8908"
+    },
+    {
+      "file": "gallery-02-kill-split.png",
+      "sourceRevision": "1962fe5a0658c4c6e8ad2b631204cb436ea3e622",
+      "seed": 101,
+      "tick": 405,
+      "view": "split",
+      "lenses": {
+        "colour": "show",
+        "xray": true,
+        "ghosts": false,
+        "tethers": false,
+        "zones": true,
+        "neighbourhood": true
+      },
+      "panels": [
+        "Legend"
+      ],
+      "selectedDrone": null,
+      "speedShown": "1×",
+      "jams": {
+        "encore": [],
+        "static": []
+      },
+      "partitions": {
+        "encore": [],
+        "static": []
+      },
+      "caption": "Scripted demo, 5 ticks after the regional kill at tick 400: the same 20 drones failed in both worlds, leaving 180 live in each. Split view, Encore above and the static baseline below. X-ray draws a sample of the Encore world's real radio log; the static world sends no radio.",
+      "run": "scripted demo, seed 101, one continuous run",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "observer": {
+        "encore": {
+          "npwc": 0.93097033685269,
+          "coverage": 0.9,
+          "sfMean": 0.9724927235400088,
+          "sfMax": 6.421109798328195,
+          "versions": {
+            "0:-1": 180
+          },
+          "collisions": 8,
+          "nearMisses": 188,
+          "slotChanges": 0,
+          "msgs": {
+            "hb": 16175,
+            "score": 0,
+            "delivered": 1534267,
+            "lost": 80941,
+            "blocked": 0
+          }
+        },
+        "static": {
+          "npwc": 0.93097033685269,
+          "coverage": 0.9,
+          "sfMean": 0.9724927235400088,
+          "sfMax": 6.421109798328195,
+          "versions": {
+            "0:-1": 180
+          },
+          "collisions": 8,
+          "nearMisses": 188,
+          "slotChanges": 0,
+          "msgs": {
+            "hb": 0,
+            "score": 0,
+            "delivered": 0,
+            "lost": 0,
+            "blocked": 0
+          }
+        }
+      },
+      "browser": "Chrome/157.0.8103.78",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (Intel)",
+        "renderer": "ANGLE (Intel, Intel(R) Arc(TM) 140T GPU (16GB) (0x00007D51) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 166133,
+      "sha256": "1202cd5c19c7f05360a6d5318f79186cd7165f4387d07dc735aa7905693f33c9"
+    },
+    {
+      "file": "gallery-03-repair-split.png",
+      "sourceRevision": "1962fe5a0658c4c6e8ad2b631204cb436ea3e622",
+      "seed": 101,
+      "tick": 850,
+      "view": "split",
+      "lenses": {
+        "colour": "show",
+        "xray": false,
+        "ghosts": false,
+        "tethers": false,
+        "zones": true,
+        "neighbourhood": true
+      },
+      "panels": [],
+      "selectedDrone": null,
+      "speedShown": "1×",
+      "jams": {
+        "encore": [],
+        "static": []
+      },
+      "partitions": {
+        "encore": [],
+        "static": []
+      },
+      "caption": "Same run, 22.5 s after the kill: in the Encore world, survivors next to the hole have moved into the vacated, more important slots, so the first E thins instead of keeping a hole; the static world keeps its hole. Observer nPWC 0.972 vs 0.931, with plain coverage equal at 0.900 (180 live drones in each). Repair is local and partial.",
+      "run": "scripted demo, seed 101, one continuous run",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "observer": {
+        "encore": {
+          "npwc": 0.972046254399196,
+          "coverage": 0.9,
+          "sfMean": 0.7636602343318942,
+          "sfMax": 2.3482546425905584,
+          "versions": {
+            "0:-1": 180
+          },
+          "collisions": 9,
+          "nearMisses": 189,
+          "slotChanges": 9,
+          "msgs": {
+            "hb": 32195,
+            "score": 0,
+            "delivered": 2351546,
+            "lost": 123603,
+            "blocked": 0
+          }
+        },
+        "static": {
+          "npwc": 0.93097033685269,
+          "coverage": 0.9,
+          "sfMean": 0.972497012641341,
+          "sfMax": 6.421527112758149,
+          "versions": {
+            "0:-1": 180
+          },
+          "collisions": 8,
+          "nearMisses": 188,
+          "slotChanges": 0,
+          "msgs": {
+            "hb": 0,
+            "score": 0,
+            "delivered": 0,
+            "lost": 0,
+            "blocked": 0
+          }
+        }
+      },
+      "browser": "Chrome/157.0.8103.78",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (Intel)",
+        "renderer": "ANGLE (Intel, Intel(R) Arc(TM) 140T GPU (16GB) (0x00007D51) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 126375,
+      "sha256": "7c9347ee6b7b4822753d0564ca574d679ba955d1384d801e0639889ba43e12eb"
+    },
+    {
+      "file": "gallery-04-jam-xray.png",
+      "sourceRevision": "1962fe5a0658c4c6e8ad2b631204cb436ea3e622",
+      "seed": 101,
+      "tick": 1260,
+      "view": "split",
+      "lenses": {
+        "colour": "belief",
+        "xray": true,
+        "ghosts": false,
+        "tethers": false,
+        "zones": true,
+        "neighbourhood": true
+      },
+      "panels": [
+        "Legend",
+        "Drone inspector"
+      ],
+      "selectedDrone": {
+        "id": 151,
+        "arm": "encore"
+      },
+      "speedShown": "1×",
+      "jams": {
+        "encore": [
+          {
+            "id": "operator-jam",
+            "centre": [
+              0,
+              39,
+              0
+            ],
+            "radius": 6
+          }
+        ],
+        "static": [
+          {
+            "id": "operator-jam",
+            "centre": [
+              0,
+              39,
+              0
+            ],
+            "radius": 6
+          }
+        ]
+      },
+      "partitions": {
+        "encore": [],
+        "static": []
+      },
+      "caption": "A simulated radio jam (orange sphere) over the top of the sphere formation, 2 s after it started, as the swarm settles into the sphere. The jam is applied to both worlds, so it is drawn in both panes; the static world sends no radio, so it changes nothing there. Belief colours show the score version each drone holds (180 on the preloaded score); X-ray draws a sample of the real radio messages of the selected drone 151. The inspector shows that drone's own knowledge above a separate observer box.",
+      "run": "scripted demo, seed 101, one continuous run",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "observer": {
+        "encore": {
+          "npwc": 0.972046254399196,
+          "coverage": 0.9,
+          "sfMean": 0.9918418399500407,
+          "sfMax": 2.3161908877551856,
+          "versions": {
+            "0:-1": 180
+          },
+          "collisions": 12,
+          "nearMisses": 226,
+          "slotChanges": 9,
+          "msgs": {
+            "hb": 46955,
+            "score": 0,
+            "delivered": 3560025,
+            "lost": 187201,
+            "blocked": 31404
+          }
+        },
+        "static": {
+          "npwc": 0.93097033685269,
+          "coverage": 0.9,
+          "sfMean": 1.0009947882284245,
+          "sfMax": 2.7494323172819284,
+          "versions": {
+            "0:-1": 180
+          },
+          "collisions": 11,
+          "nearMisses": 228,
+          "slotChanges": 0,
+          "msgs": {
+            "hb": 0,
+            "score": 0,
+            "delivered": 0,
+            "lost": 0,
+            "blocked": 0
+          }
+        }
+      },
+      "browser": "Chrome/157.0.8103.78",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (Intel)",
+        "renderer": "ANGLE (Intel, Intel(R) Arc(TM) 140T GPU (16GB) (0x00007D51) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 235898,
+      "sha256": "9b4bd5025bc63235fc06c60feea692a5cca61b67af0c7e23a5678591a9c97179"
+    },
+    {
+      "file": "gallery-05-injection-spread.png",
+      "sourceRevision": "1962fe5a0658c4c6e8ad2b631204cb436ea3e622",
+      "seed": 101,
+      "tick": 1320,
+      "view": "split",
+      "lenses": {
+        "colour": "belief",
+        "xray": true,
+        "ghosts": false,
+        "tethers": false,
+        "zones": true,
+        "neighbourhood": true
+      },
+      "panels": [
+        "Legend",
+        "Drone inspector"
+      ],
+      "selectedDrone": {
+        "id": 151,
+        "arm": "encore"
+      },
+      "speedShown": "0.5×",
+      "jams": {
+        "encore": [
+          {
+            "id": "operator-jam",
+            "centre": [
+              0,
+              39,
+              0
+            ],
+            "radius": 6
+          }
+        ],
+        "static": [
+          {
+            "id": "operator-jam",
+            "centre": [
+              0,
+              39,
+              0
+            ],
+            "radius": 6
+          }
+        ]
+      },
+      "partitions": {
+        "encore": [],
+        "static": []
+      },
+      "caption": "2 s after a helix score was injected into drone 151 (tick 1280), with the jam still on: Encore drones hold 162 on version 1280:151, 18 on the preloaded score; the drones still on the old score are the deaf ones inside the jam (green: new score, amber: preloaded). The static baseline stays on its preloaded score: it cannot adopt one, a capability difference, not a performance result.",
+      "run": "scripted demo, seed 101, one continuous run",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "observer": {
+        "encore": {
+          "npwc": 0.972046254399196,
+          "coverage": 0.9,
+          "sfMean": 0.99184625788064,
+          "sfMax": 2.3160553317606487,
+          "versions": {
+            "1280:151": 162,
+            "0:-1": 18
+          },
+          "collisions": 12,
+          "nearMisses": 226,
+          "slotChanges": 9,
+          "msgs": {
+            "hb": 49115,
+            "score": 162,
+            "delivered": 3766549,
+            "lost": 198053,
+            "blocked": 79551
+          }
+        },
+        "static": {
+          "npwc": 0.93097033685269,
+          "coverage": 0.9,
+          "sfMean": 1.0009998916834868,
+          "sfMax": 2.7493552396680876,
+          "versions": {
+            "0:-1": 180
+          },
+          "collisions": 11,
+          "nearMisses": 228,
+          "slotChanges": 0,
+          "msgs": {
+            "hb": 0,
+            "score": 0,
+            "delivered": 0,
+            "lost": 0,
+            "blocked": 0
+          }
+        }
+      },
+      "browser": "Chrome/157.0.8103.78",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (Intel)",
+        "renderer": "ANGLE (Intel, Intel(R) Arc(TM) 140T GPU (16GB) (0x00007D51) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 242816,
+      "sha256": "5271cff5d6f5c86d22d24398dafb3c716899e60753f698ab1a576c67b2745be7"
+    },
+    {
+      "file": "gallery-06-final-split.png",
+      "sourceRevision": "1962fe5a0658c4c6e8ad2b631204cb436ea3e622",
+      "seed": 101,
+      "tick": 1790,
+      "view": "split",
+      "lenses": {
+        "colour": "show",
+        "xray": false,
+        "ghosts": false,
+        "tethers": false,
+        "zones": true,
+        "neighbourhood": true
+      },
+      "panels": [],
+      "selectedDrone": null,
+      "speedShown": "1×",
+      "jams": {
+        "encore": [],
+        "static": []
+      },
+      "partitions": {
+        "encore": [],
+        "static": []
+      },
+      "caption": "Final beat of the scripted demo (tick 1790), audience view: the Encore world flies the injected helix score (180 on version 1280:151) while the static world holds its preloaded sphere. Because the two worlds hold different formations, the readout marks their nPWC values (0.985 and 0.931) as not comparable.",
+      "run": "scripted demo, seed 101, one continuous run",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "observer": {
+        "encore": {
+          "npwc": 0.9849170437405734,
+          "coverage": 0.9,
+          "sfMean": 0.6080933005171002,
+          "sfMax": 1.951541472161377,
+          "versions": {
+            "1280:151": 180
+          },
+          "collisions": 23,
+          "nearMisses": 278,
+          "slotChanges": 18,
+          "msgs": {
+            "hb": 66035,
+            "score": 323,
+            "delivered": 4535060,
+            "lost": 238568,
+            "blocked": 236240
+          }
+        },
+        "static": {
+          "npwc": 0.93097033685269,
+          "coverage": 0.9,
+          "sfMean": 1.0010028270273914,
+          "sfMax": 2.749452894001039,
+          "versions": {
+            "0:-1": 180
+          },
+          "collisions": 11,
+          "nearMisses": 228,
+          "slotChanges": 0,
+          "msgs": {
+            "hb": 0,
+            "score": 0,
+            "delivered": 0,
+            "lost": 0,
+            "blocked": 0
+          }
+        }
+      },
+      "browser": "Chrome/157.0.8103.78",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (Intel)",
+        "renderer": "ANGLE (Intel, Intel(R) Arc(TM) 140T GPU (16GB) (0x00007D51) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 131983,
+      "sha256": "5244b4fbb6f9602587a7f06e0115027a2f44ed709fb9aa7fd4b347093019b4d9"
+    },
+    {
+      "file": "gallery-07-final-metrics.png",
+      "sourceRevision": "1962fe5a0658c4c6e8ad2b631204cb436ea3e622",
+      "seed": 101,
+      "tick": 1830,
+      "view": "split",
+      "lenses": {
+        "colour": "show",
+        "xray": false,
+        "ghosts": false,
+        "tethers": false,
+        "zones": true,
+        "neighbourhood": true
+      },
+      "panels": [
+        "Metrics"
+      ],
+      "selectedDrone": null,
+      "speedShown": "1×",
+      "jams": {
+        "encore": [],
+        "static": []
+      },
+      "partitions": {
+        "encore": [],
+        "static": []
+      },
+      "caption": "The Metrics popover just after the demo ends (tick 1830), both worlds measured by the observer on the same tick, costs included: 23 vs 11 collisions, 278 vs 228 near-misses and 18 vs 0 slot changes (Encore vs static). Plain coverage is equal (0.900): the same drones died in both worlds. Static ignores the injected score by design, a capability difference, not a performance result. A demo readout, not the evaluation matrix.",
+      "run": "scripted demo, seed 101, one continuous run (after its end beat at tick 1800)",
+      "alive": {
+        "encore": 180,
+        "static": 180
+      },
+      "observer": {
+        "encore": {
+          "npwc": 0.9849170437405734,
+          "coverage": 0.9,
+          "sfMean": 0.6080810179606474,
+          "sfMax": 1.9515414721613786,
+          "versions": {
+            "1280:151": 180
+          },
+          "collisions": 23,
+          "nearMisses": 278,
+          "slotChanges": 18,
+          "msgs": {
+            "hb": 67475,
+            "score": 323,
+            "delivered": 4573895,
+            "lost": 240597,
+            "blocked": 236240
+          }
+        },
+        "static": {
+          "npwc": 0.93097033685269,
+          "coverage": 0.9,
+          "sfMean": 1.0010028270273919,
+          "sfMax": 2.749452894001039,
+          "versions": {
+            "0:-1": 180
+          },
+          "collisions": 11,
+          "nearMisses": 228,
+          "slotChanges": 0,
+          "msgs": {
+            "hb": 0,
+            "score": 0,
+            "delivered": 0,
+            "lost": 0,
+            "blocked": 0
+          }
+        }
+      },
+      "browser": "Chrome/157.0.8103.78",
+      "gl": {
+        "webgl": true,
+        "vendor": "Google Inc. (Intel)",
+        "renderer": "ANGLE (Intel, Intel(R) Arc(TM) 140T GPU (16GB) (0x00007D51) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "bytes": 195058,
+      "sha256": "7ab79d2ec35ef5e9378aba4d34c3562718ef2df1b0ea9f16f816f881b8b2bc1b"
+    }
+  ]
+}
