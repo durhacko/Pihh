@@ -5,7 +5,8 @@ import { makeParams } from '../../src/contracts';
 import type { EnvEvent, WorldSnapshot } from '../../src/contracts';
 import { runCustom } from '../../src/cli/harness';
 import { buildScenario, SCENARIO_IDS, type ScenarioId } from '../../src/cli/scenarios';
-import { ContactModel, INVARIANT_IDS, type InvariantReport } from '../../src/observer/invariants';
+import { ContactModel, INVARIANT_IDS, KNOWN_LIMIT_3, type InvariantReport } from '../../src/observer/invariants';
+import { killSetUp } from '../g1/helpers';
 
 const WIDE = process.env.P2_WIDE === '1';
 const TIMEOUT = 60_000; // Heavy world stepping: headroom for CPU contention under parallel load.
@@ -135,4 +136,20 @@ describe('P2-T15: the truth contact model agrees with the radio log', () => {
     expect(s4.blocked).toBeGreaterThan(0);
     expect(s3.blocked).toBeGreaterThan(0);
   }, 600_000);
+});
+
+// #280 / P2-T05(a): the G1 late-commit miss (§8.5 limit 3) is a KNOWN LIMIT, so INV-QUIET must tag it, never call it a
+// counterexample. G1 seed 1, clumped kill of 5 at n0 40 (20 % loss), centres 15 and 30 (tests/g1/g1.beyond.test.ts:72-77).
+describe('#280: the G1 late pairs fire INV-QUIET tagged §8.5 limit 3 (wave chain with one double hop)', () => {
+  it('seed 1, centres 15 and 30: INV-QUIET 404 ticks after the kill, tagged, and no untagged INV-QUIET', () => {
+    for (const centre of [15, 30]) {
+      const s = killSetUp(1, 40, 5, centre);
+      const { report } = runCustom({ label: `G1-c${centre}`, seed: 1, params: s.params, score: s.score, events: s.events, ticks: s.endTick, arm: 'encore' });
+      const quiet = (report as InvariantReport).violations.filter((v) => v.inv === 'INV-QUIET');
+      console.log(`G1 seed 1 centre ${centre}: kill ${s.killTick}; ${quiet.map((v) => `t=${v.tick} id=${v.ids[0]} tag=${v.knownLimit}: ${v.detail}`).join(' | ')}`);
+      expect(quiet.length, `centre ${centre}`).toBeGreaterThan(0);
+      expect(quiet[0]!.tick - s.killTick, `centre ${centre}`).toBe(404);
+      for (const v of quiet) expect(v.knownLimit, `centre ${centre} t=${v.tick}`).toBe(KNOWN_LIMIT_3);
+    }
+  }, TIMEOUT);
 });

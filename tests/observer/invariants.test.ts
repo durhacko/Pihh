@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { makeParams, OPERATOR } from '../../src/contracts';
 import type { DroneSnap, EnvEvent, Params, RadioEvent, Score, ScoreVersion, Vec3, WorldSnapshot } from '../../src/contracts';
 import { expandRecipe, launchPos } from '../../src/score';
-import { ContactModel, createInvariantChecker, INVARIANT_DEFAULTS, KNOWN_LIMIT_3, KNOWN_LIMIT_FLAPPING, type InvariantCheckerOptions, type InvariantId } from '../../src/observer/invariants';
+import { ContactModel, createInvariantChecker, INVARIANT_DEFAULTS, KNOWN_LIMIT_3, KNOWN_LIMIT_FLAPPING, LIMIT3_FILL_TICKS, LIMIT3_MAX_LINKS, LIMIT3_REHOP_TICKS, type InvariantCheckerOptions, type InvariantId } from '../../src/observer/invariants';
 import { buildScenario } from '../../src/cli/scenarios';
 import { encoreBrain } from '../../src/agent/encoreBrain';
 import { createWorld } from '../../src/sim';
@@ -459,4 +459,102 @@ describe.runIf(process.env.P2_PERF === '1')('P2-T18: invariant checker cost at n
     console.log(`P2-T18 checker ingest, n0 200, 600 ticks: mean ${mean.toFixed(3)} ms/tick, p50 ${sorted[300].toFixed(3)}, p99 ${sorted[593].toFixed(3)}, max ${sorted[599].toFixed(3)}; sample ticks (components) mean ${sampleMean.toFixed(3)} ms (budget 0.5 ms/tick/world)`);
     expect(mean).toBeGreaterThan(0);
   }, 120_000);
+});
+
+// #280: §8.5 limit 3 as a wave chain. The late commit is the FIRST commit of a drone that filled a slot vacated by a
+// drone hopping twice; only a double hop IN THAT CAUSAL CHAIN tags it. Anchor: SET_LOSS at tick 10, Q = 400.
+describe('#280 INV-QUIET limit-3 tag: wave chain with one double hop', () => {
+  const params = makeParams(12);
+  /** `moves[id]` = list of [tick, slot] the drone commits to, in order. */
+  function quietRun(moves: Record<number, [number, number][]>, last: number) {
+    const k = createInvariantChecker({ params, arm: 'encore', checks: ['INV-QUIET'] });
+    k.registerScore(SCORE);
+    k.recordEvent({ type: 'SET_LOSS', tick: 10, loss: 0.05 });
+    return feed(k, last, (t) => {
+      const specs: Record<number, Spec> = {};
+      for (const [id, list] of Object.entries(moves)) {
+        let slot = Number(id);
+        for (const [tick, to] of list) if (t >= tick) slot = to;
+        specs[Number(id)] = { slot };
+      }
+      return snap(t, 12, specs);
+    });
+  }
+  // Commits lower the slot index (healing moves holes outward and downward), so every chain below descends: the
+  // drone in slot s commits into a lower slot, and a drone from a higher slot fills s. Ids equal starting slots.
+  // A fast single-hop chain (links of 80 ticks, each within LIMIT3_FILL_TICKS): 2 -> 1 at 90, 4 -> 2 at 170,
+  // 6 -> 4 at 250, 8 -> 6 at 330, then drone 10 fills 8 at 412 (402 after the anchor, its first commit).
+  const FAST_SINGLE: Record<number, [number, number][]> = { 2: [[90, 1]], 4: [[170, 2]], 6: [[250, 4]], 8: [[330, 6]], 10: [[412, 8]] };
+  it('the bounds, derived from params (§8.5 limit 3): fill link 92, re-hop 180..192, at most 8 links at the defaults', () => {
+    expect(LIMIT3_FILL_TICKS(params)).toBe(92);   // max(tSuspect 60, tVacant 40 + 8 to leave rOcc) + claimWindow 20 + 2 * hbPeriod 5 + latencyMax 2
+    expect(LIMIT3_REHOP_TICKS(params)).toEqual({ min: 180, max: 192 });   // tStable 120 + tVacant 40 + claimWindow 20, + 12 slack
+    expect(LIMIT3_MAX_LINKS).toBe(8);
+  });
+  it('tags the late first commit of a drone whose slot was vacated by a drone that hopped twice (the G1 shape)', () => {
+    // As G1 seed 1 (kill 306 -> 384 -> 457 -> 637 -> 710): 3 -> 1 at 90 (80 after the anchor); 5 fills 3 at 170;
+    // 5 hops again 3 -> 0 at 350 (180 later, the re-hop wait); drone 7 fills 3 at 430 (420 after the anchor).
+    const v = quietRun({ 3: [[90, 1]], 5: [[170, 3], [350, 0]], 7: [[430, 3]] }, 435);
+    expect(v).toEqual([expect.objectContaining({ inv: 'INV-QUIET', tick: 430, ids: [7], slot: 3, knownLimit: KNOWN_LIMIT_3 })]);
+    expect(v[0]!.detail).toMatch(/wave chain: drone 5 hopped twice since the anchor \(ticks 170, 350\)/);
+  });
+  it('follows the chain further back: the double hop may be two links up', () => {
+    // The G1 shape, then drone 9 fills 7 (the slot drone 7 left) at 510.
+    const v = quietRun({ 3: [[90, 1]], 5: [[170, 3], [350, 0]], 7: [[430, 3]], 9: [[510, 7]] }, 515);
+    expect(v).toEqual([
+      expect.objectContaining({ tick: 430, ids: [7], knownLimit: KNOWN_LIMIT_3 }),
+      expect.objectContaining({ tick: 510, ids: [9], knownLimit: KNOWN_LIMIT_3 }),
+    ]);
+  });
+  it('stays a COUNTEREXAMPLE when every drone in the chain hopped once (no limit-3 shape), even with fast links', () => {
+    const v = quietRun(FAST_SINGLE, 415);
+    expect(v).toEqual([expect.objectContaining({ tick: 412, ids: [10], slot: 8, knownLimit: null })]);
+  });
+  it('a double hop ELSEWHERE in the swarm does not excuse an unrelated late commit', () => {
+    // The fast single-hop chain, plus drone 11 hopping twice with the right re-hop wait (11 -> 9 at 50, 9 -> 7 at 230)
+    // through slots outside that chain.
+    const v = quietRun({ ...FAST_SINGLE, 11: [[50, 9], [230, 7]] }, 415);
+    expect(v).toEqual([expect.objectContaining({ tick: 412, ids: [10], slot: 8, knownLimit: null })]);
+  });
+  // Timing negatives (#287 review): each breaks exactly one bound, and is tagged when that bound is removed (the
+  // mutation check in the PR).
+  it('A, a stall: a double hop with the right wait, then the filler commits 800 ticks later, stays a counterexample', () => {
+    // Drone 11 commits at 20 and 200 (gap 180); drone 10 fills 7 only at 1000. The fill link (800) is far past 92.
+    const v = quietRun({ 11: [[20, 7], [200, 3]], 10: [[1000, 7]] }, 1005);
+    expect(v).toEqual([expect.objectContaining({ tick: 1000, ids: [10], slot: 7, knownLimit: null })]);
+  });
+  it('B: a double hop only 20 ticks apart is not the limit-3 re-hop (below tStable + tVacant + claimWindow)', () => {
+    // 2 -> 1 at 90; 4 fills 2 at 170 and leaves 2 -> 0 at 190; then 6 -> 2 at 270, 8 -> 6 at 350, 10 -> 8 at 430.
+    const v = quietRun({ 2: [[90, 1]], 4: [[170, 2], [190, 0]], 6: [[270, 2]], 8: [[350, 6]], 10: [[430, 8]] }, 435);
+    expect(v).toEqual([expect.objectContaining({ tick: 430, ids: [10], knownLimit: null })]);
+  });
+  it('a double hop 200 ticks apart is slower than the limit-3 re-hop (above its slack) and does not excuse', () => {
+    // 2 -> 1 at 90; 4 fills 2 at 120 and leaves 2 -> 0 at 320 (gap 200 > 192); drone 6 fills 2 at 412 (link 92).
+    const v = quietRun({ 2: [[90, 1]], 4: [[120, 2], [320, 0]], 6: [[412, 2]] }, 415);
+    expect(v).toEqual([expect.objectContaining({ tick: 412, ids: [6], knownLimit: null })]);
+  });
+  it('a chain whose first commit comes long after the anchor is not explained by it', () => {
+    // As the G1 shape, but the chain starts at 150 (140 after the anchor, past 92): 2 -> 1 at 150, 4 fills 2 at 160
+    // and hops 2 -> 0 at 340 (180); drone 6 fills 2 at 420.
+    const v = quietRun({ 2: [[150, 1]], 4: [[160, 2], [340, 0]], 6: [[420, 2]] }, 425);
+    expect(v).toEqual([expect.objectContaining({ tick: 420, ids: [6], knownLimit: null })]);
+  });
+  it('D: a double hop six links up the chain does not excuse a slow link further down', () => {
+    // 1 -> 0 at 30; 3 fills 1 at 50 and hops 1 -> 0 at 230 (180); then fast fills 4 -> 1 at 250, 5 -> 4 at 270,
+    // 6 -> 5 at 290, 7 -> 6 at 310; then a SLOW link, 8 -> 7 at 410 (100 > 92); drone 9 fills 8 at 430.
+    const v = quietRun({ 1: [[30, 0]], 3: [[50, 1], [230, 0]], 4: [[250, 1]], 5: [[270, 4]], 6: [[290, 5]], 7: [[310, 6]], 8: [[410, 7]], 9: [[430, 8]] }, 435);
+    expect(v).toEqual([expect.objectContaining({ tick: 430, ids: [9], knownLimit: null })]);
+  });
+  it('a chain longer than LIMIT3_MAX_LINKS is not the documented shape, even with every link in bounds', () => {
+    // 1 -> 0 at 62 (the start); 2 fills 1 at 142 and hops 1 -> 0 at 322 (180); then fills of 10 ticks each:
+    // 3 -> 1 at 332, 4 -> 3, 5 -> 4, 6 -> 5, 7 -> 6, 8 -> 7, 9 -> 8, 10 -> 9 at 402; drone 11 fills 10 at 412.
+    // Walked back from 412, the double hop is the 9th vacancy, past the bound of 8.
+    const v = quietRun({ 1: [[62, 0]], 2: [[142, 1], [322, 0]], 3: [[332, 1]], 4: [[342, 3]], 5: [[352, 4]], 6: [[362, 5]],
+      7: [[372, 6]], 8: [[382, 7]], 9: [[392, 8]], 10: [[402, 9]], 11: [[412, 10]] }, 415);
+    expect(v).toEqual([expect.objectContaining({ tick: 412, ids: [11], knownLimit: null })]);
+  });
+  it('a double hop before the anchor does not count (the chain is only searched after it)', () => {
+    // Drone 11 hops twice at 5 and 8, before the SET_LOSS anchor at 10; drone 10 fills 7 at 420.
+    const v = quietRun({ 11: [[5, 7], [8, 3]], 10: [[420, 7]] }, 425);
+    expect(v).toEqual([expect.objectContaining({ tick: 420, ids: [10], knownLimit: null })]);
+  });
 });
