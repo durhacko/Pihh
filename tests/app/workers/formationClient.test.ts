@@ -1,0 +1,114 @@
+// tests/app/workers/formationClient.test.ts
+// GF-WP-10 (#265): the preview worker's client. One monotonic requestId counter; a reply older than the latest
+// request never applies ('stale'); the worker is spawned lazily; a worker failure is a typed rejection, never a throw.
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { makeParams } from '../../../src/contracts';
+import type { SceneSpec } from '../../../src/score/generated';
+import { createFormationClient, REQUEST_ID, type CompileReply, type CompileRequest, type WorkerLike } from '../../../src/app/workers/formationClient';
+import { handleCompileRequest } from '../../../src/app/workers/formation.worker';
+
+const scene = (file: string) => JSON.parse(readFileSync(`tests/fixtures/scenes/${file}`, 'utf8')) as SceneSpec;
+const params = makeParams(40);
+
+/** A fake worker that records requests and replies only when the test says so, in any order. */
+function fakeWorker() {
+  const posted: CompileRequest[] = [];
+  const listeners: { message: ((e: MessageEvent<CompileReply>) => void)[]; error: ((e: Event) => void)[] } = { message: [], error: [] };
+  let terminated = false;
+  const worker: WorkerLike = {
+    postMessage: (m) => { posted.push(structuredClone(m)); },
+    addEventListener: (type: 'message' | 'error', listener: never) => { (listeners[type] as unknown[]).push(listener); },
+    terminate: () => { terminated = true; },
+  };
+  return {
+    worker, posted,
+    get terminated() { return terminated; },
+    reply(request: CompileRequest) { for (const l of listeners.message) l({ data: handleCompileRequest(request) } as MessageEvent<CompileReply>); },
+    raw(data: unknown) { for (const l of listeners.message) l({ data } as MessageEvent<CompileReply>); },
+    fail(message: string) { for (const l of listeners.error) l({ message } as unknown as Event); },
+  };
+}
+
+describe('the worker job (handleCompileRequest)', () => {
+  it('compiles a committed 3D fixture with #259\'s compiler: exactly n0 slots, a digest, and the requestId echoed', () => {
+    const reply = handleCompileRequest({ requestId: 'fc:1', scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    expect(reply.requestId).toBe('fc:1');
+    expect(reply.result.ok).toBe(true);
+    if (!reply.result.ok) return;
+    expect(reply.result.formation.slots).toHaveLength(40);
+    expect(reply.result.slotsDigest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('a 2D fixture returns #259\'s typed rejection (unsupported-mode until GF-WP-04 plugs in), never a throw', () => {
+    const reply = handleCompileRequest({ requestId: 'fc:2', scene: scene('valid-2d-disc.json'), n0: 40, params });
+    expect(reply.result.ok).toBe(false);
+    if (reply.result.ok) return;
+    expect(typeof reply.result.code).toBe('string');
+    expect(reply.result.code.length).toBeGreaterThan(0);
+  });
+
+  it('importing the worker module outside a worker registers nothing (inert in Node and on the main thread)', () => {
+    expect((globalThis as { onmessage?: unknown }).onmessage ?? null).toBe(null);
+  });
+});
+
+describe('createFormationClient', () => {
+  it('spawns the worker lazily, once, and every requestId matches the spec pattern and increases', async () => {
+    let spawned = 0;
+    const fake = fakeWorker();
+    const client = createFormationClient(() => { spawned++; return fake.worker; });
+    expect(spawned).toBe(0);
+    expect(client.latest).toBe(null);
+    const p1 = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    const p2 = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    expect(spawned).toBe(1);
+    expect(fake.posted.map(r => r.requestId)).toEqual(['fc:1', 'fc:2']);
+    for (const r of fake.posted) expect(r.requestId).toMatch(REQUEST_ID);
+    expect(client.latest).toBe('fc:2');
+    expect(await p1).toBe('stale');                  // superseded at once, before any reply
+    fake.reply(fake.posted[1]);
+    const r2 = await p2;
+    expect(r2).not.toBe('stale');
+    if (r2 !== 'stale') expect(r2.requestId).toBe('fc:2');
+  });
+
+  it('a late reply to an older request never replaces the newer one (out-of-order replies)', async () => {
+    const fake = fakeWorker();
+    const client = createFormationClient(() => fake.worker);
+    const older = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    const newer = client.compile({ scene: scene('valid-3d-two-spheres.json'), n0: 40, params });
+    fake.reply(fake.posted[1]);                       // the newer one first
+    fake.reply(fake.posted[0]);                       // then the older one, late
+    expect(await older).toBe('stale');
+    const reply = await newer;
+    expect(reply).not.toBe('stale');
+    if (reply === 'stale' || !reply.result.ok) throw new Error('expected the newer compile');
+    expect(reply.requestId).toBe('fc:2');
+    const direct = handleCompileRequest({ requestId: 'x', scene: scene('valid-3d-two-spheres.json'), n0: 40, params });
+    expect(direct.result.ok && reply.result.slotsDigest === direct.result.slotsDigest).toBe(true);   // it is the newer scene
+  });
+
+  it('ignores unknown or malformed replies; a worker error is a typed `internal` rejection for the latest request', async () => {
+    const fake = fakeWorker();
+    const client = createFormationClient(() => fake.worker);
+    const pending = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    fake.raw(null);
+    fake.raw({ requestId: 'fc:99', result: {} });
+    fake.fail('boom');
+    const reply = await pending;
+    expect(reply).not.toBe('stale');
+    if (reply === 'stale') return;
+    expect(reply.result).toMatchObject({ ok: false, code: 'internal', detail: 'boom' });
+  });
+
+  it('dispose terminates the worker and settles pending requests as stale; later compiles are stale', async () => {
+    const fake = fakeWorker();
+    const client = createFormationClient(() => fake.worker);
+    const pending = client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params });
+    client.dispose();
+    expect(fake.terminated).toBe(true);
+    expect(await pending).toBe('stale');
+    expect(await client.compile({ scene: scene('valid-3d-sphere.json'), n0: 40, params })).toBe('stale');
+  });
+});

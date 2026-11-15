@@ -3,8 +3,17 @@
 // simulation, and never a source of simulated facts: drones, beliefs and metrics come from snapshots and
 // observers, not from here. Shared module: it does not export createPanel, so the panel loader in ./index.ts
 // imports it without effect. No side effects at import.
-import type { Recipe, Vec3 } from '../../contracts';
+import type { Formation, Recipe, Vec3 } from '../../contracts';
 import type { Arm } from '../worlds';
+
+/**
+ * A stage preview. `recipe` and `label` as before. GF-WP-10 (#265) adds two optional fields:
+ * - `formation`: a precomputed formation (the preview worker's compile of a committed fixture scene), drawn
+ *   instead of expanding `recipe`. `recipe` is then only a placeholder, never flown or injected.
+ * - `source: 'fixture'`: where that formation came from; the stage label says so.
+ * Without them, everything behaves exactly as before.
+ */
+export interface StagePreview { recipe: Recipe; label: string; formation?: Formation; source?: 'fixture' }
 
 export type ColourMode = 'show' | 'belief';
 export type ViewMode = 'encore' | 'split' | 'static';
@@ -46,7 +55,7 @@ export interface UIState {
   hovered: { id: number; arm: Arm } | null;
   pick: PickRequest | null;
   pickPoint: Vec3 | null;
-  preview: { recipe: Recipe; label: string } | null;   // local only: drawn over the stage, never sent
+  preview: StagePreview | null;   // local only: drawn over the stage, never sent
   quality: Quality;
   reducedMotion: boolean;
   chromeHidden: boolean;
