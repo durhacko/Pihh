@@ -57,7 +57,8 @@ export type UiAction =
   | { type: 'compare'; mode: 'on' | 'off' | 'static' }
   | { type: 'metrics' } | { type: 'timeline' } | { type: 'clear' } | { type: 'history' }
   | { type: 'drafts' } | { type: 'draft-use'; id: string } | { type: 'preview'; on: boolean }
-  | { type: 'demo-run'; seconds: 90 } | { type: 'demo-stop' };
+  | { type: 'demo-run'; seconds: 90 } | { type: 'demo-stop' }
+  | { type: 'replay-save' } | { type: 'replay-load' };   // GF-WP-11 (#214): the run's event log as a file, and back
 export interface UiIntent { kind: 'ui'; command: string; ui: UiAction }
 
 export interface HelpIntent { kind: 'help'; command: 'help'; text: string }
@@ -167,6 +168,8 @@ export const COMMANDS: readonly CommandSpec[] = [
   { path: ['show', 'save'], desc: 'Save the show to a file', status: 'later' },
   { path: ['show', 'load'], desc: 'Load a saved show', status: 'later' },
   { path: ['seek'], args: 'TIME', desc: 'Jump to a time (needs replay-to-tick)', status: 'later' },
+  { path: ['replay', 'save'], desc: 'Save this run’s event log (seed, params, events) to a file', status: 'proto', build: ui({ type: 'replay-save' }) },
+  { path: ['replay', 'load'], desc: 'Load a saved event log: reset from its seed and schedule its events', status: 'proto', build: ui({ type: 'replay-load' }) },
 ];
 
 // ---------------------------------------------------------------------------------------- tokenise
