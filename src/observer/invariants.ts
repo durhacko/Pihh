@@ -5,7 +5,7 @@
 // events and registered scores, keeps its own copies, never mutates its inputs and has no World reference, so it
 // cannot affect a brain. Imports only src/contracts, src/score and ./measure (T01).
 import type { DroneSnap, EnvEvent, Params, Score, ScoreVersion, Vec3, WorldSnapshot } from '../contracts';
-import { currentMovement, expandRecipe, launchPos, newerVersion } from '../score';
+import { currentMovement, expandRecipe, launchPos } from '../score';
 import { versionKey } from './measure';
 
 export type InvariantId = 'INV-DUP' | 'INV-MONO' | 'INV-SILENCE' | 'INV-QUIET' | 'INV-CONVERGE' | 'INV-STATIC';
@@ -71,29 +71,50 @@ type ArmOption = InvariantCheckerOptions['arm'];
 
 const ENCORE_ONLY: ReadonlySet<InvariantId> = new Set(['INV-SILENCE', 'INV-QUIET', 'INV-CONVERGE']);
 
-function copyVec(v: Vec3): Vec3 { return [v[0], v[1], v[2]]; }
 function sameVersion(a: ScoreVersion, b: ScoreVersion): boolean { return a.issuedTick === b.issuedTick && a.origin === b.origin; }
+
+/**
+ * Integer cell key in the small-integer range (30 bits): each axis wraps every 1024 cells (15 km at rRadio 15 m).
+ * Wrapped cells share a key, which only adds candidates; the exact pair test decides contact.
+ */
+function cellKey(cx: number, cy: number, cz: number): number {
+  return ((cx & 1023) << 20) | ((cy & 1023) << 10) | (cz & 1023);
+}
 
 /** Truth radio contact (PHASE2_EVALUATION §2), rebuilt from snapshots and recorded events only. */
 export class ContactModel {
   private readonly params: Params;
   private readonly n0: number;
   private readonly eventsRecorded: boolean;
-  /** Positions and liveness of snapshot t - 1 (launch positions, all live, before tick 1). */
-  prevPos: Vec3[];
-  prevAlive: boolean[];
+  /** Positions of snapshot t - 1, flat [x0, y0, z0, x1, ...] (launch positions before tick 1). Allocated once. */
+  private readonly px: Float64Array;
   /** Active partitions in insertion order (a replaced id keeps its place, as the world's Map does). */
-  readonly partitions = new Map<string, (0 | 1)[]>();
+  readonly partitions = new Map<string, Uint8Array>();
   loss: number;
   private events = new Map<number, EnvEvent[]>();
+  // Scratch for components(), allocated once (performance only: P2-T18).
+  private readonly parent: Int32Array;
+  private readonly jamFlag: Uint8Array;
+  private readonly buckets = new Map<number, number[]>();
+  private pairBuf = new Int32Array(1024);
 
   constructor(params: Params, eventsRecorded: boolean) {
     this.params = params;
     this.n0 = params.n0;
     this.eventsRecorded = eventsRecorded;
-    this.prevPos = Array.from({ length: this.n0 }, (_, id) => launchPos(id, this.n0));
-    this.prevAlive = new Array<boolean>(this.n0).fill(true);
+    this.px = new Float64Array(3 * this.n0);
+    for (let id = 0; id < this.n0; id++) {
+      const p = launchPos(id, this.n0);
+      this.px[3 * id] = p[0]; this.px[3 * id + 1] = p[1]; this.px[3 * id + 2] = p[2];
+    }
     this.loss = params.loss;
+    this.parent = new Int32Array(this.n0);
+    this.jamFlag = new Uint8Array(this.n0);
+  }
+
+  /** Position of drone `id` in snapshot t - 1 (a copy). */
+  prevPosition(id: number): Vec3 {
+    return [this.px[3 * id], this.px[3 * id + 1], this.px[3 * id + 2]];
   }
 
   recordEvent(event: EnvEvent): void {
@@ -106,10 +127,13 @@ export class ContactModel {
   beginTick(t: number): void {
     for (const event of this.events.get(t) ?? []) {
       if (event.type === 'PARTITION_ON') {
-        const groups = this.prevPos.map((x): 0 | 1 => {
-          const d = (x[0] - event.point[0]) * event.normal[0] + (x[1] - event.point[1]) * event.normal[1] + (x[2] - event.point[2]) * event.normal[2];
-          return d < 0 ? 0 : 1;
-        });
+        const groups = new Uint8Array(this.n0);
+        const px = this.px;
+        for (let id = 0; id < this.n0; id++) {
+          const d = (px[3 * id] - event.point[0]) * event.normal[0] + (px[3 * id + 1] - event.point[1]) * event.normal[1] + (px[3 * id + 2] - event.point[2]) * event.normal[2];
+          groups[id] = d < 0 ? 0 : 1;
+        }
+        // Map.set on an existing id keeps its insertion position, as the world's partitions Map does.
         this.partitions.set(event.id, groups);
       }
       if (event.type === 'PARTITION_OFF') this.partitions.delete(event.id);
@@ -133,16 +157,15 @@ export class ContactModel {
   }
 
   inRange(i: number, j: number): boolean {
-    const p = this.prevPos[i];
-    const q = this.prevPos[j];
-    const d2 = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2;
+    const px = this.px;
+    const d2 = (px[3 * i] - px[3 * j]) ** 2 + (px[3 * i + 1] - px[3 * j + 1]) ** 2 + (px[3 * i + 2] - px[3 * j + 2]) ** 2;
     return d2 <= this.params.rRadio * this.params.rRadio;
   }
 
   jammed(snapshot: WorldSnapshot, id: number): boolean {
-    const x = this.prevPos[id];
+    const px = this.px;
     for (const jam of snapshot.jams) {
-      if ((x[0] - jam.centre[0]) ** 2 + (x[1] - jam.centre[1]) ** 2 + (x[2] - jam.centre[2]) ** 2 <= jam.radius ** 2) return true;
+      if ((px[3 * id] - jam.centre[0]) ** 2 + (px[3 * id + 1] - jam.centre[1]) ** 2 + (px[3 * id + 2] - jam.centre[2]) ** 2 <= jam.radius ** 2) return true;
     }
     return false;
   }
@@ -161,38 +184,66 @@ export class ContactModel {
 
   /** Call after every check of tick t: snapshot t becomes the "previous" snapshot. */
   endTick(snapshot: WorldSnapshot): void {
+    const px = this.px;
     for (const d of snapshot.drones) {
-      this.prevPos[d.id] = copyVec(d.pos);
-      this.prevAlive[d.id] = d.alive;
+      px[3 * d.id] = d.pos[0]; px[3 * d.id + 1] = d.pos[1]; px[3 * d.id + 2] = d.pos[2];
     }
   }
 
-  /** Union-find components over truth contact among live drones at tick t, on a grid of cell rRadio. */
-  components(snapshot: WorldSnapshot): { root: Int32Array; edges: Set<number> } {
+  /**
+   * Union-find components over truth contact among live drones at tick t, on a grid of cell rRadio. Each root is
+   * the smallest id of its component (unions always keep the smaller root), so the result does not depend on the
+   * order pairs are visited. Same pair test as reachable(); jam flags are computed once per call (P2-T18).
+   */
+  components(snapshot: WorldSnapshot): { root: Int32Array; adjStart: Int32Array; adj: Int32Array } {
     const n0 = this.n0;
-    const parent = new Int32Array(n0);
+    const parent = this.parent;
     for (let i = 0; i < n0; i++) parent[i] = i;
     const find = (x: number): number => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
-    const edges = new Set<number>();
+    let pairs = 0;
+    const addEdge = (i: number, j: number) => {
+      if (2 * pairs + 2 > this.pairBuf.length) { const grown = new Int32Array(this.pairBuf.length * 2); grown.set(this.pairBuf); this.pairBuf = grown; }
+      this.pairBuf[2 * pairs] = i; this.pairBuf[2 * pairs + 1] = j; pairs++;
+    };
     if (this.loss < 1) {
+      const px = this.px, drones = snapshot.drones, r2 = this.params.rRadio * this.params.rRadio;
       const cell = this.params.rRadio;
-      const buckets = new Map<string, number[]>();
+      const buckets = this.buckets;
+      buckets.clear();
       const live: number[] = [];
-      for (const d of snapshot.drones) {
+      for (const d of drones) {
         if (!d.alive) continue;
         live.push(d.id);
-        const p = this.prevPos[d.id];
-        const key = `${Math.floor(p[0] / cell)},${Math.floor(p[1] / cell)},${Math.floor(p[2] / cell)}`;
+        this.jamFlag[d.id] = this.jammed(snapshot, d.id) ? 1 : 0;
+        // Integer cell key. Keys wrap every 1024 cells per axis (cellKey), so two cells sharing a key only add
+        // candidates; every candidate still passes the exact pair test below, so the result is unchanged.
+        const key = cellKey(Math.floor(px[3 * d.id] / cell), Math.floor(px[3 * d.id + 1] / cell), Math.floor(px[3 * d.id + 2] / cell));
         const list = buckets.get(key);
         if (list) list.push(d.id); else buckets.set(key, [d.id]);
       }
+      const groups = [...this.partitions.values()];
+      const sides = snapshot.partitions.length;
       for (const i of live) {
-        const p = this.prevPos[i];
-        const cx = Math.floor(p[0] / cell), cy = Math.floor(p[1] / cell), cz = Math.floor(p[2] / cell);
+        if (this.jamFlag[i]) continue;   // a jammed drone is in contact with nobody
+        const cx = Math.floor(px[3 * i] / cell), cy = Math.floor(px[3 * i + 1] / cell), cz = Math.floor(px[3 * i + 2] / cell);
         for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-          for (const j of buckets.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) {
-            if (j <= i || !this.reachable(snapshot, i, j)) continue;
-            edges.add(i * n0 + j);
+          const list = buckets.get(cellKey(cx + dx, cy + dy, cz + dz));
+          if (list === undefined) continue;
+          for (let k = 0; k < list.length; k++) {
+            const j = list[k];
+            if (j <= i || this.jamFlag[j]) continue;
+            const d2 = (px[3 * i] - px[3 * j]) ** 2 + (px[3 * i + 1] - px[3 * j + 1]) ** 2 + (px[3 * i + 2] - px[3 * j + 2]) ** 2;
+            // Negated `<=`, as inRange() tests it: a NaN or infinite distance is never contact. That also keeps a
+            // non-finite position (whose cell key is not unique) from adding any pair, so no pair is added twice.
+            if (!(d2 <= r2)) continue;
+            if (this.eventsRecorded) {
+              let same = true;
+              for (let g = 0; g < groups.length; g++) if (groups[g][i] !== groups[g][j]) { same = false; break; }
+              if (!same) continue;
+            } else if (sides >= 2 || (sides === 1 && drones[i].partitionSide !== drones[j].partitionSide)) {
+              continue;
+            }
+            addEdge(i, j);
             const ri = find(i), rj = find(j);
             if (ri !== rj) parent[Math.max(ri, rj)] = Math.min(ri, rj);
           }
@@ -201,7 +252,18 @@ export class ContactModel {
     }
     const root = new Int32Array(n0);
     for (let i = 0; i < n0; i++) root[i] = find(i);
-    return { root, edges };
+    // Neighbour lists in compressed form: drone i's contacts are adj[adjStart[i] .. adjStart[i + 1]). Each pair is
+    // added once: j > i, and the 27 neighbour offsets give 27 distinct keys, so no bucket is read twice for one i.
+    const adjStart = new Int32Array(n0 + 1);
+    for (let k = 0; k < pairs; k++) { adjStart[this.pairBuf[2 * k] + 1]++; adjStart[this.pairBuf[2 * k + 1] + 1]++; }
+    for (let i = 0; i < n0; i++) adjStart[i + 1] += adjStart[i];
+    const fill = adjStart.slice(0, n0);
+    const adj = new Int32Array(2 * pairs);
+    for (let k = 0; k < pairs; k++) {
+      const i = this.pairBuf[2 * k], j = this.pairBuf[2 * k + 1];
+      adj[fill[i]++] = j; adj[fill[j]++] = i;
+    }
+    return { root, adjStart, adj };
   }
 }
 
@@ -215,6 +277,10 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
   const n0 = params.n0;
   /** At most latencyMax distinct send ticks fall in (c - latencyMax, c], so latencyMax + 1 entries always keep the newest <= c - latencyMax. */
   const HB_KEEP = Math.max(3, params.latencyMax + 1);
+  /** INV-SILENCE evidence reaches back to snapshot c - tVacant - claimWindow - 1 from a commit at c. */
+  const HISTORY_KEEP = params.tVacant + params.claimWindow + 2;
+  const LAUNCH = { pos: new Float64Array(3 * n0), alive: new Uint8Array(n0).fill(1) };
+  for (let id = 0; id < n0; id++) { const p = launchPos(id, n0); LAUNCH.pos[3 * id] = p[0]; LAUNCH.pos[3 * id + 1] = p[1]; LAUNCH.pos[3 * id + 2] = p[2]; }
 
   let state = fresh();
 
@@ -247,7 +313,11 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
       silenceEnd: Infinity,
       excusedCommit: new Uint8Array(n0),
       unjudgedCommit: new Uint8Array(n0),
-      history: [] as { tick: number; pos: Vec3[]; alive: boolean[] }[],      // snapshots t - L .. t - 1, for vacancy evidence
+      // snapshots t - keep .. t - 1, for vacancy evidence: a ring of preallocated buffers
+      history: {
+        keep: HISTORY_KEEP, next: 0, tick: new Int32Array(HISTORY_KEEP).fill(-1),
+        pos: new Float64Array(HISTORY_KEEP * 3 * n0), alive: new Uint8Array(HISTORY_KEEP * n0),
+      },
       // per (receiver, slot): the last HB_KEEP distinct send ticks, enough to keep the newest one <= c - latencyMax
       hbHeard: new Int32Array(n0 * n0 * HB_KEEP).fill(-1),
       // INV-QUIET
@@ -258,8 +328,12 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
       // INV-CONVERGE
       staleSince: new Float64Array(n0).fill(-1),
       convergeFlagged: new Uint8Array(n0),
-      prevComponentKey: new Array<string>(n0).fill(''),
-      prevEdges: new Set<number>(),
+      conv: {
+        size: new Int32Array(n0), prevSize: new Int32Array(n0), hasNewest: new Uint8Array(n0),
+        newIssued: new Float64Array(n0), newOrigin: new Float64Array(n0), edgeMax: new Float64Array(n0),
+        samePrev: new Uint8Array(n0), prevOf: new Int32Array(n0), prevRoot: new Int32Array(n0), prevLive: new Uint8Array(n0),
+        prevAdjStart: new Int32Array(n0 + 1) as Int32Array, prevAdj: new Int32Array(0) as Int32Array, stamp: new Int32Array(n0), stampId: 0,
+      },
       lastEdgeChange: new Float64Array(n0).fill(-Infinity),
       // INV-STATIC
       staticFlagged: new Uint8Array(n0),
@@ -376,9 +450,14 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
     return expandRecipe(currentMovement(score, tick).movement.recipe, n0, params).slots[v]?.pos;
   }
 
-  function snapshotAt(tick: number): { pos: Vec3[]; alive: boolean[] } | undefined {
-    if (tick === 0) return { pos: Array.from({ length: n0 }, (_, id) => launchPos(id, n0)), alive: new Array<boolean>(n0).fill(true) };
-    return state.history.find((h) => h.tick === tick);
+  /** Positions [x0, y0, z0, ...] and liveness of snapshot `tick` (tick 0: launch positions, all live), or undefined. */
+  function snapshotAt(tick: number): { pos: Float64Array; alive: Uint8Array } | undefined {
+    if (tick === 0) return LAUNCH;
+    const h = state.history;
+    for (let k = 0; k < h.keep; k++) {
+      if (h.tick[k] === tick) return { pos: h.pos.subarray(k * 3 * n0, (k + 1) * 3 * n0), alive: h.alive.subarray(k * n0, (k + 1) * n0) };
+    }
+    return undefined;
   }
 
   /** Excuse (a) for a commit by d into v at c, on d's own evidence only. */
@@ -396,9 +475,9 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
       if (!before || !p) return { ok: false, missing: true, why: `no evidence for scan tick ${s}` };
       for (let k = 0; k < n0; k++) {
         if (k === d.id || !before.alive[k]) continue;
-        const x = before.pos[k];
+        const x = before.pos;
         // Strict, as the brain's occupied() test is: a drone exactly at rOcc does not occupy.
-        if (Math.hypot(x[0] - p[0], x[1] - p[1], x[2] - p[2]) < params.rOcc) {
+        if (Math.hypot(x[3 * k] - p[0], x[3 * k + 1] - p[1], x[3 * k + 2] - p[2]) < params.rOcc) {
           return { ok: false, why: `scan tick ${s}: drone ${k} was within rOcc of slot ${v}` };
         }
       }
@@ -437,44 +516,70 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
 
   // ---------- INV-CONVERGE (§4), on sample ticks ----------
   function checkConverge(s: WorldSnapshot, out: Violation[]): void {
-    const { root, edges } = state.contact.components(s);
-    // Edge state changes since the previous sample (0.25 s resolution, like the component times).
-    for (const e of edges) if (!state.prevEdges.has(e)) { state.lastEdgeChange[Math.floor(e / n0)] = s.tick; state.lastEdgeChange[e % n0] = s.tick; }
-    for (const e of state.prevEdges) if (!edges.has(e)) { state.lastEdgeChange[Math.floor(e / n0)] = s.tick; state.lastEdgeChange[e % n0] = s.tick; }
-    state.prevEdges = edges;
-    const members = new Map<number, number[]>();
-    const newest = new Map<number, ScoreVersion>();
+    const { root, adjStart, adj } = state.contact.components(s);
+    // Edge state changes since the previous sample (0.25 s resolution, like the component times). An edge toggling
+    // marks both its endpoints; equivalently, a drone is marked when its set of contacts differs from the previous
+    // sample's. Compared per drone with a stamp array, so no edge set is built.
+    const cv = state.conv;
+    const pStart = cv.prevAdjStart, pAdj = cv.prevAdj, stamp = cv.stamp;
+    for (let i = 0; i < n0; i++) {
+      const p0 = pStart[i], p1 = pStart[i + 1], c0 = adjStart[i], c1 = adjStart[i + 1];
+      let differs = p1 - p0 !== c1 - c0;
+      if (!differs && c1 > c0) {
+        // Stamps never wrap: before the counter would pass the Int32 range, clear the array and start again.
+        if (cv.stampId >= 0x7fffffff) { stamp.fill(0); cv.stampId = 0; }
+        const id = ++cv.stampId;
+        for (let k = p0; k < p1; k++) stamp[pAdj[k]] = id;
+        for (let k = c0; k < c1; k++) if (stamp[adj[k]] !== id) { differs = true; break; }
+      }
+      if (differs) state.lastEdgeChange[i] = s.tick;
+    }
+    cv.prevAdjStart = adjStart;
+    cv.prevAdj = adj;
+    // Per component (indexed by its root, the smallest member id): live size, newest version, the latest edge
+    // change of any member, and whether every member sat in one and the same component at the previous sample.
+    cv.size.fill(0);
+    cv.hasNewest.fill(0);
+    cv.edgeMax.fill(-Infinity);
+    cv.samePrev.fill(1);
+    cv.prevOf.fill(-1);
     for (const d of s.drones) {
       if (!d.alive) continue;
       const r = root[d.id];
-      const list = members.get(r);
-      if (list) list.push(d.id); else members.set(r, [d.id]);
-      const best = newest.get(r);
-      if (!best || newerVersion(d.belief.version, best)) newest.set(r, d.belief.version);
+      cv.size[r]++;
+      const v = d.belief.version;
+      if (!cv.hasNewest[r] || v.issuedTick > cv.newIssued[r] || (v.issuedTick === cv.newIssued[r] && v.origin > cv.newOrigin[r])) {
+        cv.hasNewest[r] = 1; cv.newIssued[r] = v.issuedTick; cv.newOrigin[r] = v.origin;
+      }
+      if (state.lastEdgeChange[d.id] > cv.edgeMax[r]) cv.edgeMax[r] = state.lastEdgeChange[d.id];
+      // Membership unchanged <=> every member was live at the previous sample in the same component P, and P had
+      // exactly as many live members (then P = this component). Same answer as comparing the sorted id lists.
+      const p = cv.prevLive[d.id] ? cv.prevRoot[d.id] : -1;
+      if (p < 0) cv.samePrev[r] = 0;
+      else if (cv.prevOf[r] < 0) cv.prevOf[r] = p;
+      else if (cv.prevOf[r] !== p) cv.samePrev[r] = 0;
     }
-    const keyOf = new Map<number, string>();
-    for (const [r, ids] of members) keyOf.set(r, ids.join(','));
     const flapWindow = params.scoreResendMin + params.latencyMax;
     for (const d of s.drones) {
       if (!d.alive) { state.staleSince[d.id] = -1; continue; }
       const r = root[d.id];
-      const key = keyOf.get(r) ?? '';
-      const changed = key !== state.prevComponentKey[d.id];
-      state.prevComponentKey[d.id] = key;
-      const best = newest.get(r);
-      const stale = best !== undefined && newerVersion(best, d.belief.version);
+      const changed = !(cv.samePrev[r] && cv.prevOf[r] >= 0 && cv.prevSize[cv.prevOf[r]] === cv.size[r]);
+      const v = d.belief.version;
+      const stale = cv.hasNewest[r] === 1 && (cv.newIssued[r] > v.issuedTick || (cv.newIssued[r] === v.issuedTick && cv.newOrigin[r] > v.origin));
       if (!stale) { state.staleSince[d.id] = -1; state.convergeFlagged[d.id] = 0; continue; }
       if (state.staleSince[d.id] < 0 || changed) { state.staleSince[d.id] = s.tick; state.convergeFlagged[d.id] = 0; }
       if (s.tick - state.staleSince[d.id] >= thresholds.C && !state.convergeFlagged[d.id]) {
         state.convergeFlagged[d.id] = 1;
-        let flapping = false;
-        for (const m of members.get(r) ?? []) if (state.lastEdgeChange[m] >= s.tick - flapWindow) { flapping = true; break; }
+        const flapping = cv.edgeMax[r] >= s.tick - flapWindow;
         emit({
           inv: 'INV-CONVERGE', tick: s.tick, ids: [d.id], knownLimit: flapping ? KNOWN_LIMIT_FLAPPING : null,
-          detail: `drone ${d.id} on ${versionKey(d.belief.version)} stale since ${state.staleSince[d.id]} in a stable component of ${members.get(r)?.length ?? 0} holding ${versionKey(best as ScoreVersion)}`,
+          detail: `drone ${d.id} on ${versionKey(v)} stale since ${state.staleSince[d.id]} in a stable component of ${cv.size[r]} holding ${versionKey({ issuedTick: cv.newIssued[r], origin: cv.newOrigin[r] })}`,
         }, out);
       }
     }
+    // This sample becomes the previous one.
+    cv.prevSize.set(cv.size);
+    for (const d of s.drones) { cv.prevLive[d.id] = d.alive ? 1 : 0; cv.prevRoot[d.id] = root[d.id]; }
   }
 
   function ingest(source: WorldSnapshot): Violation[] {
@@ -578,12 +683,20 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
     if (on('INV-CONVERGE') && s.tick % 5 === 0) checkConverge(s, out);
 
     // Keep the last tVacant + claimWindow + 1 snapshots' positions for INV-SILENCE's scan-tick evidence.
+    // A ring of preallocated buffers: no per-tick allocation (P2-T18). Same contents as the last `keep` snapshots.
+    const h = state.history;
     if (on('INV-SILENCE') && s.tick < state.silenceEnd) {
-      state.history.push({ tick: s.tick, pos: s.drones.map((d) => copyVec(d.pos)), alive: s.drones.map((d) => d.alive) });
-      const keep = params.tVacant + params.claimWindow + 2;
-      if (state.history.length > keep) state.history.splice(0, state.history.length - keep);
-    } else if (state.history.length) {
-      state.history = [];
+      const k = h.next;
+      h.tick[k] = s.tick;
+      for (const d of s.drones) {
+        const b = (k * n0 + d.id) * 3;
+        h.pos[b] = d.pos[0]; h.pos[b + 1] = d.pos[1]; h.pos[b + 2] = d.pos[2];
+        h.alive[k * n0 + d.id] = d.alive ? 1 : 0;
+      }
+      h.next = (k + 1) % h.keep;
+    } else if (h.tick[0] !== -1 || h.next !== 0) {
+      h.tick.fill(-1);
+      h.next = 0;
     }
     state.contact.endTick(s);
     return out;
