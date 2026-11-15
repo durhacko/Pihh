@@ -2,7 +2,7 @@
 
 > **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing in this RFC is built, approved or scheduled. Every contract change below needs Arnav's approval (decision D2) and declares a new evidence revision (decision D5). It is all Track P work: none of it may land in the hackathon window unless Arnav pulls it forward (decision D4, recommended: no; decisions in the [roadmap](../planning/PHASE2_ROADMAP.md#decisions-for-arnav)).
 
-Purpose: how Encore could keep healing while formations move, how steering could give avoidance real authority, and how the swarm behaves under degradation, concurrent scores and connectivity loss. Status: proposed RFC for issue #110, Track P (capabilities C8 and C9). Owner: Arnav (Phase 2 architecture, issue #110). Audit base: `origin/main` 26b438a (first audited at 7a50a69).
+Purpose: how Encore could keep healing while formations move, how steering could give avoidance real authority, and how the swarm behaves under degradation, concurrent scores and connectivity loss. Status: proposed RFC for issue #110, Track P (capabilities C8 and C9). Owner: Arnav (Phase 2 architecture, issue #110). Audit base: `origin/main` 26b438a (first audited at 7a50a69); re-checked at `origin/main` c697f6c (02:58 GMT, 15 Nov 2026).
 
 This file is canonical for **E02** healing while formations move (with **N01** co-moving-frame vacancy sensing), **E03** local predictive collision avoidance (with **N03** avoidance-first budget and **N04** pairwise safety filter), the design arguments for **E04**, **E08** and **E09**, and the full text of **P2-CC-03**, **P2-CC-04**, **P2-CC-05** (a, b) and **P2-CC-08** (deferred). Everything else is linked:
 
@@ -19,6 +19,8 @@ This file is canonical for **E02** healing while formations move (with **N01** c
 
 Status labels: **(a)** implemented and tested on main · **(b)** implemented, not integrated · **(c)** open PR or active work · **(d)** documented only · **(e)** not present. Statuses and file:line cites are at `origin/main` 26b438a; what changed since the first audit is listed once in [PHASE2_ARCHITECTURE §1](PHASE2_ARCHITECTURE.md#1-scope-sources-and-status-labels). Numbers marked *estimate* are arithmetic, not runs; measured numbers are cited to a PR or test.
 
+**Re-checked at c697f6c.** Merged since 26b438a and relevant here: #115 (Encore step cost, edits `encoreBrain.ts` and `world.ts`), #82 (sensing order, edits `world.ts` and adds `src/sim/sensing.ts`) and #137 (freeze run, `scripts/eval/`). Line cites into `encoreBrain.ts` and `world.ts` are at 26b438a and may have moved; the function names are the stable reference. The waits on #115 and #82 below are satisfied by those merges. The CURRENT_STATE lock table at c697f6c still lists #82 (`src/sim/world.ts`, `src/sim/sensing.ts`, `tests/sim/**`) and #137 (`results/**`; timeouts in `tests/agent`, `tests/g1`, `tests/g4`), and `src/agent/**` stays orchestrator-only. Under the [roadmap's lock rule](../planning/PHASE2_ROADMAP.md#base-state-this-roadmap-depends-on) a merged PR's lock binds until the orchestrator lifts it. Nothing here is Track H work, and every change waits for P2-G0 (P).
+
 ---
 
 ## 1. E02: healing while formations move
@@ -29,13 +31,15 @@ Today every hold is static: a slot's position is `expandRecipe(...).slots[v].pos
 
 | # | Place | Today | What motion breaks |
 |---|---|---|---|
-| 1 | Settle test, `:313-315` | `off < rOcc` and `\|vel\| < 0.5` (absolute speed) | Any slot faster than 0.5 m/s keeps `settledSince` null, so `canHeal` condition 3 never holds: **no healing at all** |
+| 1 | Settle test, `:313-315` | `off < rOcc` and `\|vel\| < 0.5` (absolute speed) | A drone on a slot faster than 0.5 m/s keeps `settledSince` null, so `canHeal` condition 3 fails for it. Drones on slow slots still settle: slots within `0.5/ω` of a spin axis (2.5 m at ω = 0.2, the poles of `EVAL-M`), every slot of a slow enough spin, and the zero-velocity phases of sway, pulse and waves. So the settle test does **not** switch healing off by itself, and those drones would judge vacancies in the wrong frame (row 2) |
 | 2 | Vacancy scan, `:237-243` | Sensed positions against the static `slots[v].pos`, tolerance `rOcc` | Holders that lag more than `rOcc` behind a moving slot look absent: false vacancies |
 | 3 | Physical yield, `:319-323` | `occupied(target, …)` against the static target | Yield judged against the wrong point |
 | 4 | `canHeal` condition 2, `:188` | `lastTargetChange` moves only in `targetChanged` (`:67-72`): a slot change, a movement change or an adoption | Safe only if motion inside a movement is **not** treated as a target change |
 | 5 | Steering, `:351-359` | Aims at `pacedSlotPos` (#96, `steer.ts:114`); no target-velocity feed-forward (`steer.ts:33-80`) | A drone trails a moving target by about `u²/aMax` (*estimate*: 0.44 m at 1.87 m/s), which feeds row 2 |
 
 Contract §8.5 limit 4 ("no healing during transitions") states the consequence. Healing while slots move is (e).
+
+**Interim motion gate.** Because of row 1, the build between P2-CC-02/03 and P2-CC-04 needs an explicit gate. [P2-WP-21](../development/PHASE2_WORK_PACKAGES.md#p2-wp-21--contract-feed-forward-steering-brains-aim-at-the-moving-slot) step 5 makes `evaluateCanHeal` return `false` whenever `currentMovement(s.score, now).movement.motion` is present, and states it in contract §8.2 and §8.5 limit 4. It adds no `Params` or `EncoreState` field and never fires with motion absent. So the interim build has no healing in motion by that gate, not by the settle test. P2-WP-25 removes the gate and replaces it with this RFC's rule (P2-CC-04). The gate is also the fallback if C8 slips.
 
 ### 1.2 Why "the previous position is empty" is the wrong test
 
@@ -163,7 +167,7 @@ At 5% independent loss, a live holder goes silent for `tSuspect` (12 heartbeat p
 
 **Mitigation, strongest first:** (1) feed-forward (P2-CC-03) keeps steady-state lag far below `rOccEff − rOcc` (§1.4 table); (2) `rOccEff` absorbs the predicted lag and the cap unwatches slots whose lag bound is too large; (3) emptiness must last `tVacant` (2 s, 8 scans), so a transient avoidance swerve resets the timer; (4) the feasibility guard removes the fast relative motions in which lag grows. See also AR-Q1.
 
-**Measurement:** P2-T28 ("silence is not death" under motion, probe `J`, no kills) and P2-T29 (the same probe with a test-only wrapper that removes feed-forward inside the jam, counted against the pre-registered churn bound). Both are defined in [PHASE2_EVALUATION §5](../validation/PHASE2_EVALUATION.md#5-animated-scenarios-m0m6-track-p). The claim is "bounded, measured churn", not "no churn".
+**Measurement:** P2-T28 ("silence is not death" under motion, probe `J`, no kills) and P2-T29 (the same probe with a test-only wrapper, counted against the pre-registered churn bound). For a drone inside the jam, the wrapper drops feed-forward **and** steers at a point 1.0 m behind its slot along `−slotVelAt`, in both arms. Removing feed-forward alone is not adversarial: at ω = 0.2 the rim lag without it is about 0.47 m in the brain's frame (*estimate*), inside `rOccEff` ≈ 0.6 m + `LAG_MARGIN`, so signal S never fires. 1.0 m is above the 0.75 m cap. A pre-registered sanity check requires at least one jammed holder to be farther than its `rOccEff` from its slot, in the brain's frame, on `tVacant` consecutive ticks; otherwise P2-T29 is reported **void**, not passed. Both are defined in [PHASE2_EVALUATION §5](../validation/PHASE2_EVALUATION.md#5-animated-scenarios-m0m6-track-p). The claim is "bounded, measured churn", not "no churn".
 
 ### 1.12 Partitions and reconciliation
 
@@ -244,11 +248,11 @@ The diff is against §8.3 at 26b438a. Lines starting `+` are new, `-` are remove
 
 **Hoisted form.** The scan must not call `slotPosAt(score, now, v, …)` once per slot. Each such call repeats `currentMovement`, builds the `expandRecipe` memo key with `JSON.stringify(recipe)` (`src/score/expand.ts:125`), recomputes the same rotation or phase and allocates a `Vec3`. At 40 scans per tick × 200 slots that is about 8 000 stringify-and-lookup calls per tick per world. Instead, a scan computes `currentMovement`, `expandRecipe` and every quantity that depends only on `(movement, tick)` once, then applies the closed-form motion per slot into an array local to that call. A local array is not module-level state, so it is legal in a brain. `src/score` must export this per-slot primitive (or a slots-only bulk form beside `transformFormationAt`, whose `dense` output the brain does not need), and `slotPosAt` must delegate to the same arithmetic so that the scan, the drone's own target and the observer agree bit for bit. The choreography RFC owns that export (§3.1 there). For rigid motion, transforming `in.pos` and the k sensed vectors into the body frame and testing against the static slots needs O(k) transforms instead of O(n0). It is an allowed optimisation if measured. `uMax` and `aRefMax` are closed-form per slot (spin: ω·ρ_v and ω²·ρ_v, with ρ_v the distance from the axis; wave: A·ω and A·ω²; pulse: §4.3 there), so the lag table is O(n0) arithmetic per scan. `claimFeasible` samples about 11 ticks × 2 slots, only for vacant candidates.
 
-**Cost** (*estimate*, not measured). With the hoisted form a scan costs one setup plus up to n0 per-slot applications (rigid: about 15 flops; wave: one `sin`), so 40 scans/tick × 200 slots = 8 000 applications per tick at n0 = 200. The budget is the repo's: both worlds ≤ 3 ms per frame (SHOULD, [experience §10](experience-and-demo.md#10-performance)), and each per-tick Phase 2 addition ≤ 0.5 ms/tick/world, measured opt-in (`P2_PERF=1`, [PHASE2_EVALUATION §12](../validation/PHASE2_EVALUATION.md#12-performance-criteria)) with the existing #118 harness (`scripts/perf/`). P2-WP-25 should be timed under P2-T18 at n0 = 200, opt-in. P2-T18's package list does not include it yet.
+**Cost** (*estimate*, not measured). With the hoisted form a scan costs one setup plus up to n0 per-slot applications (rigid: about 15 flops; wave: one `sin`), so 40 scans/tick × 200 slots = 8 000 applications per tick at n0 = 200. The budget is the repo's: both worlds ≤ 3 ms per frame (SHOULD, [experience §10](experience-and-demo.md#10-performance)), and each per-tick Phase 2 addition ≤ 0.5 ms/tick/world, measured opt-in (`P2_PERF=1`, [PHASE2_EVALUATION §12](../validation/PHASE2_EVALUATION.md#12-performance-criteria)) with the existing #118 harness (`scripts/perf/`). P2-T18 times P2-WP-25's scan at n0 = 200, opt-in ([PHASE2_EVALUATION §7](../validation/PHASE2_EVALUATION.md#7-tests-p2-t01p2-t36)).
 
 ### 1.16 Extended known limits (proposed additions to contract §8.5)
 
-Limit 4 is rewritten. The new limits 10–15 follow the merged limits 1–9.
+Limit 4 is rewritten. It replaces P2-WP-21's interim wording ("no healing while the current movement has motion", §1.1). The new limits 10–15 follow the merged limits 1–9.
 
 - **4 (rewritten).** No healing during transitions, inside a jam, or while score versions disagree nearby. In an animated hold, a slot is judged only when its lag bound fits under `rOccEff`'s cap, and claimed only when its motion passes the feasibility guard; otherwise the hole waits for a slower phase or the next static hold.
 - **10. Jam or partition plus lag can fake a vacancy.** A silent holder trailing its slot by more than `rOccEff` looks dead; its slot can be claimed and the duplicate lasts until radio returns. Counted (P2-T29).
@@ -274,7 +278,7 @@ The world then scales the **whole vector** to `aMax` (`world.ts:173`). Analytica
 ### 2.2 Evidence so far
 
 - **#80** (issue and PR #96 notes): S0, static arm, n0 = 200: 60 collisions and 310 near-misses per run, all in transitions (49 at launch, 11 text→sphere, 0 in holds); a swept audit found real crossings at 2–8+ m/s, and end-of-tick sampling missed 2 of 62 (counts are lower bounds, contract §10).
-- **Paced targets (#96, merged, (a)):** S0 collisions **60 → 14** at n0 = 200 (near-misses 310 → 250, PR notes). Static S0 is seed-independent, so this is one measurement, not a distribution; also 27 → 7 at n0 = 100 and 92 → 30 at n0 = 300 (contract §10). `tests/cli/s0Collisions.test.ts` asserts ≤ 15, and ≥ 95% on slot at both hold starts.
+- **Paced targets (#96, merged, (a)):** S0 collisions **60 → 14** at n0 = 200 (near-misses 310 → 250, PR notes). Static S0 is seed-independent, so this is one measurement, not a distribution; also 27 → 7 at n0 = 100 and 92 → 30 at n0 = 300 (contract §10). `tests/cli/s0Collisions.test.ts` asserts ≤ 15, and ≥ 95% on slot at both hold starts (unchanged at c697f6c). The 14 predates #82, which re-orders `sensed`, so it is not a pass line: P2-T32 compares with R0's S0 counts instead ([PHASE2_EVALUATION §7](../validation/PHASE2_EVALUATION.md#7-tests-p2-t01p2-t36)).
 - **The spike's negative results** (branch `spike/80-transition-collisions`, not on main):
 
   | Variant | Collisions | Note |
@@ -329,7 +333,7 @@ steerBudget(pos, vel, target, sensed, params, targetVel):
 key(n) = (|n.rel|², n.rel[0], n.rel[1], n.rel[2], n.vel[0], n.vel[1], n.vel[2])  # total order, lexicographic
 ```
 
-Avoidance keeps its full authority and tracking gets what is left. With no neighbour inside `dAvoid` the output is exactly stage 2, so holds with settled drones (spacing 1.5 m > `dAvoid`) are unaffected. The sum is taken in sorted order, so the output is bit-independent of `sensed` order. **Decision: keep this defensive sort.** #82 (a draft at the audit base, merged since) makes the world deliver `sensed` already sorted by the same key (`src/sim/sensing.ts`), but that order is not contract text, and the agent must not rely on an order the contract does not promise. On presorted input, a run-detecting sort such as V8's needs about k − 1 comparisons, so the cost is O(k), not O(k log k) (*estimate*). P2-T18 should time it for P2-WP-27/28. Promoting the order to `AgentInput.sensed` contract text instead would be a separate D2 change. N03 is accepted post-hackathon as the first step of C9. Hypothesis to test: under pacing, tracking errors are small and the gain may be negligible, so N03 is **measured before** N04 is built (P2-T32).
+Avoidance keeps its full authority and tracking gets what is left. With no neighbour inside `dAvoid` the output is exactly stage 2, so holds with settled drones (spacing 1.5 m > `dAvoid`) are unaffected. The sum is taken in sorted order, so the output is bit-independent of `sensed` order. **Decision: keep this defensive sort.** #82 (a draft at the audit base, merged since; re-checked at c697f6c) makes the world deliver `sensed` already sorted by the same key (`src/sim/sensing.ts`), but that order is not contract text, and the agent must not rely on an order the contract does not promise. On presorted input, a run-detecting sort such as V8's needs about k − 1 comparisons, so the cost is O(k), not O(k log k) (*estimate*). P2-T18 should time it for P2-WP-27/28. Promoting the order to `AgentInput.sensed` contract text instead would be a separate D2 change. N03 is accepted post-hackathon as the first step of C9. Hypothesis to test: under pacing, tracking errors are small and the gain may be negligible, so N03 is **measured before** N04 is built (P2-T32).
 
 ### 2.6 N04: pairwise safety filter (exact algorithm)
 
@@ -409,7 +413,7 @@ The wording stays "checked properties on these runs, not proofs" and "measured, 
 
 ### 2.9 Measurement
 
-Each stage is measured against the post-#96 baseline on S0, both arms, n0 ∈ {100, 200, 300}: end-of-tick `collisions` and `nearMisses` plus **swept closest-approach counts** (N10, observer-side, P2-WP-08 / P2-T12), so an improvement cannot be a sampling artefact; the fidelity cost (`sfMean` over transitions); and the on-slot percentage at each `holdStart`.
+Each stage is measured against R0, the base's final evidence (the freeze-run records, #137, archived at P2-G0 (P); [PHASE2_EVALUATION §10](../validation/PHASE2_EVALUATION.md#10-provenance-and-reproducibility)), on S0, both arms, n0 ∈ {100, 200, 300}: end-of-tick `collisions` and `nearMisses` plus **swept closest-approach counts** (N10, observer-side, P2-WP-08 / P2-T12), so an improvement cannot be a sampling artefact; the fidelity cost (`sfMean` over transitions); and the on-slot percentage at each `holdStart`.
 
 Thresholds and the P2-G2(b) pass line are canonical in [PHASE2_EVALUATION §7](../validation/PHASE2_EVALUATION.md#7-tests-p2-t01p2-t36) and [PHASE2_ROADMAP](../planning/PHASE2_ROADMAP.md#gates). P2-G2(b) blocks any animated formation in a judged demo; P2-G2(a) (feed-forward, P2-T23/T24) is what blocks P2-G3.
 
@@ -487,7 +491,7 @@ Every proposal in this section is labelled **PROPOSED CONTRACT CHANGE — REQUIR
 | Migration steps | (1) Parameter + §10 text. (2) P2-T23, P2-T24. (3) Pass `pacedSlotVel` once P2-CC-02 lands. (4) Optional, separately measured: feed forward the paced-lerp derivative (changes S0; new revision; AR-Q2) |
 | Affected modules | `src/agent/steer.ts`; call sites in `encoreBrain.ts`, `staticBrain.ts`; contract §10 |
 | Affected tests | `tests/agent/steer.test.ts`, new P2-T23/T24; `tests/cli/s0Collisions.test.ts`, `tests/g1/*`, `tests/agent/pacedSlotPos.test.ts`, `tests/isolation/*` unchanged and green |
-| Conflicts with active work | `encoreBrain.ts` is contended by open #115 (perf); #82 (draft at the audit base, merged since) sorts `sensed`, and N03/N04 keep their own sort (§2.5). Track P only, after P2-G0 (P) (archived evidence matrix) |
+| Conflicts with active work | `encoreBrain.ts` was contended by #115 (perf), open at 26b438a and merged since, so its line cites may have moved; #82 (draft at the audit base, merged since) sorts `sensed`, and N03/N04 keep their own sort (§2.5). `src/agent/**` is orchestrator-only, and #137 still locks timeouts in `tests/agent` and `tests/g1` (re-checked at c697f6c). Track P only, after P2-G0 (P) (archived evidence matrix) |
 
 ### P2-CC-04: healing in motion
 
@@ -496,14 +500,14 @@ Every proposal in this section is labelled **PROPOSED CONTRACT CHANGE — REQUIR
 | Field | Content |
 |---|---|
 | Current interface | Contract §8.2 condition 3 (absolute speed), §8.3 steps 2–4 (static slot positions, `rOcc`), §8.5 limit 4; `src/agent/encoreBrain.ts:185-202, 214-243, 307-323`. (a) |
-| Problem it cannot solve | No healing while slots move (§1.1 row 1); naive relaxation gives false vacancies from lag and claims the claimant cannot follow |
+| Problem it cannot solve | No healing while slots move: the absolute settle test blocks fast slots but not slow ones, so the interim build turns healing off with P2-WP-21's explicit motion gate (§1.1); naive relaxation gives false vacancies from lag and claims the claimant cannot follow |
 | Proposed extension | Exactly the §1.15 diff: relative settle; slot positions at `input.tick` (N01); vacancy-only `rOccEff` with the `rOccCap(mv)` cap (about 0.75 m with defaults, §1.4) and "not watched" above it; the scan in the hoisted form (§1.15); `claimFeasible`; motion is not a target change; §8.5 limit 4 rewritten and limits 10–15 added (§1.16). `LAG_MARGIN` and `ALPHA` are code constants, **no `Params` field**; `EncoreState` unchanged |
 | Justification | Flagship post-hackathon capability (C8); answers contract §12's stated difficulty with a frame-invariant detector while keeping the two-signal AND |
 | Backwards compatibility | With motion absent every line reduces to today's (§1.15), so `paramsHash` and the S0–S5 and G1 `stateHash` should be identical; a new evidence revision is still declared (D5) and the re-run confirms identity |
-| Migration steps | (1) Needs P2-CC-01/02 (with `copyMovement` keeping `motion`, §1.13) and P2-CC-03 (without feed-forward, lag pushes `rOccEff` past the cap, about 0.75 m, §1.4). (2) Pure helpers `rOccEff`, `claimFeasible` in `src/agent`. (3) Edit steps 2–4. (4) Freeze `LAG_MARGIN` from M0 dev seeds. (5) Contract §8.2/§8.3/§8.5 text. (6) P2-T26–T31 |
-| Affected modules | `src/agent/encoreBrain.ts`; contract §8; `src/score` as consumer only |
-| Affected tests | `tests/agent/encoreBrain.test.ts`, `tests/g1/g1.test.ts`, `tests/g1/g1.beyond.test.ts` (P2-T31), `tests/g4/*`, `tests/isolation/encore.test.ts`, new P2-T26–T30 |
-| Conflicts with active work | The most validated file, contended by open #115 (perf). Track P after P2-G0 (P); must pass P2-G3, which needs P2-G2(a) |
+| Migration steps | (1) Needs P2-CC-01/02 (with `copyMovement` keeping `motion`, §1.13) and P2-CC-03 (without feed-forward, lag pushes `rOccEff` past the cap, about 0.75 m, §1.4). (2) Pure helpers `rOccEff`, `claimFeasible` in a new `src/agent/motionHeal.ts`, which imports only `../contracts` and `../score`. (3) Remove P2-WP-21's interim motion gate and edit steps 2–4. (4) Freeze `LAG_MARGIN` from M0 dev seeds. (5) Contract §8.2/§8.3/§8.5 text. (6) P2-T26–T31 |
+| Affected modules | `src/agent/encoreBrain.ts`, new `src/agent/motionHeal.ts`; contract §8; `src/score` as consumer only |
+| Affected tests | `tests/agent/encoreBrain.test.ts`: only the import-set line (`:308`, which gains `'./motionHeal'`) plus a new purity check that `motionHeal.ts` imports only `'../contracts'` and `'../score'` and passes the same no-clock, no-mutable-module-state checks. New `tests/agent/encoreMotion.test.ts`. P2-WP-21's `tests/agent/motionGate.test.ts` asserts the gate, so it must be retired or inverted when the gate goes; P2-WP-25's allowed files do not list it yet. Unchanged and green: `tests/g1/g1.test.ts`, `tests/g1/g1.beyond.test.ts` (P2-T31), `tests/g4/*`, `tests/isolation/encore.test.ts`. New P2-T26–T30 (P2-WP-26) |
+| Conflicts with active work | The most validated file. #115 (perf) was open at 26b438a and has merged since (re-checked at c697f6c); `src/agent/**` is orchestrator-only, and #137 still locks timeouts in `tests/agent`, `tests/g1` and `tests/g4`. Track P after P2-G0 (P); must pass P2-G3, which needs P2-G2(a) |
 
 ### P2-CC-05a: avoidance-first acceleration budget
 
@@ -533,8 +537,8 @@ Every proposal in this section is labelled **PROPOSED CONTRACT CHANGE — REQUIR
 | Justification | Native acceleration input, so a better fit than velocity-space ORCA (§2.3); established prior art [5][6]; at most O(32 × 3) projections per drone per tick (*estimate*) |
 | Backwards compatibility | Equals P2-CC-05a when no constraint is active; otherwise a new revision |
 | Migration steps | (1) Only after P2-CC-05a is measured. (2) Pure function in `src/agent`. (3) P2-T33 plus S0/S2 with swept counts. (4) §10 text; P2-ADR-06 |
-| Affected modules | `src/agent/steer.ts` and new `src/agent/safety.ts` (P2-WP-28). `steer.ts` then imports `./safety`. The `staticBrain`/`encoreBrain` import-set tests are unaffected, because both brains still import only `./steer`. Contract §10 |
-| Affected tests | `tests/agent/steer.test.ts`, new P2-T33, `tests/cli/s0Collisions.test.ts`, `tests/g1/*`, isolation tests |
+| Affected modules | `src/agent/steer.ts` and new `src/agent/safetyFilter.ts` (P2-WP-28). `steer.ts` then imports `./safetyFilter`. The `staticBrain`/`encoreBrain` import-set tests are unaffected, because neither brain's own imports change: both still reach the filter only through `./steer`. Contract §10 |
+| Affected tests | `tests/agent/steer.test.ts`, new `tests/agent/safetyFilter.test.ts` (P2-T33), `tests/cli/s0Collisions.test.ts`, `tests/g1/*`, isolation tests |
 | Conflicts with active work | As P2-CC-05a. Never move enforcement into `world.ts` (a central controller) |
 
 ### P2-CC-08 (deferred): dark-but-hovering failures
@@ -551,7 +555,7 @@ Every proposal in this section is labelled **PROPOSED CONTRACT CHANGE — REQUIR
 | Migration steps | Contract §5/§12 text; world event handling; observer `alive` and metrics; console command; a scenario |
 | Affected modules | `src/contracts/world.ts`, `src/sim/world.ts`, `src/observer/*`, app console |
 | Affected tests | `tests/sim/faults.test.ts`, `tests/sim/world.test.ts`, `tests/observer/*`, isolation tests |
-| Conflicts with active work | `world.ts` contended by open #115 and draft #82. Better stated in the pitch than built |
+| Conflicts with active work | `world.ts` was contended by #115 and #82, both open at 26b438a and merged since; the CURRENT_STATE lock table at c697f6c still lists #82's `src/sim/world.ts` and `tests/sim/**` lock until the orchestrator lifts it. Better stated in the pitch than built |
 
 ---
 
@@ -570,12 +574,14 @@ Test and scenario definitions, pass conditions and invariant definitions are can
 | P2-T29 | Probe `J` + wrapper: jam-plus-lag churn is bounded (§1.11, limit 10) | CC-04 / WP-26 | P2-G3 |
 | P2-T30 | M5: score update during recovery (§1.13) | CC-04 / WP-26 | P2-G3 |
 | P2-T31 | No G1 regression; bit-identity with motion absent (§1.15) | CC-04 / WP-25 | P2-G3 |
-| P2-T32 | Avoidance-first budget against the post-#96 baseline, swept; fidelity cost (§2.5, §2.9) | CC-05a / WP-27 | P2-G2(b) |
+| P2-T32 | Avoidance-first budget against R0's S0 counts, swept; fidelity cost (§2.5, §2.9) | CC-05a / WP-27 | P2-G2(b) |
 | P2-T33 | Filter determinism and order independence (§2.6, §2.7) | CC-05b / WP-28 | P2-G2(b) |
 | P2-T14 | Dual injection X3: later `issuedTick` wins; churn within the bound (§4) | none / WP-10 (Track H) | H-merge; P2-G4 |
 | P2-T12 | Oracle upper bound (instant global knowledge) ≤ observed time to first `npwc ≥ 0.95`, and ≤ `tRec` when defined; swept ≥ end-of-tick counts (§2.9) | none / WP-08 (Track H) | H-merge; P2-G2(b), P2-G4 |
 
 The other scenarios probe **M3** contention under 20% loss (§1.10), **M4** a partition cut rotating with the formation (§1.12) and **M6** watched-set churn under non-rigid motion (§1.7, §1.9). On the sphere (non-planar, within L6), M6 cannot exercise speed deferrals, and at A = 2 m, ω = 1.4 rad/s it watches no slot at all (§1.4, §1.7). AR-Q4 asks which wave M6 should fly.
+
+P2-T26 and P2-T28 can run before P2-WP-25. Then they test P2-WP-21's interim motion gate (§1.1), not healing in motion, and both are re-run after P2-WP-25.
 
 The checked properties `INV-*` ([PHASE2_EVALUATION §4](../validation/PHASE2_EVALUATION.md#4-checked-properties)) run over every M-run history and are reported as "checked properties on these runs, not proofs". A comparison is fair only if both arms fly the same animated score with the same `steer`, seeds and events, and differ only in healing and dissemination.
 
@@ -586,7 +592,7 @@ The checked properties `INV-*` ([PHASE2_EVALUATION §4](../validation/PHASE2_EVA
 - **AR-Q1. Yield under jam plus lag.** P2-CC-04 as registered keeps yield at `rOcc`, and under jam plus lag today's yield rule can make the live holder pop and leave the wrong drone on the slot (§1.11). Using `rOccEff` for yield's "seen" test would make an in-flight claimant back off from a lagging live holder before it arrives, the safe direction against limit 10 (the cap keeps tracking holders of other slots outside it, §1.4). Evaluate both on P2-T29 before freezing.
 - **AR-Q2. Transition feed-forward** of the paced-lerp derivative may cut transition collisions further but breaks S0 bit-identity: its own measured revision if wanted.
 - **AR-Q3. `β` and `κ`** trade safety against fidelity; tune on dev seeds and freeze before P2-T32/T33. `β` also sets the closing-speed envelope (§2.8 item 3: about 10.9 m/s at β = 0.5), which two healers flying head-on exceed.
-- **AR-Q4. Which wave M6 flies.** A non-planar wave within L6 never triggers the guard's speed check, and at `Aω²` near the L6 limit it is not watched at all (§1.4, §1.7). So either M6 moves to a planar text wave along the normal with a short wavelength (for example λ ≈ 12 m, A = 1–2 m, `Aω²` ≤ 4) to exercise deferrals, or it stays on the sphere at a milder `W1` (for example A = 1 m, ω = 1 rad/s) and its stated purpose and expectation become "watched-set churn and distance deferrals only". This needs a decision when `W1` is fixed at P2-G1.
+- **AR-Q4. Which wave M6 flies.** A non-planar wave within L6 never triggers the guard's speed check, and at `Aω²` near the L6 limit it is not watched at all (§1.4, §1.7). So either M6 moves to a planar text wave along the normal with a short wavelength (for example λ ≈ 12 m, A = 1–2 m, `Aω²` ≤ 4) to exercise deferrals, or it stays on the sphere at a milder `W1` (for example A = 1 m, ω = 1 rad/s) and its stated purpose and expectation become "watched-set churn and distance deferrals only". This needs a decision when `W1` is fixed at P2-G1. The same question is [EV-Q2](../validation/PHASE2_EVALUATION.md#open-questions) in the evaluation, which owns the scenario.
 - **AR-Q5. `MAX_ACTIVE` overflow.** At overflow, a pair dropped on one side gets only the other side's share (§2.6). Whether 32 is enough during dense transitions (not only at rest on the grid) is unmeasured. If P2-T33 shows the cap binding on S0, the options are a larger cap or no cap, which costs O(|C|·sweeps).
 
 ---

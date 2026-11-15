@@ -1,13 +1,15 @@
 # Optional integration boundaries
 
-> **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing in this file exists in code. Encore today makes no network call and has no import or export path beyond the CLI's `RunRecord` files and reports. Every boundary below is optional, provider-neutral and Track P. `X-IN` and `X-OUT` stay offline; `X-RUN`, its live variant `X-RUN/live` (§6.1) and `X-PERSIST` also need decision `D3`, and `integrations/` merges only after gate `P2-G6` ([roadmap](../planning/PHASE2_ROADMAP.md#decisions-for-arnav)). This file names no sponsor and designs no provider integration.
+> **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing in this file exists in code. Encore today makes no network call and has no import or export path beyond the CLI's `RunRecord` files and reports. Every boundary below is optional, provider-neutral and Track P. `X-IN` and `X-OUT` stay offline; `X-RUN`, its live variant `X-RUN/live` (§6.1) and `X-PERSIST` also need decision `D3` ([roadmap](../planning/PHASE2_ROADMAP.md#decisions-for-arnav)), and `integrations/` (proposed `P2-WP-30b`, §9) merges only after gate `P2-G6` ([roadmap gate rule](../planning/PHASE2_ROADMAP.md#gates)). This file names no sponsor and designs no provider integration.
 
-Purpose: define how optional external integrations may touch Encore without changing the offline core. Status: proposal for Phase 2 (Track P, after submission). Owner: Arnav (Phase 2 architecture, issue #110). Audit base: `origin/main` 26b438a (first audited at 7a50a69).
+Purpose: define how optional external integrations may touch Encore without changing the offline core. Status: proposal for Phase 2 (Track P, after submission). Owner: Arnav (Phase 2 architecture, issue #110). Audit base: `origin/main` 26b438a (first audited at 7a50a69). Re-checked at `origin/main` c697f6c (02:58 GMT, 15 Nov 2026).
 
 ## 1. Scope
 
 This file is canonical for:
 - the four boundaries `X-IN` (composition input), `X-OUT` (telemetry export), `X-PERSIST` (optional persistence) and `X-RUN` (external integration runner), including `X-RUN/live` (§6.1), the boundary the stacked integration specs #117 and #130 (and #142) depend on;
+- the composition file kinds: `encore.composition` v1 and the proposed v2 (§3.2, §3.3);
+- the shared gateway skeleton, guard, dependency policy, `requestId` rule, app-side folder and pure validator path (§6.2), which #117, #130 and #142 cite;
 - the failure-handling rules and security basics for those boundaries;
 - the contract-impact statement for integrations (none, §10);
 - the intake template (§11) for William (`wpimento`; "Williams" in [`TEAM_ROLES.md`](../development/TEAM_ROLES.md)).
@@ -19,23 +21,23 @@ It links to, and does not restate:
 | Phase 2 pipeline, capabilities `C1`–`C9`, `P2-CC-*` register | [`PHASE2_ARCHITECTURE.md`](PHASE2_ARCHITECTURE.md) |
 | Score linter checks `L1`–`L6` | [`ANIMATED_CHOREOGRAPHY_RFC.md`](ANIMATED_CHOREOGRAPHY_RFC.md#9-score-linter-checks-l1l6) |
 | Gate `P2-G6`, decision `D3`, risk `P2-R14` | [`PHASE2_ROADMAP.md`](../planning/PHASE2_ROADMAP.md) |
-| Work package `P2-WP-30` (and `P2-WP-02` fuzz repros, `P2-WP-05` linter hook) | [`PHASE2_WORK_PACKAGES.md`](../development/PHASE2_WORK_PACKAGES.md) |
+| Work package `P2-WP-30` (proposed split into `30a` and `30b`, §9; also `P2-WP-02` fuzz repros, `P2-WP-05` linter hook) | [`PHASE2_WORK_PACKAGES.md`](../development/PHASE2_WORK_PACKAGES.md) |
 | Tests `P2-T09`, `P2-T35`; repro format `p2-repro/1`; timing method | [`PHASE2_EVALUATION.md`](../validation/PHASE2_EVALUATION.md) |
 | Whether anything reaches the judged demo | [`PHASE2_JUDGING_STORYBOARD.md`](../demo/PHASE2_JUDGING_STORYBOARD.md) (decision `D7`) |
 | Candidate list | [`PHASE2_CANDIDATES.md`](../ideation/PHASE2_CANDIDATES.md) |
-| Sponsor facts | [`BRIEF.md`](../competition/BRIEF.md#5-prize-tracks) (every sponsor brief is ❌ at 26b438a) |
+| Sponsor facts | [`BRIEF.md`](../competition/BRIEF.md#5-prize-tracks) (every sponsor brief is ❌ at 26b438a; `BRIEF.md` unchanged at c697f6c) |
 
 Sponsor-specific investigation, requirements and architecture belong to William. See §12.
 
 ### 1.1 What exists today
 
-Status codes: (a) implemented and tested on main · (b) implemented, not integrated · (c) open PR or active · (d) documented only · (e) not present. Status is at 26b438a; what moved since the first audit is listed once in [`PHASE2_ARCHITECTURE.md`](PHASE2_ARCHITECTURE.md) (changes since first audit).
+Status codes: (a) implemented and tested on main · (b) implemented, not integrated · (c) open PR or active · (d) documented only · (e) not present. Status is at 26b438a. Every row was re-checked at c697f6c; a row says so where the status changed. What moved since the first audit is listed once in [`PHASE2_ARCHITECTURE.md`](PHASE2_ARCHITECTURE.md#changes-since-first-audit).
 
 | Piece the boundaries reuse | Status |
 |---|---|
 | Inject path: `dispatchInject` → `runControlPlan` (`src/app/ui/Composer.ts`) → `controller.handle({type:'inject', recipe, at?})` (`src/app/actions.ts`) → `composeNext` → one `INJECT_SCORE` into the selected drone, in both worlds, registered with both observers | (a) |
-| `validateDraft(draft, params)` in `src/app/ui/Composer.ts` (#112) | (b): `main.ts` calls neither `connectComposer` nor `connectInspector`; mounting is open #113 |
-| Incoming `SCORE` checks in the brain (`encoreBrain.ts:129-143`, #105): finite version fields and non-empty `movements` only; an unknown recipe kind is not rejected | (a) |
+| `validateDraft(draft, params)` in `src/app/ui/Composer.ts` (#112) | (b) at 26b438a: `main.ts` called neither `connectComposer` nor `connectInspector`. Re-checked at c697f6c: (a). #113 has merged and `main.ts` mounts both. `validateDraft` is still in `Composer.ts` and still has no palette range check (§3.1). The CURRENT_STATE lock table still lists #113's `src/app/main.ts` and `src/app/ui/**` locks; they bind until the orchestrator lifts them |
+| Incoming `SCORE` checks in the brain (`handleScoreMessage` in `encoreBrain.ts`, #105): finite version fields and non-empty `movements` only; an unknown recipe kind is not rejected | (a) |
 | `show save` / `show load` console commands | (d): status `'later'` in `commands.ts` |
 | `RunRecord` JSON per run, written by `npm run eval` (`src/cli/main.ts`), both arms registered (`src/cli/brains.ts`, #116) | (a) |
 | `canonicalJson` and `paramsHash` (`src/cli/run.ts`) | (a) |
@@ -43,8 +45,8 @@ Status codes: (a) implemented and tested on main · (b) implemented, not integra
 | Export from the app (any file, download or storage) | (e) |
 | Score linter `L1`–`L6` | (e): proposed `C3`, `P2-WP-04`/`05` |
 | Fuzz repro files | (e): proposed `P2-WP-02` |
-| Any network call under `src/` | (e): none (grep for `fetch(`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon`). `scripts/perf/cdp.mjs` talks to local headless Chrome over WebSocket, so the `P2-T35` scan covers `src/` only |
-| `X-IN`, `X-OUT`, `X-PERSIST`, `X-RUN`, `X-RUN/live`, `integrations/gateway/` | (e) |
+| Any network call under `src/` | (e): none, also at c697f6c (grep for `fetch(`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon`). `scripts/perf/cdp.mjs` talks to local headless Chrome over WebSocket, so the `P2-T35` scan covers `src/` only |
+| `X-IN`, `X-OUT`, `X-PERSIST`, `X-RUN`, `X-RUN/live`, `integrations/gateway/`, `src/app/live/`, `src/app/compose/validate.ts` | (e), also at c697f6c |
 
 ## 2. Overview
 
@@ -88,13 +90,13 @@ This is the ports-and-adapters pattern (Cockburn, "Hexagonal architecture", 2005
 | 5. Composer validation | Each cue becomes a draft via `draftFromRecipe(name, recipe)` and goes through `validateDraft(draft, params)`. That checks the name, `validateText` (font, `TEXT_MAX` = 20), the palette warnings and `expandRecipe`. Errors block that cue; warnings are shown | `validateDraft` (§1.1) |
 | 6. Resource and motion constraints | The score linter (pure `src/cli/lint.ts`, which the composer imports) runs **inside** `validateDraft` once `P2-WP-05` lands: `L1`–`L5` now, `L6` once motion exists. Its findings are warnings that never block (`P2-T09`). `X-IN` adds no second linter | [`L1`–`L6`](ANIMATED_CHOREOGRAPHY_RFC.md#9-score-linter-checks-l1l6) |
 | 7. Convert | Valid cues become composer drafts. `X-IN` never builds a `Score`. At injection the controller builds it with `composeNext(authoredScore, tick, recipe, droneId, n0, params)`, which assigns `version`, `startTick` and `transitionTicks` | `composeNext` (a) |
-| 8. Inject | The operator selects one drone and injects through the inject path (§1.1). The controller's own checks still apply: one `INJECT_SCORE` per tick, and text matching `/^[A-Z0-9 ]{1,20}$/i`. The result is one `INJECT_SCORE` into one drone's inbox, scheduled into both worlds and recorded in the event log | I7, [FR-19](../specification/requirements.md#composition-and-score) |
+| 8. Inject | The operator selects one drone and injects through the inject path (§1.1). The controller's own checks still apply: one `INJECT_SCORE` per tick, and text matching `/^[A-Z0-9 ]{1,20}$/i`. Since 26b438a (re-checked at c697f6c) it also refuses a drone selected in the static pane. The result is one `INJECT_SCORE` into one drone's inbox, scheduled into both worlds and recorded in the event log | I7, [FR-19](../specification/requirements.md#composition-and-score) |
 
 `X-IN` never sets a drone's slot, target or belief, or calls `world.schedule` directly (AGENTS Encore rule 2); never injects into more than one drone; never bypasses the controller's event log, so headless replay of the log (T13) still reproduces `stateHash`; and never schedules injections by itself. Every cue is an operator action, so an external producer never controls the show clock.
 
-Two gaps must be closed first. They are part of `P2-WP-30`; see [work packages](../development/PHASE2_WORK_PACKAGES.md).
+Two gaps must be closed first. They are part of `P2-WP-30` (the offline half, proposed `P2-WP-30a`, §9); see [work packages](../development/PHASE2_WORK_PACKAGES.md).
 - **Palette range.** `validateDraft` does not check that palette components are finite and in [0, 1]. A non-finite value would also make `canonicalJson` throw. Add the check **to `validateDraft`**, so the composer and `X-IN` share it.
-- **Headless use.** `Composer.ts` imports `PreviewLayer` (three.js) and DOM helpers. To validate headless, move `validateDraft` into a pure module with no behaviour change, and keep re-exporting it from `Composer.ts` so the #112 tests stay unchanged. A `--validate-composition <file>` CLI flag can then write a validation report (§4, kind `validation`); it is added only after #122's records are archived, because `src/cli/main.ts` stays untouched until then. `X-RUN` can pre-check its output with it as a subprocess.
+- **Headless use.** `Composer.ts` imports `PreviewLayer` (three.js) and DOM helpers. To validate headless, move `validateDraft` into a pure module (`src/app/compose/validate.ts`, §6.2) with no behaviour change, and keep re-exporting it from `Composer.ts` so the #112 tests stay unchanged. A `--validate-composition <file>` CLI flag can then write a validation report (§4, kind `validation`); it changes `src/cli/main.ts`, which stays untouched for the whole of Track H because the freeze run uses it ([roadmap base state](../planning/PHASE2_ROADMAP.md#base-state-this-roadmap-depends-on)), so it lands only in Track P, after the `P2-G0` (P) archive. `X-RUN` can pre-check its output with it as a subprocess.
 
 ### 3.2 File format sketch (`encore.composition`, v1)
 
@@ -120,6 +122,18 @@ interface CompositionFileV1 {
 These fields are rejected because they are unknown keys: `version`, `origin`, `movements`, `startTick`, `transitionTicks`, `droneId`, `tick`, `slots`, any position, target or belief, `motion`, and anything URL-like or code-like.
 - **Animated movements.** `motion` stays rejected until `P2-CC-01` is approved. Accepting it then needs a new format version (v2), not a silent extension. Today `copyMovement` (`compose.ts`) would also drop it; that change belongs to [P2-CC-01](ANIMATED_CHOREOGRAPHY_RFC.md#101-p2-cc-01-movementmotion-and-movementcolourmotion).
 - **New recipe kinds.** Kinds such as `cloud` and `svg` are `E10` full. They are a contract change to the `Recipe` union ([contract §2](contracts-and-algorithms.md#2-score-and-formation-types)), not an `X-IN` feature. Because gossip does not reject unknown kinds (§1.1), `X-IN`'s strict schema is the guard that keeps one out of the swarm.
+
+### 3.3 Proposed v2 (holds and generated recipes)
+
+**Proposed, needs Arnav.** Until v2 is approved, step 4 accepts v1 only, and a v1 file that carries any v2 field is rejected as an unknown key. v1 stays exactly as §3.2. `encore.composition` v1 and v2 are the only composition formats; there is no `CompositionFile` or `encore.show` kind.
+
+v2 adds two things to v1:
+- **`holdTicks`**: an optional per-cue hold, as a tick count. Its bounds are set when v2 is approved. A saved show with holds exports only as v2 (MongoDB MCR-20, #130).
+- **Generated recipes**: only after `GF-CC-01` (#117) is approved. They use unit-space geometry, and their shape is defined there, not here. Each generated cue is capped at 16 KB. The per-file rule for v2 (beside the 64 KiB gate of §3.1 step 2) is open: `GQ-3` in #117.
+
+v2 changes nothing else. A v2 file still passes steps 2–8 of §3.1. `motion` stays rejected until `P2-CC-01` (§3.2).
+
+**Loading a library.** The MVP path is "Load as drafts" (§3.1 step 7): each cue becomes a composer draft, and the operator injects it. `holdTicks` is carried as data and does not act. `X-IN` never schedules injections by itself (§3.1), so a timed cue runner that plays holds is a separate, opt-in follow-up (MongoDB MDB-D6 and MCR-21, #130). It is not part of `X-IN`.
 
 ## 4. X-OUT: telemetry export
 
@@ -172,7 +186,7 @@ interface ExportLineV1 {
 | `snapshot` (full) | only with an explicit flag | 20 per file | drop and count |
 | `metrics`, `event`, `summary`, `run-record` | all | `event` ≤ 10 000 | drop and count |
 
-- Estimate: a lite snapshot at `n0` = 200 is tens of kilobytes, so an 1800-tick run is a few megabytes. Measure when `P2-WP-30` is built.
+- Estimate: a lite snapshot at `n0` = 200 is tens of kilobytes, so an 1800-tick run is a few megabytes. Measure when `P2-WP-30` (proposed `30a`) is built.
 - The `header` names the lite projection, and numbers are written exactly, so a consumer can recompute metrics.
 
 ### 4.4 Determinism and read-only rules
@@ -181,7 +195,7 @@ interface ExportLineV1 {
 2. **Same inputs, same bytes.** Lines are serialised with `canonicalJson`. Equal inputs give byte-identical files. Nothing wall-clock (`Date`, `performance`), random or host-specific enters any line. This keeps the property `run.ts` states for records: "No wall-clock value enters the record".
 3. **Read-only.** The writer never mutates a snapshot or record and never calls a world or brain method. With export on and off, `stateHash`, `RunRecord` and the summary are equal (`P2-T35`).
 4. **Budget.** The sampler is the only per-tick cost. It stays ≤ 0.5 ms/tick/world, measured opt-in (`P2_PERF=1`, [evaluation §12](../validation/PHASE2_EVALUATION.md#12-performance-criteria)), inside the base frame budget "both worlds ≤ 3 ms" (SHOULD, [experience §10](experience-and-demo.md#10-performance)). Frame numbers reuse the #118 harness (`scripts/perf/`). Measure it; do not assume it.
-5. **App export is on demand**, from data the app already keeps (`worlds.series()`, `getEventLog()`) plus an optional bounded snapshot ring. It is (e) today; wiring it touches `main.ts`, which open #113 owns.
+5. **App export is on demand**, from data the app already keeps (`worlds.series()`, `getEventLog()`) plus an optional bounded snapshot ring. It is (e) today, also at c697f6c. Wiring it touches `src/app/main.ts`. #113 has merged, but the CURRENT_STATE lock table at c697f6c still lists `main.ts` under #113, and that lock binds until the orchestrator lifts it.
 
 ## 5. X-PERSIST: optional persistence
 
@@ -206,10 +220,10 @@ The in-core `X-OUT` writer bounds its own buffer the same way and records drops 
 
 | Rule | Detail |
 |---|---|
-| Location | Proposed: `integrations/<name>/` at the repo root, never under `src/` or `tests/`. A networked service is the one shared optional gateway `integrations/gateway/`, with one independently optional module per approved integration (#117, #130, #142). Each module is enabled only by its own server-side configuration, and losing one disables nothing else. It merges only after `P2-G6` |
+| Location | Proposed: `integrations/<name>/` at the repo root, never under `src/` or `tests/`. A networked service is the one shared optional gateway `integrations/gateway/`, with one independently optional module per approved integration (#117, #130, #142). Each module is enabled only by its own server-side configuration, and losing one disables nothing else. It merges only after `P2-G6` (proposed `P2-WP-30b`, §9) |
 | Dependencies | Each integration (the gateway counts as one) has its own `package.json` and lockfile. It is not an npm workspace, so the root `npm ci` installs none of it |
-| Excluded from core checks | Already excluded: root `tsconfig.json` includes only `src`, `tests` and `vite.config.ts`; vitest includes only `tests/**`; Vite bundles only what `index.html` reaches. **Not yet excluded:** `eslint .` lints from the root (only `dist`, `node_modules` and `research` are ignored), so `P2-WP-30` adds `integrations/**` to the ignores in `eslint.config.js` (a build-config change, skimmed by its owner per [WORKFLOW](../development/WORKFLOW.md)) |
-| Coupling | It talks to Encore through `X-IN` files it writes into its own `out/` folder, `X-OUT` files it reads from a folder the operator gives it, and, for the gateway only, `X-RUN/live` (§6.1). It may run the core's headless validator as a subprocess (§3.1). It may import, by relative path, only pure, dependency-free modules: `src/contracts/**`, `src/score/**`, the pure composition validator (`P2-WP-30`) and `src/telemetry/**` (proposed, #142). It never imports `src/app` UI code, `src/agent`, `src/sim`, `src/observer` or `src/cli`. Nothing under `src/` imports from `integrations/` |
+| Excluded from core checks | Already excluded: root `tsconfig.json` includes only `src`, `tests` and `vite.config.ts`; vitest includes only `tests/**`; Vite bundles only what `index.html` reaches. **Not yet excluded:** `eslint .` lints from the root (only `dist`, `node_modules` and `research` are ignored), so `P2-WP-30` (proposed `30b`) adds `integrations/**` to the ignores in `eslint.config.js` (a build-config change, skimmed by its owner per [WORKFLOW](../development/WORKFLOW.md)) |
+| Coupling | It talks to Encore through `X-IN` files it writes into its own `out/` folder, `X-OUT` files it reads from a folder the operator gives it, and, for the gateway only, `X-RUN/live` (§6.1). It may run the core's headless validator as a subprocess (§3.1). It may import, by relative path, only pure, dependency-free modules: `src/contracts/**`, `src/score/**`, the pure composition validator (`src/app/compose/validate.ts`, §6.2) and `src/telemetry/**` (proposed, #142). It never imports `src/app` UI code, `src/agent`, `src/sim`, `src/observer` or `src/cli`. Nothing under `src/` imports from `integrations/` |
 | Writes | Atomic: write a temporary file, then rename it, so a half-written composition never exists |
 | Network | Allowed only in `X-RUN`, and only after `D3` is approved for that integration. Credentials come from that process's environment. The app side of `X-RUN/live` is the one exception under `src/` (§6.1) |
 | Demo | The judged demo path never depends on `X-RUN`, and its build has `X-RUN/live` off |
@@ -225,15 +239,48 @@ The in-core `X-OUT` writer bounds its own buffer the same way and records drops 
 | Mode | Non-default only. A non-secret build flag enables it, and its default value is off. The default build, the judged demo and `bash scripts/check.sh` run with it off and make zero external requests. NFR-04's acceptance check is unchanged |
 | Where the app code lives | One confined folder (proposed `src/app/live/`). It is the only place under `src/` that may use a network API. It is reached only from behind the flag, through a compile-time constant, so the default bundle does not contain it. Its tests use an injected fake transport, and no test opens a socket |
 | Inbound to Encore | Exactly one kind: a candidate composition. Its body enters `X-IN` at step 2 (§3.1) and must pass every step before an operator injects it (I7). Read-only library and analytics data may also come back, for display only; it never reaches the controller |
-| Outbound from the app | Only operator-initiated requests, such as asking for a candidate or saving a composition that already passed `validateDraft`. No world state per tick, no credentials and no secrets |
+| Outbound from the app | Only operator-initiated requests, such as asking for a candidate or saving a composition that already passed `validateDraft`. No world state per tick (streaming telemetry is a separate, unaccepted proposal: OIB-Q5, §13), no credentials and no secrets |
 | When | On an operator action, possibly while the simulation runs. Never inside the tick loop, a brain, the world, the observer or any decision path. Nothing returned reaches a drone except through an operator `INJECT_SCORE` |
-| Reaching the gateway | A local origin from configuration. A Vite dev proxy for `/api` would change `vite.config.ts`, which is a build-config change that needs its owner's sign-off. It is not decided here (§13) |
+| Reaching the gateway | A local origin from configuration. A Vite dev proxy for `/api` would change `vite.config.ts`, which is a build-config change that needs its owner's sign-off. It is not decided here (OIB-Q2, §13). Until it is decided for CORS, the gateway sends no CORS headers (§6.2) |
 | Failure | The app checks whether the gateway is there (for example `/api/health`). If the gateway is absent or unreachable, the live panel says so and the rest of Encore is unchanged (§7) |
 | Scan | `P2-T35` ([evaluation](../validation/PHASE2_EVALUATION.md)) must be extended before any `X-RUN/live` code merges. It must allow network APIs under `src/` only in the confined folder, and check that the default build makes zero external requests |
 
+The gateway skeleton, its guard, the `requestId` rule and the app-side folder are defined once, in §6.2.
+
+### 6.2 Shared gateway skeleton and guard
+
+Stated once here, for every gateway module (#117, #130, #142). Module specs cite this section and never redefine any of it. The rulings are the orchestrator's cross-integration rulings XI-11 to XI-14. Everything here is proposed and `D3`-gated, like §6.1.
+
+**Skeleton (XI-12).** `integrations/gateway/` has one server, one `guard.ts`, one `errors.ts`, one `config.ts` and one `GET /api/health`. Whichever module work package is approved first builds it. Every other module depends on it.
+- `errors.ts` holds the one error envelope, `sanitise` and `redact`. Every route fails with `{ "error": { "code", "message", "details"?: [{ "path", "reason" }], "requestId"? } }`. `code` is SCREAMING_SNAKE from one shared list (`VALIDATION_FAILED`, `NOT_FOUND`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`, `RATE_LIMITED`, `UNAUTHORIZED`, `FORBIDDEN`, `CONFLICT`, `SCHEMA_VERSION_UNSUPPORTED`, `DATABASE_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`, `PROVIDER_ERROR`, `TIMEOUT`, `INTERNAL`). Module-specific reasons go in `details[].reason`. A success body has no `success` flag; the HTTP status carries it.
+- Each module is enabled only by its own server-side configuration. One module failing or absent disables nothing else (§6).
+
+**Guard (XI-12).** One guard for every module:
+
+| Rule | Detail |
+|---|---|
+| Bind | `127.0.0.1` only. The gateway refuses to start on any other address unless a server-side authorisation is configured and enabled. A flag alone is never enough |
+| Peer | A non-loopback peer is refused |
+| Host | Allow-list: `127.0.0.1:<port>` and `localhost:<port>`, plus the dev proxy if one is used (OIB-Q2) |
+| Origin | Exact match on every non-GET request. A missing or `null` Origin gets 403 `FORBIDDEN` |
+| Content-Type | A non-JSON body gets 415 `UNSUPPORTED_MEDIA_TYPE` |
+| Token | An optional per-launch token |
+| CORS | No CORS headers unless OIB-Q2 is decided for CORS |
+
+**Dependency policy (XI-12).** Exact version pins. Install with `npm ci --ignore-scripts`. A 14-day minimum release age for every dependency. Run `npm audit signatures`. Use `node:http`; no web framework unless approved. Each module reads only its own secrets.
+
+**`requestId` (XI-11).** Optional and client-generated, matching `^[A-Za-z0-9._:-]{1,64}$`. The gateway treats it as opaque and echoes it in the error envelope. A value that does not match is dropped, not echoed, and the request still proceeds. The gateway logs its own server id. The Gemini client fills it from one monotonic client counter and matches responses by that counter.
+
+**App-side network code (XI-14).** All of it lives in `src/app/live/`: the gateway clients for `gemini`, `shows` and `tiger` reads. Each module has its own build-time, non-secret boolean flag (for example `VITE_SHOW_LIBRARY`). The flags are constant-folded, so the default build contains and renders no network path and makes zero external requests. Who owns the folder skeleton is open (OIB-Q3).
+
+**Pure validator (XI-13).** `src/app/compose/validate.ts`. Whichever of `P2-WP-30a` and MDB-WP-02 lands first creates it; the other extends it.
+- It holds the DOM-free body of `validateDraft` and the palette finiteness and range checks (§3.1).
+- It also holds `validateText` and `TEXT_MAX`, **moved** (not copied) from `src/app/ui/commands.ts`, because `commands.ts` imports `actions.ts`, which imports `src/sim`. One re-export line stays in `commands.ts`; that needs its owner's sign-off.
+- It imports only `src/contracts`, `src/score` and `src/score/font`. The gateway may import it (§6, Coupling).
+
 ## 7. Failure handling
 
-In every row Encore remains fully usable. The **offline fallback** is a library of saved, validated composition files (proposed `assets/compositions/*.json`). They are committed with the repo and re-validated by a test (proposed `tests/cli/compositions.test.ts`) on every check, so they cannot silently rot. Both belong to `P2-WP-30`; until its allowed files list them, the fallback is unowned (§13).
+In every row Encore remains fully usable. The **offline fallback** is a library of saved, validated composition files (proposed `assets/compositions/*.json`). They are committed with the repo and re-validated by a test (proposed `tests/cli/compositions.test.ts`) on every check, so they cannot silently rot. Both are owned by `P2-WP-30a` (the offline half of `P2-WP-30`): its allowed files list them and its step 3 commits and re-validates them ([work packages](../development/PHASE2_WORK_PACKAGES.md#p2-wp-30--integration-boundaries-in-code-offline); OIB-Q4, resolved).
 
 | Failure | Detected in | Encore core | Operator sees | Fallback |
 |---|---|---|---|---|
@@ -261,6 +308,7 @@ These rules are input hygiene. They are not a security claim: the claims table k
   - Text such as names and `provenance` is rendered with `textContent`, never `innerHTML`.
 - **Paths.** The `X-OUT` writer writes only into the directory the operator gives it. Its file names come from sanitised deterministic parts, so nothing taken from a file can traverse paths.
 - **Exports hold simulation data only.** No host names, user names or absolute paths.
+- **Localhost gateway requests and dependencies.** The request rules for every gateway module (127.0.0.1 bind, Host allow-list, exact Origin match, 415 for non-JSON bodies, optional per-launch token) and the dependency policy (exact pins, `npm ci --ignore-scripts`, 14-day minimum release age, `npm audit signatures`) are stated once, in §6.2. Module specs cite them there.
 
 ## 9. The no-network rule and decision D3
 
@@ -269,7 +317,13 @@ Three rules forbid network services today:
 - The [`AGENTS.md`](../../AGENTS.md#0-ground-rules) ground rule: "**Software only.** No hardware, no network calls and no external services, in code, tests or the demo".
 - The last row of [contract §12](contracts-and-algorithms.md#12-deliberately-not-in-the-mvp): "any network or external service" is out of scope, revisit "Never".
 
-**A citation error, stated once here.** `AGENTS.md:15`, [`CURRENT_STATE.md`](../CURRENT_STATE.md) and the contract §12 row attribute the network ban to NFR-10. NFR-10 is the software-only, no-hardware rule; the network and external-service ban is **NFR-04**. Phase 2 docs cite NFR-04.
+**A citation error, stated once here.** Four places attribute the network ban to NFR-10 (checked at c697f6c):
+- `AGENTS.md:15`;
+- the scope line of [`CURRENT_STATE.md`](../CURRENT_STATE.md), which cites NFR-10 for "no internet, no external services";
+- [`docs/project-manifest.yaml`](../project-manifest.yaml) line 14: "no external services; the whole application runs on one laptop (NFR-10)";
+- the contract §12 row.
+
+NFR-10 is the software-only, no-hardware rule; the network and external-service ban is **NFR-04**. Phase 2 docs cite NFR-04.
 
 **`D3`** is a team decision, listed in the [roadmap](../planning/PHASE2_ROADMAP.md#decisions-for-arnav); Arnav consults William and Haris, agents do not. It amends four things together: NFR-04, the AGENTS ground rule, the contract §12 "Never" row and the [decision log](../planning/decisions-and-risks.md#decision-log-newest-first). The amendment must keep all of these:
 1. The core folders, `src/cli`, `tests/`, the CLI, the default build and the judged demo stay offline. NFR-04's acceptance check is unchanged.
@@ -277,6 +331,12 @@ Three rules forbid network services today:
 3. The core passes `bash scripts/check.sh` offline with `integrations/` removed and `X-RUN/live` off (`P2-T35`).
 
 **Only `X-RUN` and `X-RUN/live` need `D3`** (and `X-PERSIST`, which runs inside `X-RUN`). `X-IN` and `X-OUT` are offline files and need no amendment. `D3` is one decision, shared with the integration specs' own network gates (#117, #130, #142). Approving it for one integration does not approve it for another.
+
+**Which package merges when.** The gate rule is canonical in the [roadmap gates](../planning/PHASE2_ROADMAP.md#gates); this file does not set it. [`PHASE2_ARCHITECTURE.md` §4.11](PHASE2_ARCHITECTURE.md#411-stage-11-optional-export) proposes splitting `P2-WP-30` in two:
+- **`P2-WP-30a`**: `X-IN` and `X-OUT` in `src/cli`, the pure validator module and its palette checks, and `--validate-composition`. It is offline, needs no `D3`, and is gated by `P2-G0` (P) only.
+- **`P2-WP-30b`**: `integrations/` (including the gateway), the `eslint.config.js` ignore and `X-RUN`. It is gated by `P2-G6` and `D3`.
+
+Until the roadmap adopts the split (the work packages already have), the roadmap gates both halves at `P2-G6`; `30a` also merges after `P2-WP-23` (`Composer.ts`). Either way, `integrations/` merges only after `P2-G6`.
 
 **Recommendation.** No amendment during the hackathon window (high confidence). Nothing on the judged path needs it, and there is no time to validate it. After submission it is the team's call.
 
@@ -346,7 +406,7 @@ Which secrets, where they are stored (X-RUN environment only), rotation, what is
 Which saved, validated compositions are used when the service is unavailable.
 
 ## 10. Acceptance criteria
-Observable checks, including: the core passes bash scripts/check.sh offline with integrations/ removed (P2-T35).
+Observable checks, including: the core passes bash scripts/check.sh offline with integrations/ removed and X-RUN/live off (P2-T35).
 
 ## 11. Demonstration plan
 Where it is shown (never on the judged path without D7), its length, and what happens if the service is down.
@@ -376,7 +436,8 @@ This file decides none of the following. Each belongs in William's intake docume
 
 | ID | Question | Owner | Blocks |
 |---|---|---|---|
-| OIB-Q1 | Does the `X-RUN/live` flag act at build time (a separate bundle, so the default `dist/` contains no client) or at run time? This doc assumes build time. Run time would need `P2-T35` to prove that the default build never calls the client | Arnav | Any `src/app/live/` code |
-| OIB-Q2 | How does the app reach the gateway: a Vite dev proxy for `/api` (a `vite.config.ts` change, owner sign-off) or a local origin with CORS on the gateway? | Arnav, with the build-config owner | `X-RUN/live` wiring in #117 and #130 |
-| OIB-Q3 | Which work package owns the app-side `X-RUN/live` client folder and the `P2-T35` extension? `P2-WP-30` is offline only, so it does not | Arnav | `X-RUN/live` code |
-| OIB-Q4 | `P2-WP-30` must add the saved-composition library (`assets/compositions/*.json`) and its re-validation test (`tests/cli/compositions.test.ts`) to its allowed files and steps. Until it does, the §7 fallback is unowned | Arnav | §7 fallback |
+| OIB-Q1 | **Resolved (XI-14).** The `X-RUN/live` flags act at build time: one non-secret boolean flag per module, constant-folded, so the default `dist/` contains no client and makes zero external requests (§6.2) | Arnav | Nothing |
+| OIB-Q2 | How does the app reach the gateway: a Vite dev proxy for `/api` (a `vite.config.ts` change, owner sign-off) or a local origin with CORS on the gateway? Until it is decided for CORS, the gateway sends no CORS headers (XI-12, §6.2) | Arnav, with the build-config owner | `X-RUN/live` wiring in #117, #130 and #142 |
+| OIB-Q3 | Which work package owns the app-side `X-RUN/live` client folder (`src/app/live/`, §6.2) and the `P2-T35` extension? Neither half of `P2-WP-30` does: the proposed `30a` is offline, and the proposed `30b` covers `integrations/`, not app code under `src/` (§9) | Arnav | `X-RUN/live` code |
+| OIB-Q4 | **Resolved.** `P2-WP-30a` now lists the saved-composition library (`assets/compositions/*.json`) and its re-validation test (`tests/cli/compositions.test.ts`) in its allowed files, and its step 3 commits and re-validates them ([work packages](../development/PHASE2_WORK_PACKAGES.md#p2-wp-30--integration-boundaries-in-code-offline)). The §7 fallback is owned | Arnav | Nothing |
+| OIB-Q5 | `X-OUT/live` (proposed by #142, TIG-11): a `D3`-named amendment for streaming per-frame telemetry samples from `src/app/live/telemetry/` to a separate, write-only gateway process. Neither `X-OUT` (offline files) nor `X-RUN/live` (operator-initiated requests only, no world state per tick, §6.1) covers it. **Not accepted; Arnav decides** | Arnav | Any streaming telemetry code in #142 |
