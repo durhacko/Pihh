@@ -1,0 +1,392 @@
+{
+  "startedAt": "2026-11-14T23:38:16.622Z",
+  "settings": {
+    "seconds": 10,
+    "warmup": 6,
+    "gl": "auto",
+    "url": "http://127.0.0.1:4173/"
+  },
+  "machine": {
+    "cpu": "Intel(R) Core(TM) Ultra 9 285H",
+    "logicalCores": 16,
+    "memoryGb": 23,
+    "os": "linux 6.18.33.2-microsoft-standard-WSL2 (WSL)",
+    "node": "v24.21.0",
+    "browser": "Chrome/151.0.7922.34",
+    "browserBinary": "/home/arnav/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
+    "glMode": "auto",
+    "gl": {
+      "webgl": true,
+      "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+      "vendor": "Google Inc. (Google)",
+      "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+    },
+    "rendering": "software (no GPU number can be claimed from this run)",
+    "git": "21747c5"
+  },
+  "browser": [
+    {
+      "scenario": "single view",
+      "url": "?seed=101",
+      "keys": [],
+      "n0": 200,
+      "seconds": 10.06,
+      "renderFps": 15.51,
+      "frameMs": {
+        "p50": 66.6,
+        "p95": 100,
+        "max": 133.4
+      },
+      "longFrames": 99,
+      "simTicksPerSecond": 19.98,
+      "appReadoutFps": 17.4,
+      "loopError": null
+    },
+    {
+      "scenario": "single view + X-ray",
+      "url": "?seed=101",
+      "keys": [
+        "x"
+      ],
+      "n0": 200,
+      "seconds": 10.11,
+      "renderFps": 7.22,
+      "frameMs": {
+        "p50": 116.7,
+        "p95": 316.7,
+        "max": 433.3
+      },
+      "longFrames": 73,
+      "simTicksPerSecond": 14.24,
+      "appReadoutFps": 9.8,
+      "loopError": null
+    },
+    {
+      "scenario": "split view",
+      "url": "?seed=101&split=1",
+      "keys": [],
+      "n0": 200,
+      "seconds": 10.02,
+      "renderFps": 7.19,
+      "frameMs": {
+        "p50": 133.4,
+        "p95": 200,
+        "max": 216.8
+      },
+      "longFrames": 72,
+      "simTicksPerSecond": 14.48,
+      "appReadoutFps": 6.9,
+      "loopError": null
+    },
+    {
+      "scenario": "split view + X-ray",
+      "url": "?seed=101&split=1",
+      "keys": [
+        "x"
+      ],
+      "n0": 200,
+      "seconds": 10.12,
+      "renderFps": 7.31,
+      "frameMs": {
+        "p50": 133.3,
+        "p95": 199.9,
+        "max": 250
+      },
+      "longFrames": 74,
+      "simTicksPerSecond": 14.82,
+      "appReadoutFps": 6.5,
+      "loopError": null
+    }
+  ],
+  "demo": {
+    "present": false,
+    "how": null
+  },
+  "simulation": {
+    "node": "v24.21.0",
+    "results": [
+      {
+        "n0": 100,
+        "encoreArmBrain": "static",
+        "staticArmBrain": "static",
+        "ticks": 600,
+        "fromTick": 101,
+        "stepBothMs": {
+          "mean": 2.793,
+          "p50": 1.898,
+          "p95": 6.213,
+          "max": 14.438
+        },
+        "maxTicksPerSecond": 358.053
+      },
+      {
+        "n0": 100,
+        "encoreArmBrain": "encore",
+        "staticArmBrain": "static",
+        "ticks": 600,
+        "fromTick": 101,
+        "stepBothMs": {
+          "mean": 3.428,
+          "p50": 2.755,
+          "p95": 6.646,
+          "max": 12.838
+        },
+        "maxTicksPerSecond": 291.734
+      },
+      {
+        "n0": 200,
+        "encoreArmBrain": "static",
+        "staticArmBrain": "static",
+        "ticks": 600,
+        "fromTick": 101,
+        "stepBothMs": {
+          "mean": 4.433,
+          "p50": 3.114,
+          "p95": 9.663,
+          "max": 11.826
+        },
+        "maxTicksPerSecond": 225.566
+      },
+      {
+        "n0": 200,
+        "encoreArmBrain": "encore",
+        "staticArmBrain": "static",
+        "ticks": 600,
+        "fromTick": 101,
+        "stepBothMs": {
+          "mean": 7.667,
+          "p50": 6.631,
+          "p95": 13.652,
+          "max": 19.616
+        },
+        "maxTicksPerSecond": 130.437
+      }
+    ]
+  },
+  "screenshots": [
+    {
+      "state": "default-stage",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1440x900/default-stage.png",
+      "tick": 306,
+      "note": "ENCORE formation in hold",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 156889
+    },
+    {
+      "state": "xray",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1440x900/xray.png",
+      "tick": 342,
+      "note": "X-ray on (key X): radio events actually sent",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 157710
+    },
+    {
+      "state": "split",
+      "viewport": "1440x900",
+      "url": "?seed=101&split=1",
+      "captured": true,
+      "file": "assets/qa/1440x900/split.png",
+      "tick": 311,
+      "note": "Encore above, static below, one camera",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 177620
+    },
+    {
+      "state": "failure",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1440x900/failure.png",
+      "tick": 547,
+      "note": "region of radius 6 m killed around drone 100, 12 s later",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 155123
+    },
+    {
+      "state": "jam",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1440x900/jam.png",
+      "tick": 378,
+      "note": "drone 100 selected by a click, then J: jam around it",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 177034
+    },
+    {
+      "state": "active-injection",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1440x900/active-injection.png",
+      "tick": 403,
+      "note": "drone 100 selected, I injects the panel composition, C shows belief colours",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 169890
+    },
+    {
+      "state": "version-divergence",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1440x900/version-divergence.png",
+      "tick": 456,
+      "note": "jam around drone 100, then inject into drone 20 outside it, belief colours on",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 166765
+    },
+    {
+      "state": "inspector",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    },
+    {
+      "state": "composer",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    },
+    {
+      "state": "console",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    },
+    {
+      "state": "timeline",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    },
+    {
+      "state": "scripted-demo",
+      "viewport": "1440x900",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    },
+    {
+      "state": "default-stage",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1280x720/default-stage.png",
+      "tick": 309,
+      "note": "ENCORE formation in hold",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 135569
+    },
+    {
+      "state": "xray",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1280x720/xray.png",
+      "tick": 342,
+      "note": "X-ray on (key X): radio events actually sent",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 136603
+    },
+    {
+      "state": "split",
+      "viewport": "1280x720",
+      "url": "?seed=101&split=1",
+      "captured": true,
+      "file": "assets/qa/1280x720/split.png",
+      "tick": 310,
+      "note": "Encore above, static below, one camera",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 151833
+    },
+    {
+      "state": "failure",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1280x720/failure.png",
+      "tick": 551,
+      "note": "region of radius 6 m killed around drone 100, 12 s later",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 134638
+    },
+    {
+      "state": "jam",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1280x720/jam.png",
+      "tick": 381,
+      "note": "drone 100 selected by a click, then J: jam around it",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 151123
+    },
+    {
+      "state": "active-injection",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1280x720/active-injection.png",
+      "tick": 401,
+      "note": "drone 100 selected, I injects the panel composition, C shows belief colours",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 146012
+    },
+    {
+      "state": "version-divergence",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": true,
+      "file": "assets/qa/1280x720/version-divergence.png",
+      "tick": 457,
+      "note": "jam around drone 100, then inject into drone 20 outside it, belief colours on",
+      "badge": "STATIC BRAIN IN BOTH ARMS",
+      "bytes": 140902
+    },
+    {
+      "state": "inspector",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    },
+    {
+      "state": "composer",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    },
+    {
+      "state": "console",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    },
+    {
+      "state": "timeline",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    },
+    {
+      "state": "scripted-demo",
+      "viewport": "1280x720",
+      "url": "?seed=101",
+      "captured": false,
+      "reason": "not shown in this build (needs the new shell #92, or #27 for the demo)"
+    }
+  ]
+}

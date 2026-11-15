@@ -35,7 +35,27 @@ const mutants = [
     from: 'const acceleration = clampLength(outputs.get(id)!.accel, params.aMax);',
     to: 'const acceleration = clampLength(jams.size ? [0, 0, 0] : outputs.get(id)!.accel, params.aMax);',
   },
+  // #65 hardening: each of these survived the suite before its test fix.
+  {
+    name: 'T02 radio ignores rRadio', selector: 'T02',
+    from: 'for (const receiver of grid.within(bodies[id].pos, params.rRadio)) {',
+    to: 'for (const receiver of live) {',
+  },
+  {
+    name: 'T03 inbox order depends on brain order', selector: 'T03',
+    from: 'for (const inbox of inboxes) inbox.sort((a, b) => a.sentTick - b.sentTick || a.from - b.from || a.seq - b.seq);',
+    to: 'for (const inbox of inboxes) { inbox.sort((a, b) => a.sentTick - b.sentTick || a.from - b.from || a.seq - b.seq); if (test.reverseStepOrder) inbox.reverse(); }',
+  },
+  {
+    name: 'T04 radio RNG ignores the run seed', selector: 'changing the run seed',
+    from: 'const rng = createRandom(hashSeed(source.seed, -1));',
+    to: 'const rng = createRandom(hashSeed(0, -1));',
+  },
 ];
+// Optional filter: `node tests/isolation/check-mutations.mjs "radio ignores"` runs only matching mutants.
+const only = process.argv[2];
+const selected = only ? mutants.filter(mutant => mutant.name.includes(only)) : mutants;
+if (!selected.length) throw new Error(`No mutant matches "${only}"`);
 
 function run(selector) {
   const args = [join(root, 'node_modules/vitest/vitest.mjs'), 'run', 'tests/isolation/isolation.test.ts'];
@@ -58,7 +78,7 @@ try {
   console.log('Unmodified isolation suite passed.');
   const worldPath = join(workspace, 'src/sim/world.ts');
   const original = await readFile(worldPath, 'utf8');
-  for (const mutant of mutants) {
+  for (const mutant of selected) {
     if (original.split(mutant.from).length !== 2) throw new Error(`Update mutation target: ${mutant.name}`);
     await writeFile(worldPath, original.replace(mutant.from, mutant.to));
     const result = run(mutant.selector);
