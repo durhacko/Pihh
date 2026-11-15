@@ -49,6 +49,10 @@ William's sponsor designs, kept as received under `handoffs/`, and the canonical
 | [planning/gemini-integration-work-packages.md](planning/gemini-integration-work-packages.md) | Gemini work packages GF-WP-01–15 (not to be opened without approval) |
 | [validation/gemini-formation-evaluation.md](validation/gemini-formation-evaluation.md) | Gemini metrics, fixtures, tests GF-T01–GF-T41, gates |
 | [handoffs/Encore_Gemini_Flash_Lite_Architecture.md](handoffs/Encore_Gemini_Flash_Lite_Architecture.md) | William's Gemini handoff, preserved unmodified |
+| [integrations/mongodb-atlas-show-library.md](integrations/mongodb-atlas-show-library.md) | MongoDB Atlas show library (#130): canonical spec, `saved_shows` model, API, idempotency, security, UI states, decisions |
+| [planning/mongodb-integration-work-packages.md](planning/mongodb-integration-work-packages.md) | MongoDB work packages MDB-WP-01–09 (not to be opened without approval) |
+| [validation/mongodb-show-library-evaluation.md](validation/mongodb-show-library-evaluation.md) | MongoDB tests MDB-T01–T41, failure scenarios, live Atlas end-to-end plan |
+| [handoffs/Encore_MongoDB_Atlas_Implementation_Spec.md](handoffs/Encore_MongoDB_Atlas_Implementation_Spec.md) | William's MongoDB Atlas spec, preserved unmodified |
 
 ## Context
 
