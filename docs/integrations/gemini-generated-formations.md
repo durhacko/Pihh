@@ -29,7 +29,7 @@ In scope:
 
 Out of scope: provider selection beyond William's choice, gateway hosting, the MongoDB and Tiger Data schemas (William's own specs define them: MongoDB `encore.saved_shows` in #130, Tiger Data in #142; §13), and any change to how drones coordinate.
 
-Cross-integration rulings XI-1…XI-15 bind this spec, the MongoDB spec (#130) and the Tiger Data spec (#142). They are the orchestrator's rulings, not a repository document. XI-11…XI-14 are recorded once in [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard) and XI-15 in [boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes) (provisional, #110). The others are recorded only here, by the section that applies each one:
+Cross-integration rulings XI-1…XI-24 bind this spec, the MongoDB spec (#130) and the Tiger Data spec (#142). They are the orchestrator's rulings, not a repository document. XI-11…XI-14, XI-16, XI-20 and XI-23 are recorded once in [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard), XI-15 in [boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes), XI-18 in [boundaries §7](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#7-failure-handling) and XI-22 in [boundaries §5](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#5-x-persist-optional-persistence) (provisional, #110). This table indexes all of them by the section of this spec that applies each one:
 
 | Ruling | Content | Applied in |
 |---|---|---|
@@ -48,6 +48,15 @@ Cross-integration rulings XI-1…XI-15 bind this spec, the MongoDB spec (#130) a
 | XI-13 | Pure validator at `src/app/compose/validate.ts` | §10.4, §11.1 |
 | XI-14 | App network code in `src/app/live/`, one build flag per module | §10.3, §10.4 |
 | XI-15 | `encore.composition` v1 and v2 (v2 adds `holdTicks` and generated cues) | §12, §17, CR-29 |
+| XI-16 | Every module's `details[].reason` is SCREAMING_SNAKE; `src/score` codes are mapped by the gateway | §10.1, §10.2, §10.3, GQ-10 |
+| XI-17 | One feasibility rule: a generated recipe is trial-compiled at the app's smallest and largest `n0` (gemini on generate, shows on save) | §10.2 |
+| XI-18 | One committed composition library, `assets/compositions/*.json` | §4.3, §5, §11.1, §12, §13.1, CR-25, GF-D9 |
+| XI-19 | The shared canonical JSON moves to `src/score/canonical.ts` | §6.7, §10.4 |
+| XI-20 | One gateway layout: skeleton in `integrations/gateway/src/`, one folder per module | §10.4 |
+| XI-21 | MongoDB's stored body is `SavedShowComposition`; model wall-clock is not Tiger evidence | §13.1, §13.2 |
+| XI-22 | Tiger's MVP imports committed CLI `RunRecord` files, not X-OUT | §2, §5, §13, §13.2, §17 |
+| XI-23 | The gateway spawns no child processes | §10.4, CR-24 |
+| XI-24 | GF-WP-15: MongoDB half by #130, Tiger half by #142; nobody assigned | §2, §13 |
 
 ### 1.1 What Gemini must not do
 
@@ -72,11 +81,11 @@ These hold in every mode. They restate William's "Strict separation of responsib
 | Sponsor requirements (MLH "Best Use of Gemini API", MongoDB Atlas, Tiger Data) | William | Provisional. Names verified on the MLH prize page 2026-11-15; eligibility rules not published there (unverified) |
 | Provider facts (model, SDK, pricing, limits) | William | Re-checked 2026-11-15 against official docs (§10.6); his values kept side by side |
 | Gateway module `gemini` (`POST /api/generate-formation`) | William | Interface contract only (§10). Hosting, prompts and keys are his |
-| MongoDB library, Tiger Data evidence | William | MongoDB: his spec in #130 (`encore.saved_shows`). Tiger Data: his plan in #142 (experiment evidence only); GF-WP-15's Tiger half stays in William's lane (§13). Both attach through X-PERSIST (provisional, #110); Tiger reads X-OUT exports |
+| MongoDB library, Tiger Data evidence | William | MongoDB: his spec in #130 (`encore.saved_shows`). Tiger Data: his plan in #142 (experiment evidence only). GF-WP-15's MongoDB half is realised by #130 (MDB-WP-*) and its Tiger half by #142 (TIG-01…TIG-11); nobody is assigned, and William keeps only the sponsor decisions (XI-24, §13). Both attach through X-PERSIST (provisional, #110). Tiger imports committed CLI `RunRecord` files (`results/*.json`) through its CLI importer; X-OUT records come only later, after P2-WP-30a (XI-22) |
 | Contract changes `GF-CC-*` | Arnav | Proposed, not approved |
 | Compiler, Composer integration, tests | Arnav's lanes, via `GF-WP-*` | Proposed |
 
-The Owner column names who decides, not who builds. Nobody is assigned, and implementation assignees are TBD by Arnav (XI-10). "Reserved for William" means William's lane only, never an assignment.
+The Owner column names who decides, not who builds. Nobody is assigned, and implementation assignees are TBD by Arnav (XI-10). No package reserves an implementation lane for William (XI-24); he keeps the sponsor and provider decisions named in the Owner column.
 
 Section references such as "handoff §4.5" point into the source handoff, preserved unmodified (banner).
 
@@ -146,7 +155,7 @@ The user types "Generate a 3D elephant with grey skin, large ears and white tusk
 | | **Mode OFFLINE-AUTHORING** (recommended first) | **Mode LIVE-GATEWAY** (William's sponsor path) |
 |---|---|---|
 | Where Gemini runs | At authoring time, by a person or a tool **outside this repo** (for example Google AI Studio) | The `gemini` module of the optional gateway (`integrations/gateway/`, §10.4), called from the app at show time |
-| What the app receives | Only validated scene JSON files, committed under a proposed `assets/scenes/` library (GF-WP-09), bundled at build time, or picked through X-IN | A scene in the gateway's response |
+| What the app receives | Only validated scenes, committed in the one proposed composition library `assets/compositions/*.json` as `encore.composition` v2 files with one generated cue each (XI-18; re-validated by the proposed `tests/cli/compositions.test.ts`; §12, GF-WP-09), bundled at build time, or picked through X-IN | A scene in the gateway's response |
 | Network at run time | None | App → local gateway → Google |
 | Compliance today | Meets [NFR-04](../specification/requirements.md#3-non-functional-requirements) and the AGENTS.md ground rule **only if no network client is checked into the repo**. A checked-in authoring script that calls Gemini is LIVE-GATEWAY-class. Google's provider terms still apply to authoring in AI Studio (GF-D11, §10.6) | **Forbidden** today by NFR-04, the AGENTS.md "Software only" ground rule and [contract §12](../design/contracts-and-algorithms.md#12-deliberately-not-in-the-mvp) "Never" |
 | Gate | GF-CC-01 approved | GF-CC-01 plus **GF-D1**: Phase 2 decision D3 approved for this integration, amending NFR-04, the ground rule, contract §12 and the decisions log ([boundaries §9](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3), whose condition 2 admits the one confined X-RUN/live app folder). It is the same decision as MDB-D1 (#130) and TIG-D1 (#142), approved per integration (XI-9). Depends on X-RUN/live (provisional, #110) |
@@ -164,7 +173,7 @@ flowchart TD
   G -->|"LIVE-GATEWAY (optional, external, gated on GF-D1)"| GW["integrations/gateway, gemini module<br/>POST /api/generate-formation; X-RUN/live"]
   GW --> GM["Gemini 3.1 Flash-Lite<br/>structured JSON only (external)"]
   GM --> GW
-  G -->|"OFFLINE-AUTHORING"| LIB["Scene library assets/scenes/<br/>authored outside the repo, offline at show time"]
+  G -->|"OFFLINE-AUTHORING"| LIB["Composition library assets/compositions/<br/>v2 files, one generated cue each<br/>authored outside the repo, offline at show time"]
   GW --> V["Validate: parse, schema, semantics,<br/>limits, size cap, canonicalise, sceneHash"]
   LIB --> V
   V --> C["compileGeneratedScene(scene, params)<br/>deterministic, src/score/generated"]
@@ -177,7 +186,8 @@ flowchart TD
   INJ --> GS["Gossip SCORE between drones<br/>(existing, #105)"]
   GS --> D["Each drone: compile from the score alone,<br/>check slotsDigest, adopt, pace, fly, hold, repair"]
   D --> OBS["Observer and renderer (read-only)"]
-  OBS -.->|"X-OUT export, optional"| TD["Tiger Data experiment evidence (external, William, #142)"]
+  OBS -.->|"CLI runs, optional"| RR["Committed CLI RunRecord files<br/>results/*.json"]
+  RR -.->|"Tiger CLI importer (#142)"| TD["Tiger Data experiment evidence (external, William, #142)"]
   CN -.->|"X-PERSIST, optional"| MDB["MongoDB Atlas library (external, William, #130)"]
 ```
 
@@ -346,7 +356,7 @@ These are proposed defaults, planning values to confirm with the ladder runs ([`
 4. Serialise with the repo's one canonical-JSON definition, `canonicalJson` in `src/cli/run.ts:27-36` (XI-7): object keys sorted by UTF-16 code unit, arrays in order, no whitespace, strings and numbers through `JSON.stringify`, and a throw on any non-finite number. Numbers therefore take ECMAScript's shortest round-trip form, which the language specification defines exactly, so Node and browsers agree.
 5. Encode as UTF-8 with a small hand-written encoder, so the score package needs no platform globals.
 
-**One canonical JSON, three users (XI-7).** Tiger artifact hashes (#142), MongoDB `contentHash` (#130) and `sceneHash` use the same function. Gemini only adds step 3: it quantises scene numbers before canonicalisation, for scenes only, never for run records. `src/score` may import only `src/score` and `src/contracts` (`tests/boundaries.test.ts:9`), so it cannot import `src/cli`. The function therefore moves to one pure module, the single shared extraction proposal (owner: Arnav; Tiger TIG-D7), never a second copy. Its location must be one that `src/score` may import.
+**One canonical JSON, three users (XI-7).** Tiger artifact hashes (#142), MongoDB `contentHash` (#130) and `sceneHash` use the same function. Gemini only adds step 3: it quantises scene numbers before canonicalisation, for scenes only, never for run records. `src/score` may import only `src/score` and `src/contracts` (`tests/boundaries.test.ts:9`), so it cannot import `src/cli`. The function therefore moves to one pure module, `src/score/canonical.ts` (proposed, XI-19; owner: Arnav; Tiger TIG-D7), never a second copy. It is a byte-for-byte move: `src/cli/run.ts` imports it instead of defining its own, so `stateHash` and existing artifact hashes do not change (tested). The gateway and `src/telemetry` import it under XI-2.
 
 **The compiler compiles the canonical scene, not the raw one.** Two scenes that differ only below the quantisation grid therefore compile identically, and the hash honestly names what was compiled.
 
@@ -854,27 +864,27 @@ As William notes, the empty arrays and zero latency are placeholders, not valid 
 Error response: the one envelope of every gateway route (XI-3), shared with the `shows` and `tiger` modules:
 
 ```json
-{ "error": { "code": "RATE_LIMITED", "message": "…", "details": [{ "path": "", "reason": "provider-rate-limited" }], "requestId": "r-000042" } }
+{ "error": { "code": "RATE_LIMITED", "message": "…", "details": [{ "path": "", "reason": "PROVIDER_RATE_LIMITED" }], "requestId": "r-000042" } }
 ```
 
 `code` comes from the shared list. The Gemini reason goes in `details[].reason`, and `path` is a JSON path (`""` for the request as a whole). There is no `retryable` field: the app retries nothing on its own, and the operator may press Generate again after `RATE_LIMITED`, `PROVIDER_UNAVAILABLE` or `TIMEOUT`.
 
 | HTTP | `code` (shared list) | Gemini `details[].reason` |
 |---|---|---|
-| 400 | `VALIDATION_FAILED` | `bad-request`, `prompt-too-long` (request faults); `scene-invalid` at path `""` for a model scene that fails V1–V11 server-side, followed by the first failing layer's code at its scene path (for example `{ "path": "/scene/parts/3/shape/points", "reason": "geometry" }` or `radio-partitioned`) |
-| 401 | `UNAUTHORIZED` | `token-missing` (optional per-launch token, §10.3) |
-| 403 | `FORBIDDEN` | `foreign-host`, `foreign-origin` (§10.3) |
-| 413 | `PAYLOAD_TOO_LARGE` | `request-too-large` (body over 8 KiB†) |
-| 415 | `UNSUPPORTED_MEDIA_TYPE` | `not-json` |
-| 429 | `RATE_LIMITED` | `provider-rate-limited` (Google 429 after retries), `gateway-rate-limited` (the gateway's own bucket) |
-| 502 | `PROVIDER_ERROR` | `provider-error`, `invalid-model-output`, `response-too-large` (also a `MAX_TOKENS` finish), `provider-blocked` (added: `SAFETY` or `RECITATION` finish, or a `promptFeedback.blockReason`) |
-| 503 | `PROVIDER_UNAVAILABLE` | `provider-unavailable` (Google 503 after retries), `gateway-disabled` (the `gemini` module is off: no key or no enable flag) |
-| 504 | `TIMEOUT` | `timeout` |
+| 400 | `VALIDATION_FAILED` | `BAD_REQUEST`, `PROMPT_TOO_LONG` (request faults); `SCENE_INVALID` at path `""` for a model scene that fails V1–V11 server-side, followed by the first failing layer's code at its scene path, mapped to SCREAMING_SNAKE (for example `geometry` → `{ "path": "/scene/parts/3/shape/points", "reason": "GEOMETRY" }`, or `radio-partitioned` → `RADIO_PARTITIONED`) |
+| 401 | `UNAUTHORIZED` | `TOKEN_MISSING` (optional per-launch token, §10.3) |
+| 403 | `FORBIDDEN` | `FOREIGN_HOST`, `FOREIGN_ORIGIN` (§10.3) |
+| 413 | `PAYLOAD_TOO_LARGE` | `REQUEST_TOO_LARGE` (body over 8 KiB†) |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | `NOT_JSON` |
+| 429 | `RATE_LIMITED` | `PROVIDER_RATE_LIMITED` (Google 429 after retries), `GATEWAY_RATE_LIMITED` (the gateway's own bucket) |
+| 502 | `PROVIDER_ERROR` | `PROVIDER_ERROR`, `INVALID_MODEL_OUTPUT`, `RESPONSE_TOO_LARGE` (also a `MAX_TOKENS` finish), `PROVIDER_BLOCKED` (added: `SAFETY` or `RECITATION` finish, or a `promptFeedback.blockReason`) |
+| 503 | `PROVIDER_UNAVAILABLE` | `PROVIDER_UNAVAILABLE` (Google 503 after retries), `MODULE_DISABLED` (the `gemini` module is off: no key or no enable flag; the shared reason for a disabled module, XI-16) |
+| 504 | `TIMEOUT` | `TIMEOUT` |
 | 500 | `INTERNAL` | none |
 
-Status 400 for a model scene matches the `shows` module (#130), which uses 400 for every invalid input, so one gateway has one status rule.
+Status 400 for a model scene matches the `shows` module (#130), which uses 400 for every invalid input. The shared gateway splits `VALIDATION_FAILED` into two statuses: 400 for malformed input, and 422 for a well-formed request that is refused, which the `tiger` module uses for runs that must not be compared (`DIRTY_REVISION`, `UNVERIFIED`, …; Tiger spec §6.7, #142). A model scene that fails V1–V11 is invalid input, so it gets 400.
 
-**Reason style is not yet shared.** XI-3 fixes the codes but not the case of `details[].reason`. Gemini reasons are kebab-case (`gateway-disabled`). The `shows` module uses SCREAMING_SNAKE for the same condition: `503 DATABASE_UNAVAILABLE` with reason `MODULE_DISABLED` (`mongodb-atlas-show-library.md` §10.1, #130). Tiger reports `disabled` in `/api/health` (#142). One case convention and one shared reason for a disabled module are open (GQ-10, §22). They belong with XI-3, in [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard). Until then this spec keeps its reasons.
+**Reason style (XI-16).** Every module's `details[].reason` is SCREAMING_SNAKE, like the codes. A disabled module has the one shared reason `MODULE_DISABLED`, as in the `shows` module (`mongodb-atlas-show-library.md` §10.1, #130). The typed rejection codes inside `src/score` (V1–V11 and the compiler, §6.5, §7.11) stay kebab-case; the gateway maps each into `details[].reason` in SCREAMING_SNAKE (`geometry` → `GEOMETRY`, `radio-partitioned` → `RADIO_PARTITIONED`). This closes GQ-10.
 
 ### 10.2 Validation layers
 
@@ -882,12 +892,12 @@ William's table, mapped to where each layer runs.
 
 | Layer (William) | Failure example | Gateway | App |
 |---|---|---|---|
-| Request validation | Empty or oversized prompt | Rejects (`VALIDATION_FAILED`: `bad-request`, `prompt-too-long`) | Same check before sending |
-| JSON parsing | Incomplete response | Rejects (`PROVIDER_ERROR`: `invalid-model-output`); optionally one regeneration | V2 again |
+| Request validation | Empty or oversized prompt | Rejects (`VALIDATION_FAILED`: `BAD_REQUEST`, `PROMPT_TOO_LONG`) | Same check before sending |
+| JSON parsing | Incomplete response | Rejects (`PROVIDER_ERROR`: `INVALID_MODEL_OUTPUT`); optionally one regeneration | V2 again |
 | Schema validation | Missing radius, invalid material | V1–V5, imported (XI-2) | **Authoritative** V3–V5 |
 | Geometry validation | Non-finite coordinate, disconnected curve | V6, V8–V10, imported (XI-2, CR-24) | **Authoritative** V6, V8–V10 |
 | Complexity validation | Hundreds of components | V1, V7, imported (XI-2) | **Authoritative** V1, V7 |
-| Feasibility validation | Cannot place n0 separated drones | Trial compile V11 at the default roster `makeParams(200)` (`params.ts:83`): an early filter, since the request carries no n0 | **Authoritative** trial compile (V11) at the page's own n0 |
+| Feasibility validation | Cannot place n0 separated drones | Trial compile V11 at the app's smallest and largest supported n0, since the request carries no n0 (XI-17; the same rule as the `shows` module on save, MongoDB spec §9 R14, MDB-T08). So the `shows` module never rejects a scene this module accepted. The rosters at c697f6c are 100, 150 and 200 (§3); final values are set when GF-CC-01 is approved | **Authoritative** trial compile (V11) at the app's own n0 |
 | Preview validation | Wrong animal | — | Human review in the Composer (§11) |
 
 Server-side validation is therefore complete (XI-2): the gateway runs the same pure V1–V11 code, so the two sides cannot drift within one checkout. The app still never relies on the gateway's checks. It treats every scene as untrusted, whether it came from the gateway, the `shows` module or the library.
@@ -907,7 +917,7 @@ Rows marked † are **proposed defaults for William to confirm (GF-WP-12)**; he 
 | Response size | `maxOutputTokens` 2,048 (2D) / 8,192 (3D)† (4,096 is about the 16 KB cap at 4 bytes per token, so a scene near the cap would be cut off). Whether thinking tokens count against `maxOutputTokens` on 3.1 Flash-Lite is UNVERIFIED. Raw text ≤ 64 KiB. Canonical scene ≤ 16 KB. Parse only when `candidates[0].finishReason === 'STOP'`; never parse a partial response (§10.1 codes) |
 | Timeouts | 30 s per provider call; 45 s per request in total† |
 | Rate limits | A configurable token bucket (default 1 in flight, 6 per minute)†. Free-tier RPM/RPD are UNVERIFIED, so none are hard-coded |
-| Errors | Upstream 429 → `RATE_LIMITED` (`provider-rate-limited`), 503 → `PROVIDER_UNAVAILABLE` (`provider-unavailable`), other upstream errors → `PROVIDER_ERROR` (`provider-error`), deadline → `TIMEOUT`. Full mapping in §10.1 |
+| Errors | Upstream 429 → `RATE_LIMITED` (`PROVIDER_RATE_LIMITED`), 503 → `PROVIDER_UNAVAILABLE` (`PROVIDER_UNAVAILABLE`), other upstream errors → `PROVIDER_ERROR` (`PROVIDER_ERROR`), deadline → `TIMEOUT`. Reasons are SCREAMING_SNAKE (XI-16). Full mapping in §10.1 |
 | Retries | **429 and 503 only**: exponential backoff with jitter, ≤ 2 retries within the deadline. Never 400/402/403. The SDK's default list also retries 408 and 5xx, so set `retryOptions.httpStatusCodes = [429, 503]` or disable SDK retries (default behaviour without `retryOptions` is UNVERIFIED) |
 | Regeneration | William's "one optional retry" after a failed validation is operator-visible, never silent |
 | Stale responses | Echo `requestId` (one monotonic client counter, §10.1); the app drops any response that is not the latest (§11.2) |
@@ -919,7 +929,8 @@ Rows marked † are **proposed defaults for William to confirm (GF-WP-12)**; he 
 
 - There is no backend anywhere. The one optional service is a shared gateway at `integrations/gateway/` (XI-1) with its own `package.json` and lockfile and independently optional modules: `gemini` (this spec), `shows` (MongoDB, #130) and `tiger` (Tiger Data, #142). Each module is enabled only by its own server-side configuration. The absence or failure of one never disables another, the app, the simulator, the CLI or `report.ts`. No module creates its own server. Routes: `/api/generate-formation`, `/api/shows*`, `/api/health`, plus the `tiger` module's read-only routes (`/api/runs`, `/api/runs/:runId/metrics`, `/api/comparisons`, `/api/experiments/comparison`; Tiger §6.7, TD-12, #142). William's `server/` folder becomes this package.
 - **One skeleton (XI-12).** The gateway has one server, one `guard.ts`, one `errors.ts` (the §10.1 envelope, `sanitise`, `redact`), one `config.ts` and one `GET /api/health`, defined once in [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard) (provisional, #110). Whichever module work package is approved first builds it. The `gemini` module (GF-WP-12) depends on it and never redefines the guard or the errors.
-- **Decision XI-2: what the gateway may import.** The gateway (Node, run with tsx) may import, by relative path, only pure, dependency-free modules: `src/contracts/**`, `src/score/**` (so `src/score/generated`), `src/telemetry/**` (proposed, #142) and the pure composition validator `src/app/compose/validate.ts` (XI-13; created by P2-WP-30a or MDB-WP-02, whichever lands first; [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard)). It never imports `src/app`, `src/agent`, `src/sim`, `src/observer` or `src/cli`, except a pure canonical-JSON helper once extracted (§6.7). This supersedes the earlier "cannot import `src/`" (CR-24) and makes server-side validation complete, trial compile included (§10.2), for generated scenes and saved shows alike.
+- **Layout (XI-20).** One package, `integrations/gateway/`, with one `package.json` and lockfile. The skeleton is `integrations/gateway/src/{server,guard,errors,config,health}.ts`. This module lives in `integrations/gateway/src/gemini/` and its tests in `integrations/gateway/test/gemini/`. The only second entry point the rulings allow is Tiger's proposed live writer, `integrations/gateway/src/tiger-live/server.ts`, and only if OIB-Q5 is accepted. It does not affect the `gemini` module.
+- **Decision XI-2: what the gateway may import.** The gateway (Node, run with tsx) may import, by relative path, only pure, dependency-free modules: `src/contracts/**`, `src/score/**` (so `src/score/generated`), `src/telemetry/**` (proposed, #142) and the pure composition validator `src/app/compose/validate.ts` (XI-13; created by P2-WP-30a or MDB-WP-02, whichever lands first; [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard)). The canonical-JSON helper is `src/score/canonical.ts` (proposed, XI-19), so `src/score/**` already covers it (§6.7). It never imports `src/app`, `src/agent`, `src/sim`, `src/observer` or `src/cli`. It spawns no child processes: it validates only by importing these modules (XI-23). This supersedes the earlier "cannot import `src/`" (CR-24) and makes server-side validation complete, trial compile included (§10.2), for generated scenes and saved shows alike.
 - The app reaches it only through X-RUN/live (provisional, #110; [OPTIONAL_INTEGRATION_BOUNDARIES §6.1](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#61-x-runlive-provisional-d3-gated)), from the one confined app folder that section proposes (`src/app/live/`, XI-14), behind the `gemini` client's own default-off build flag (one per module; §10.3). Its only payload into Encore is a candidate composition that must pass X-IN validation before any injection; carrying a generated cue needs `encore.composition` v2 (CR-29).
 - It is not a workspace: the root `npm ci` installs none of it, the root tsconfig does not cover it, and `check.sh` stays offline-clean. The root `eslint.config.js` must ignore `integrations/**`. That, and any change to the root `package.json` or CI, needs its owner's sign-off.
 - `@google/genai` 3.3.0 needs Node ≥ 22.0.0 (VERIFIED). The repo's Node 22.12+ is compatible.
@@ -927,7 +938,7 @@ Rows marked † are **proposed defaults for William to confirm (GF-WP-12)**; he 
 
 ### 10.5 Offline fallback
 
-With the gateway down, disabled or rate-limited, the Composer's generated tab still offers the **scene library** (§12). Every library scene is compiled and previewed exactly like a gateway scene. The judged demo path never depends on the gateway (X-RUN rule; P2-T35-style removal test).
+With the gateway down, disabled or rate-limited, the Composer's generated tab still offers the generated scenes of the one composition library (§12, XI-18). Every library scene is compiled and previewed exactly like a gateway scene. The judged demo path never depends on the gateway (X-RUN rule; P2-T35-style removal test).
 
 ### 10.6 Provider facts, verified 2026-11-15
 
@@ -979,7 +990,7 @@ William's `AIFormationPanel.ts` and `FormationPreview.ts` become a **"Generated"
 type Draft =
   | { …existing fields…; source: 'builtin' }
   | { id; name; source: 'generated'; mode: 'silhouette2d' | 'scene3d'; prompt: string;
-      libraryScene: string | null;   // added: the assets/scenes/ entry or X-IN file the scene came from (OFFLINE-AUTHORING); null for a prompt
+      libraryScene: string | null;   // added: the assets/compositions/ file or X-IN file the scene came from (OFFLINE-AUTHORING); null for a prompt
       scene: SceneSpec | null; status: 'idle' | 'requesting' | 'validating' | 'ready' | 'rejected';
       requestId: string | null; result: CompileResult | null; sent: string[] };
 ```
@@ -1019,7 +1030,7 @@ A library draft has `libraryScene` set and an empty `prompt`; a prompt draft has
 ## 12. Offline behaviour
 
 - **The core and the demo run with networking off** (NFR-04): build, preview, library scenes, compile, inject, gossip, repair.
-- **Library:** validated scene files under `assets/scenes/` with `sceneHash`, `compilerVersion` and `slotsDigest` per n0 (layout and loader in GF-WP-09). They are bundled at build time, not fetched: the built files request nothing outside `localhost`. Alternatively the operator loads them through X-IN as `encore.composition` v2 files (file picker; no URL, no fetch; CR-29). The MVP path is "Load as drafts" (X-IN step 7): each cue becomes a Composer draft, and the operator injects it (XI-15). Each loaded scene still passes V1–V11. A digest mismatch on load is a warning that the compiler has changed.
+- **Library:** the one committed composition library, proposed `assets/compositions/*.json` ([boundaries §7](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#7-failure-handling), provisional, #110; XI-18). An offline-authored scene is committed there as an `encore.composition` v2 file with one generated cue, never as a separate scene library. Its recipe carries `sceneHash`, `compilerVersion` and `slotsDigest` per n0 (loader in GF-WP-09), and the proposed `tests/cli/compositions.test.ts` (P2-WP-30a) re-validates every file. Raw provider output is never committed. The files are bundled at build time, not fetched: the built files request nothing outside `localhost`. Alternatively the operator loads compositions through X-IN as `encore.composition` v2 files (file picker; no URL, no fetch; CR-29). The MVP path is "Load as drafts" (X-IN step 7): each cue becomes a Composer draft, and the operator injects it (XI-15). Each loaded scene still passes V1–V11. A digest mismatch on load is a warning that the compiler has changed.
 - **Saved compositions replay without Gemini.** The score holds the whole scene (William's "Offline principle"). Run provenance needs no contract change: `RunRecord.events` already holds each `INJECT_SCORE` with its full score.
 - **LIVE-GATEWAY off or failing:** the Generated tab shows the library and a clear "Gateway unavailable" state. Nothing else changes.
 - **Test:** GF-T35 (networking off; `check.sh` green with `integrations/` removed) and GF-T36 (replay).
@@ -1029,27 +1040,27 @@ A library draft has `libraryScene` set and an empty `prompt`; a prompt draft has
 ## 13. Persistence boundaries (GD-13)
 
 Both stores are **provisional**, and their designs are William's: MongoDB in #130, Tiger Data in #142. Neither is needed to run. They attach only through Phase 2 boundaries (provisional: depends on #110):
-- **X-PERSIST (provisional, #110)** covers optional persistence of compositions (the show library) and of experiment evidence (validated run records), never live control. It runs only inside X-RUN, here the gateway.
-- **X-OUT** is the read-only export of records, snapshots and metrics.
+- **X-PERSIST (provisional, #110)** covers optional persistence of compositions (the show library) and of experiment evidence (validated run records: committed CLI `RunRecord` files in the MVP, X-OUT records later; XI-22), never live control. It runs only inside X-RUN, here the gateway.
+- **X-OUT** is the read-only export of records, snapshots and metrics. Tiger's MVP does not read it and has no upload route; X-OUT records may become a Tiger input only after P2-WP-30a (XI-22).
 - **Data ownership (XI-6).** MongoDB holds compositions and no telemetry. Tiger Data holds experiment evidence only, and its optional experiment catalogue is never in `saved_shows` (Tiger TD-11).
 
-GF-WP-15's MongoDB half is realised by William's MongoDB spec, integrated in #130 (`docs/integrations/mongodb-atlas-show-library.md`, `docs/planning/mongodb-integration-work-packages.md`, MDB-WP-01…09). Its Tiger Data half stays in William's lane (#142). No schemas are defined here.
+GF-WP-15's MongoDB half is realised by William's MongoDB spec, integrated in #130 (`docs/integrations/mongodb-atlas-show-library.md`, `docs/planning/mongodb-integration-work-packages.md`, MDB-WP-01…09). Its Tiger Data half is realised by #142 (TIG-01…TIG-11). Nobody is assigned to either half (XI-10); William keeps only the sponsor decisions, not an implementation lane (XI-24). No schemas are defined here.
 
 ### 13.1 MongoDB Atlas: generated formation library
 
 **The model is #130's, not restated here (XI-6).** William's Gemini handoff (§11) listed library fields (`formationId`, `sceneSpec`, `droneCount`, `generationMs` …). His later MongoDB spec supersedes that list. The canonical show-library model is `encore.saved_shows` in `docs/integrations/mongodb-atlas-show-library.md` (#130), and the mapping from the old list is recorded there.
 
 What this spec needs from that model:
-- A generated movement is stored as its `GeneratedRecipe` inside `saved_shows.composition`, in a `schemaVersion: 2` document (schemaVersion 1 holds text, sphere and helix only). The recipe carries its own `compilerVersion`, `sceneHash` and `slotsDigest` (GD-13), so a later compiler's different output is detected (William: "Saving canonical compiled slots or a checksum also helps detect changes").
+- A generated movement is stored as its `GeneratedRecipe` inside `saved_shows.composition`, in a `schemaVersion: 2` document (schemaVersion 1 holds text, sphere and helix only). The stored body type is `SavedShowComposition` (fields `v` and `movements: [{ recipe, holdTicks }]`), never `CompositionV1`, so it is not confused with the file kind `encore.composition` v1 (XI-21). The recipe carries its own `compilerVersion`, `sceneHash` and `slotsDigest` (GD-13), so a later compiler's different output is detected (William: "Saving canonical compiled slots or a checksum also helps detect changes").
 - On load the app recompiles and compares `slotsDigest` where its `n0` and `slotSpacingMin` match the page's (§8.2). A mismatch is a warning, never a silent load.
 - **Identity links (XI-6).** `sceneHash` names one generated recipe. MongoDB `contentHash` names one saved composition. Tiger's import manifest records a `compositionId` (#142). All three use the one canonical JSON (§6.7).
 - **Size (XI-8).** A schemaVersion 1 body is at most 64 KiB. A generated (schemaVersion 2) document gets a budget of movements × 16 KB (GF-NFR-04) plus overhead, set when GF-CC-01 is approved.
 
-**When the app may call it (XI-5, CR-25).** After MDB-D1 (#130), the D3 approval for the `shows` module (XI-9), the app may browse, retrieve and save through the `shows` module while the simulation runs, but **never inside the tick loop or any decision path**. GF-D1 does not open the `shows` module; it gates only the `gemini` module, which a generated scene needs only when it is generated live. A retrieved show enters only as a candidate composition through X-IN, and reaches a drone only through an operator `INJECT_SCORE` (I7). Without MDB-D1, library entries reach the app as exported `encore.composition` files (X-IN) or by being checked into `assets/scenes/`. "Rate-limit resilience" (William) comes from the offline library, not from a live database read.
+**When the app may call it (XI-5, CR-25).** After MDB-D1 (#130), the D3 approval for the `shows` module (XI-9), the app may browse, retrieve and save through the `shows` module while the simulation runs, but **never inside the tick loop or any decision path**. GF-D1 does not open the `shows` module; it gates only the `gemini` module, which a generated scene needs only when it is generated live. A retrieved show enters only as a candidate composition through X-IN, and reaches a drone only through an operator `INJECT_SCORE` (I7). Without MDB-D1, library entries reach the app as exported `encore.composition` files (X-IN) or by being checked into `assets/compositions/` as v2 files (XI-18, §12). "Rate-limit resilience" (William) comes from the offline library, not from a live database read.
 
 ### 13.2 Tiger Data: run telemetry
 
-William's metrics. The simulation rows come from validated run records (X-OUT exports and `RunRecord` files), which Tiger Data stores as experiment evidence (#142). The two wall-clock rows are not run evidence: Tiger's plan keeps them out of its MVP, with a separate table if ever (Tiger TCR-33, #142), so they stay in the gateway log and GF-WP-13's dated results.
+William's metrics. The simulation rows come from validated run records, which Tiger Data stores as experiment evidence (#142): committed CLI `RunRecord` files (`results/*.json`) in the MVP, imported through Tiger's CLI importer, and X-OUT records later, after P2-WP-30a (XI-22; Tiger TCR-32, TCR-08). The two wall-clock rows are not run evidence: Tiger's plan keeps them out of its MVP, with a separate table if ever (Tiger TCR-33, #142; XI-21), so they stay in the gateway log and GF-WP-13's dated results.
 
 | Metric | Meaning (William) | Encore source |
 |---|---|---|
@@ -1167,8 +1178,8 @@ Renumbered from the code-compatibility audit's C1–C18 (as CR-01…CR-18 in the
 | CR-21 | App calls gateway over HTTP; `server/` | X-RUN (provisional): files, plus X-RUN/live from one confined, default-off app folder (`src/app/live/`) after D3 (boundaries §6.1) | Live HTTP exists only under that amendment | GF-D1; depends on X-RUN/live (provisional, #110); the app client lives in the confined folder | Team |
 | CR-22 | `compilerVersion: 1` vs `string` in `CompileResult` | — | Internal mismatch | Integer everywhere | Arnav |
 | CR-23 | `foreground: string` (hex) | `pattern` unsupported by Gemini | Hex cannot be constrained | `hex \| [r,g,b]`; model asks for the array | Arnav |
-| CR-24 | Gateway runs `validateScene` | The gateway may import, by relative path, only pure modules: `src/contracts/**`, `src/score/**`, the pure composition validator, `src/telemetry/**` ([boundaries §6](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#6-x-run-external-integration-runner), provisional, #110) | An earlier draft read "X-RUN may not import `src/`", so the gateway could run only a subset or a subprocess: validator drift | Superseded by decision XI-2 (§10.4): the gateway imports `src/score/generated` and runs V1–V11, trial compile included (§10.2). The app still re-validates every scene and stays authoritative | Arnav (XI-2) |
-| CR-25 | MongoDB as live cache | App makes no network calls | A live DB read is network. An earlier draft said "never at run time", which was wrong | XI-5: after MDB-D1 (#130; XI-9) the app may call the `shows` module while the simulation runs, never inside the tick loop or a decision path; nothing it returns reaches a drone except via an operator `INJECT_SCORE` (I7). Without MDB-D1: files (X-IN) or `assets/scenes/`. Model per #130 (§13.1) | William (sponsor) + Arnav (XI-5) |
+| CR-24 | Gateway runs `validateScene` | The gateway may import, by relative path, only pure modules: `src/contracts/**`, `src/score/**`, the pure composition validator, `src/telemetry/**` ([boundaries §6](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#6-x-run-external-integration-runner), provisional, #110) | An earlier draft read "X-RUN may not import `src/`", so the gateway could run only a subset or a subprocess: validator drift | Superseded by decision XI-2 (§10.4): the gateway imports `src/score/generated` and runs V1–V11, trial compile included (§10.2). It never runs a subprocess (XI-23). The app still re-validates every scene and stays authoritative | Arnav (XI-2) |
+| CR-25 | MongoDB as live cache | App makes no network calls | A live DB read is network. An earlier draft said "never at run time", which was wrong | XI-5: after MDB-D1 (#130; XI-9) the app may call the `shows` module while the simulation runs, never inside the tick loop or a decision path; nothing it returns reaches a drone except via an operator `INJECT_SCORE` (I7). Without MDB-D1: files (X-IN) or `assets/compositions/` (v2 files with one generated cue, XI-18). Model per #130 (§13.1) | William (sponsor) + Arnav (XI-5) |
 | CR-26 | Gateway returns `sceneHash` | GD-4 | Trust boundary | App recomputes | — |
 | CR-27 | "Exactly 200" | `n0` varies (40 in G1; `?n0=` in #113) | Breaks other rosters | `n0` everywhere; digests per n0 | — |
 | CR-28 | (none: generated shapes are new) | Radio delivers within `rRadio` = 15 m (`world.ts:184`); L2 reports components (RFC §9.3) | A formation with parts > 15 m apart partitions the swarm for later injections | Reject `radio-partitioned` at validation (§8.11); acknowledgement alternative open (GQ-2) | Arnav |
@@ -1192,7 +1203,7 @@ Renumbered from the code-compatibility audit's C1–C18 (as CR-01…CR-18 in the
 - **Observer** (P2-CC-06): `dense` comes from the intended surface and receives the same motion transform, so `sfMean`/`sfMax` stay meaningful. Dense is never the 200 slots.
 - **Gossip.** Generated scores propagate through the existing gossip with no special coordination. Dual injections follow T16 ordering (P2-T14 applies unchanged).
 - **Repair.** L3 islands interact with limit 1. Healing in motion (P2-CC-04) is shape-independent.
-- **Integration boundaries.** OFFLINE-AUTHORING scenes enter through X-IN as composition files whose cues may hold generated recipes. That needs `encore.composition` **v2**, not v1: v1's `Recipe` is exactly the three-kind union and rejects any position, and its 64 KiB gate cannot hold 16 cues of 16 KB (CR-29). X-IN files are `encore.composition` v1 or v2 and nothing else (XI-15, CR-29). v2 also adds an optional per-cue `holdTicks`, carried as data; loading is "Load as drafts" ([boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes)). Run records and telemetry leave through X-OUT. Saved shows (MongoDB `saved_shows.composition`, #130) and experiment evidence (Tiger Data, #142) sit behind X-PERSIST (provisional, #110), inside the gateway. The app reaches the gateway only over X-RUN/live (provisional, #110).
+- **Integration boundaries.** OFFLINE-AUTHORING scenes enter through X-IN as composition files whose cues may hold generated recipes. That needs `encore.composition` **v2**, not v1: v1's `Recipe` is exactly the three-kind union and rejects any position, and its 64 KiB gate cannot hold 16 cues of 16 KB (CR-29). X-IN files are `encore.composition` v1 or v2 and nothing else (XI-15, CR-29). v2 also adds an optional per-cue `holdTicks`, carried as data; loading is "Load as drafts" ([boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes)). X-OUT stays the read-only export of records, snapshots and metrics. Saved shows (MongoDB `saved_shows.composition`, #130) and experiment evidence (Tiger Data, #142; validated run records: committed CLI `RunRecord` files in the MVP, X-OUT records later, XI-22) sit behind X-PERSIST (provisional, #110), inside the gateway. The app reaches the gateway only over X-RUN/live (provisional, #110).
 - **Tracks.** Every `GF-CC` is a contract change, so the generated-formation feature is **Track P** (post-submission, or earlier only with Arnav's explicit approval, Phase 2 D4/GF-D8). No Track H work package needs any part of it.
 
 ---
@@ -1240,7 +1251,7 @@ Columns as in [requirements.md](../specification/requirements.md). These are pro
 | GF-D6 | Approve GF-CC-06 (`Slot.colour` linear) together with linearising the Composer and console hex paths (CR-33), and the thumbnail fix as an app issue | Approve only with before/after screenshots of existing palettes; otherwise generated colours pass through | Medium | GF-FR-12 |
 | GF-D7 | 16 KB scene cap and assumption AS-11 (proposed: "payload size not modelled") | Approve | High | GF-NFR-04 |
 | GF-D8 | Timing (whole feature in Track P) and compile budget: if 3D CL-4+ misses 200 ms, raise the budget for generated recipes only, or precompile at authoring time and accept Option B for those scenes | Track P; keep 200 ms until measured (GF-WP-13) | High (timing) | Scheduling, GF-NFR-02 |
-| GF-D9 | Library location `assets/scenes/` and whether model-authored scenes may be committed (free-tier data use, provenance metadata) | Allow, with prompt, model id and date stored | Medium | GF-WP-09 |
+| GF-D9 | Whether model-authored scenes may be committed, and with which provenance metadata (free-tier data use). The location is fixed by XI-18: `assets/compositions/`, as v2 files with one generated cue | Allow, with prompt, model id and date stored | Medium | GF-WP-09 |
 | GF-D10 | GF-CC-04 importance-weighted order | Decline for now | Medium | — |
 | GF-D11 | Provider terms: the UK/EEA "Paid Services only" and 18+ terms (PARTLY VERIFIED, recorded once in §10.6). They apply to LIVE-GATEWAY and to OFFLINE-AUTHORING through AI Studio | William and Arnav decide, after re-reading the terms at the source, before any live demo and before committing model-authored scenes | Low (wording unverified) | Any live demo; GF-D9; GQ-5 |
 
@@ -1303,7 +1314,7 @@ Four review lenses read this spec, its companions and William's handoff against 
 
 **Integration.** Challenged: "GF-D1 = D3", the X-IN format, colour consistency across hex paths, labelling William's gateway parameters, Phase 2 conflicts, missing CRs, CR-19, X-PERSIST, a non-existent "governing fact 1", test labels and the William/Williams naming. Changed: GF-D1 is D3 approved for this integration, keeping condition 2's X-RUN/live exception (§4.3, §19, CR-21); `encore.composition` v2 (CR-29, §17); CR-33 for hex paths; † proposed defaults (§10.3); P2-WP-20 / P2-CC-01 in the Conflicts rows (§8.1, §8.2); CR-34, CR-35 and the linkage row (§13.2); CR-19 points to #110's single record; roadmap governing-constraint link (§7.1, §8.2); GF-T29 label (§8.1); "William" throughout. Not changed: X-PERSIST already covers a show library and runs inside the gateway (boundaries §5); only the step-10 wording was sharpened (§11.2).
 
-**Cross-integration pass.** The rulings XI-1…XI-15, shared with #130 and #142, were written after the review began and are now applied (index in §1). Changed: one gateway with `gemini`, `shows` and `tiger` modules (§10.4, CR-10); decision XI-2 on gateway imports, superseding CR-24, so server-side validation includes the trial compile (§6.5, §10.2); one error envelope and code list, with Gemini reasons in `details[].reason` (§10.1, CR-36); CR-25 corrected to "never inside the tick loop or a decision path" (§13.1, GF-R12); the MongoDB field list replaced by a pointer to #130's `encore.saved_shows` (§13.1); one canonical JSON and SHA-256 (§6.7); size caps (§13.1); GF-D1 as one decision approved per integration (§19); no assignees (§2). Also applied from the companions' review: the totality rule's strict variant and test (§7.11, GF-T41); the memo cache only for package-frozen scenes, with the brain's `copyRecipe` swap (§8.2, §8.3, §8.7); `requestId` from one monotonic client counter (§10.1); the `h({ html })` sink (§10.3); mesh resolution fixed and samples projected onto the surface (§7.3); mirrored copies reflected, not resampled (§7.3); candidate counts scaled with n0 (§7.2, §7.3); even-odd as the defined path fill (§7.2); V8-realm determinism wording (§7.12, GF-NFR-01); the ESLint and boundaries-test gap (§7.12); a library field in `Draft` (§11.1); provider terms recorded once as GF-D11 (§10.6).
+**Cross-integration pass.** The rulings XI-1…XI-24, shared with #130 and #142, were written after the review began and are now applied (index in §1). XI-16…XI-24 came last and are applied in the sections the index names. Changed: one gateway with `gemini`, `shows` and `tiger` modules (§10.4, CR-10); decision XI-2 on gateway imports, superseding CR-24, so server-side validation includes the trial compile (§6.5, §10.2); one error envelope and code list, with Gemini reasons in `details[].reason` (§10.1, CR-36); CR-25 corrected to "never inside the tick loop or a decision path" (§13.1, GF-R12); the MongoDB field list replaced by a pointer to #130's `encore.saved_shows` (§13.1); one canonical JSON and SHA-256 (§6.7); size caps (§13.1); GF-D1 as one decision approved per integration (§19); no assignees (§2). Also applied from the companions' review: the totality rule's strict variant and test (§7.11, GF-T41); the memo cache only for package-frozen scenes, with the brain's `copyRecipe` swap (§8.2, §8.3, §8.7); `requestId` from one monotonic client counter (§10.1); the `h({ html })` sink (§10.3); mesh resolution fixed and samples projected onto the surface (§7.3); mirrored copies reflected, not resampled (§7.3); candidate counts scaled with n0 (§7.2, §7.3); even-odd as the defined path fill (§7.2); V8-realm determinism wording (§7.12, GF-NFR-01); the ESLint and boundaries-test gap (§7.12); a library field in `Draft` (§11.1); provider terms recorded once as GF-D11 (§10.6).
 
 **Consistency pass.** Applied XI-11…XI-15: the `requestId` pattern and drop rule (§10.1); the one gateway skeleton and guard (§10.3, §10.4); the pure validator's location (§10.4, §11.1); one build flag per module in `src/app/live/` (§10.3, §10.4); `holdTicks` and "Load as drafts" for v2 (§12, §17, CR-29). Also: the `shows` steps gated on MDB-D1, not GF-D1 (§11.2, §13.1, CR-25, GF-R12); the `tiger` routes (§10.4); recipe checks split from V5 (§6.5); one digest function name (§8.2); GF-CC-06 marked unscheduled (§8.4, §21); the foreground pass-through (§6.2); the #113 merge note (§3); G2 citations replaced by section references. Companion-doc changes this implies:
 - Evaluation: GF-T31 and GF-T33 test that a non-matching `requestId` is not echoed and the request still succeeds (§10.1); §1.1 notes that #113 merged after the audit base (§3).
@@ -1320,4 +1331,4 @@ Four review lenses read this spec, its companions and William's handoff against 
 | GQ-7 | Accept n0 scene hashes per adoption per world (one per drone's `copyRecipe` copy, §8.3), or let brains share one frozen received score so one hash is shared? | The second is a brain change; the first is unmeasured | Arnav | GF-D4 |
 | GQ-8 | Hex colours: linearise every path together (option a) or pass generated colours through (option b)? | Option a changes existing palettes visibly | Arnav | GF-D6 |
 | GQ-9 | Gateway SDK version: wait for the 14-day release age of 3.3.0, or pin the last older 3.x? | Depends on when GF-D1 is approved | William | GF-D1 |
-| GQ-10 | One case for `details[].reason` across gateway modules, and one shared reason for a disabled module (Gemini `gateway-disabled`, #130 `MODULE_DISABLED`, Tiger `disabled` in health)? | XI-3 fixes codes, not reason case; it is set once with XI-3 in boundaries §6.2, then §10.1 here and #130 §10.1 follow (§10.1) | Arnav | GF-D1 |
+| GQ-10 | One case for `details[].reason` across gateway modules, and one shared reason for a disabled module (Gemini's earlier `gateway-disabled`, #130 `MODULE_DISABLED`, Tiger `disabled` in health)? | **Closed by XI-16:** every reason is SCREAMING_SNAKE, and a disabled module's reason is `MODULE_DISABLED`; `src/score` codes are mapped by the gateway (§10.1) | Arnav | XI-16 |
