@@ -1,6 +1,7 @@
 // Repair-cascade trail layer (#202, P2-WP-03). Opt-in only: it draws when the page was opened with ?p2=cascade AND
-// X-ray is on AND the render quality level is 0. Without the flag it never draws, so the default demo is unchanged.
-// It still ingests every tick while hidden (the trail is pure and O(n0) per tick); it never touches a world or brain.
+// X-ray is on AND the render quality level is 0. Without the flag it is an empty hidden Group whose ingest and update
+// return at once (no per-tick work, no trail, no buffers), so the default demo is unchanged. Opted in, it ingests every
+// tick, also while hidden (the trail is pure and O(n0) per tick); it never touches a world or brain.
 // Each arrow is one observed belief.slot change (colourModes/cascadeTrail.ts), drawn from the drone's previous target
 // to its new one only once the drone has arrived within rOcc, and only while it stays there (so never together with
 // its tether), fading over 6 s. Colours reuse no existing X-ray meaning (experience §3): commit (to a more important
@@ -32,10 +33,18 @@ export interface CascadeLayerOptions {
   capacity?: number;
 }
 
-export function createCascadeLayer(options: CascadeLayerOptions = {}): Layer {
-  const capacity = options.capacity ?? CASCADE_CAPACITY;
-  const group = new Group();
-  group.visible = false;
+/** Everything the layer draws with. Built in init only when opted in: without the flag none of it exists. */
+interface Drawing {
+  trail: CascadeTrail;
+  material: LineBasicMaterial;
+  shaftGeometry: BufferGeometry; headGeometry: BufferGeometry;
+  attributes: Float32BufferAttribute[];
+  /** Writes the arrows of `tick` + `alpha` into the preallocated buffers; returns how many. No allocation. */
+  write(tick: number, alpha: number): number;
+}
+
+function buildDrawing(group: Group, n0: number, rOcc: number, capacity: number): Drawing {
+  const trail = new CascadeTrail(n0, rOcc, capacity);
   const material = new LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: AdditiveBlending });
   const shaftGeometry = new BufferGeometry();
   const headGeometry = new BufferGeometry();
@@ -47,24 +56,15 @@ export function createCascadeLayer(options: CascadeLayerOptions = {}): Layer {
   const shaftCol = new Float32BufferAttribute(new Float32Array(capacity * 2 * 3), 3);
   const headPos = new Float32BufferAttribute(new Float32Array(capacity * 4 * 3), 3);
   const headCol = new Float32BufferAttribute(new Float32Array(capacity * 4 * 3), 3);
-  for (const attribute of [shaftPos, shaftCol, headPos, headCol]) attribute.setUsage(DynamicDrawUsage);
+  const attributes = [shaftPos, shaftCol, headPos, headCol];
+  for (const attribute of attributes) attribute.setUsage(DynamicDrawUsage);
   shaftGeometry.setAttribute('position', shaftPos); shaftGeometry.setAttribute('color', shaftCol);
   headGeometry.setAttribute('position', headPos); headGeometry.setAttribute('color', headCol);
   shaftGeometry.setDrawRange(0, 0); headGeometry.setDrawRange(0, 0);
-  let trail: CascadeTrail | null = null;
-  let scene: Scene | undefined;
-  let optIn = false;
-  let visible = true;
-  let qualityOk = true;
-  const publish = (drawn: number) => {
-    const counts = trail ? trail.counts() : { changes: 0, commits: 0, pops: 0, pending: 0 };
-    group.userData.cascade = { drawn, changes: counts.changes, commits: counts.commits, pops: counts.pops, pending: counts.pending, optIn };
-  };
-  publish(0);
-  let count = 0;
   const sp = shaftPos.array as Float32Array, sc = shaftCol.array as Float32Array;
   const hp = headPos.array as Float32Array, hc = headCol.array as Float32Array;
-  /** Writes one arrow into the preallocated buffers (created once: no per-frame closure or array). */
+  let count = 0;
+  /** Created once: no per-frame closure or array. */
   const writeOne = (entry: CascadeEntry, brightness: number) => {
     if (count >= capacity) return;
     const colour = RGB_OF[entry.kind];
@@ -73,36 +73,69 @@ export function createCascadeLayer(options: CascadeLayerOptions = {}): Layer {
     for (let v = 0; v < 4; v++) for (let c = 0; c < 3; c++) hc[count * 12 + v * 3 + c] = colour[c] * brightness;
     count++;
   };
+  return {
+    trail, material, shaftGeometry, headGeometry, attributes,
+    write(tick, alpha) {
+      count = 0;
+      trail.forEachArrow(tick, alpha, writeOne);
+      for (const attribute of attributes) attribute.needsUpdate = true;
+      return count;
+    },
+  };
+}
+
+export function createCascadeLayer(options: CascadeLayerOptions = {}): Layer {
+  const capacity = options.capacity ?? CASCADE_CAPACITY;
+  const group = new Group();
+  group.visible = false;
+  /** null unless opted in: then ingest and update return at once, and nothing else is ever allocated. */
+  let drawing: Drawing | null = null;
+  let scene: Scene | undefined;
+  let optIn = false;
+  let visible = true;
+  let qualityOk = true;
+  const publish = (drawn: number) => {
+    const counts = drawing ? drawing.trail.counts() : { changes: 0, commits: 0, pops: 0, pending: 0 };
+    group.userData.cascade = { drawn, changes: counts.changes, commits: counts.commits, pops: counts.pops, pending: counts.pending, optIn };
+  };
+  publish(0);
 
   return {
     id: 'cascade',
     init(ctx) {
       scene = ctx.scene;
       optIn = options.optIn ?? (typeof location !== 'undefined' && cascadeOptIn(location.search));
-      trail = new CascadeTrail(ctx.params.n0, ctx.params.rOcc, capacity);
-      scene.add(group);
+      if (optIn) drawing = buildDrawing(group, ctx.params.n0, ctx.params.rOcc, capacity);
+      scene.add(group);   // without the flag: an empty, hidden Group, never updated
       publish(0);
     },
-    ingest(snapshot) { trail?.ingest(snapshot); },
+    ingest(snapshot) {
+      if (!drawing) return;
+      drawing.trail.ingest(snapshot);
+    },
     update(frame) {
-      if (!trail) return;
+      if (!drawing) return;
+      const { trail, shaftGeometry, headGeometry } = drawing;
       // Fallback for a view without per-tick ingestion: a repeated tick is a no-op inside the trail.
       if (frame.curr.tick > trail.lastTick) trail.ingest(frame.curr);
-      const show = optIn && visible && qualityOk && readViewMode().xray;
-      count = 0;
-      if (show) {
-        trail.forEachArrow(frame.curr.tick, frame.alpha, writeOne);
-        shaftPos.needsUpdate = true; shaftCol.needsUpdate = true; headPos.needsUpdate = true; headCol.needsUpdate = true;
-      }
+      const show = visible && qualityOk && readViewMode().xray;
+      const count = show ? drawing.write(frame.curr.tick, frame.alpha) : 0;
       shaftGeometry.setDrawRange(0, count * 2);
       headGeometry.setDrawRange(0, count * 4);
       group.visible = show && count > 0;
       publish(count);
     },
-    reset() { trail?.reset(); shaftGeometry.setDrawRange(0, 0); headGeometry.setDrawRange(0, 0); group.visible = false; publish(0); },
+    reset() {
+      if (!drawing) return;
+      drawing.trail.reset(); drawing.shaftGeometry.setDrawRange(0, 0); drawing.headGeometry.setDrawRange(0, 0);
+      group.visible = false; publish(0);
+    },
     setQuality(level) { qualityOk = level <= 0; if (!qualityOk) group.visible = false; },
     setVisible(value) { visible = value; if (!value) group.visible = false; },
-    dispose() { scene?.remove(group); shaftGeometry.dispose(); headGeometry.dispose(); material.dispose(); },
+    dispose() {
+      scene?.remove(group);
+      if (drawing) { drawing.shaftGeometry.dispose(); drawing.headGeometry.dispose(); drawing.material.dispose(); }
+    },
   };
 }
 

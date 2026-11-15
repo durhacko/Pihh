@@ -63,6 +63,39 @@ describe('cascade layer: opt-in flag', () => {
   });
 });
 
+describe('cascade layer: disabled (no ?p2=cascade) is inert', () => {
+  it('ingest and update do no work: they never even read the snapshot or frame, and nothing is allocated', () => {
+    const { scene, layer, group } = setup(createCascadeLayer({ optIn: false }));
+    expect(scene.children).toEqual([group]);
+    expect(group.children).toHaveLength(0);         // no LineSegments, geometry or buffers
+    expect(group.visible).toBe(false);
+    const untouchable = new Proxy({}, { get(_, key) { throw new Error(`read ${String(key)}`); } });
+    setViewMode({ xray: true });
+    expect(() => layer.ingest!(untouchable as WorldSnapshot)).not.toThrow();
+    expect(() => layer.update(untouchable as never)).not.toThrow();
+    expect(() => layer.reset!()).not.toThrow();
+  });
+
+  it('counts stay 0 through a kill-and-repair stream with X-ray on, at every quality level', () => {
+    const { layer, group, feed } = setup(createCascadeLayer({ optIn: false }));
+    const before = group.userData.cascade;
+    setViewMode({ xray: true });
+    for (const level of [0, 1]) {
+      layer.setQuality!(level);
+      for (let t = 1 + level * 100; t <= 60 + level * 100; t++) {
+        const moves: Record<number, D> = {};
+        if (t % 3 === 0) moves[t % N] = { slot: (t * 7) % N, target: [t, 35, 0] };   // a change that has arrived
+        feed(snap(t, moves));
+      }
+    }
+    expect(group.userData.cascade).toEqual({ drawn: 0, changes: 0, commits: 0, pops: 0, pending: 0, optIn: false });
+    expect(group.userData.cascade).toBe(before);    // never even re-published
+    expect(group.children).toHaveLength(0);
+    expect(group.visible).toBe(false);
+    layer.dispose();
+  });
+});
+
 describe('cascade layer: enabled', () => {
   it('draws one arrow (shaft + two-stroke head) per arrived change, in the commit colour, only in X-ray', () => {
     const { group, shafts, heads, feed } = setup();
@@ -217,7 +250,7 @@ describe.skipIf(!process.env.P2_PERF)('P2-T18: cascade cost at n0 200 (P2_PERF=1
 describe('cascade layer: the scripted demo without and with the flag', () => {
   // At every demo beat, with the overlays the script has set by then, a fresh arrived change is offered to the layer.
   for (const optIn of [false, true]) {
-    it(`${optIn ? 'with' : 'without'} ?p2=cascade: visible exactly when ${optIn ? 'X-ray is on' : 'never'}, still ingesting`, () => {
+    it(`${optIn ? 'with' : 'without'} ?p2=cascade: visible exactly when ${optIn ? 'X-ray is on, still ingesting while hidden' : 'never, and inert'}`, () => {
       for (const beat of DEMO_BEATS) {
         const tick = Math.max(2, dispatchTick(beat));
         const { layer, group, feed } = setup(createCascadeLayer({ optIn }));
@@ -225,7 +258,7 @@ describe('cascade layer: the scripted demo without and with the flag', () => {
         setViewMode(view);
         feed(snap(tick - 1));
         feed(arrived(tick));
-        expect(group.userData.cascade.changes, beat.id).toBe(1);
+        expect(group.userData.cascade.changes, beat.id).toBe(optIn ? 1 : 0);
         expect(group.visible, beat.id).toBe(optIn && view.xray);
         layer.dispose();
       }
