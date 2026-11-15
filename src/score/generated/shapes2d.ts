@@ -104,6 +104,8 @@ export const MIN_RADIUS = 0.01;                 // V10, normalised units
 export const ARC_TABLE_SAMPLES = 64;
 export const ELLIPSE_OUTLINE_SAMPLES = 256;
 const CAP_SAMPLES = 16;
+/** Shorter than this (normalised units, where shapes are of order 1) a direction is rounding noise. */
+const DEGENERATE_LENGTH = 1e-12;
 /** Box culling margin, so float rounding at the very edge of a part never changes a result. */
 const CULL_MARGIN = 1e-6;
 
@@ -313,17 +315,22 @@ function resampleClosed(ring: readonly Pt2[], step: number): Pt2[] {
  */
 function strokeLoop(line: readonly Pt2[], r: number): Pt2[] {
   const n = line.length;
-  const normals: Pt2[] = [];
-  let last: Pt2 = [0, 1];
+  const normals: (Pt2 | null)[] = [];
   for (let i = 0; i < n; i++) {
     const a = line[Math.max(0, i - 1)];
     const b = line[Math.min(n - 1, i + 1)];
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
     const len = Math.sqrt(dx * dx + dy * dy);
-    if (len > 0) last = [-dy / len, dx / len];
-    normals.push(last);
+    // Below DEGENERATE_LENGTH the difference is rounding noise (a zero-length Bézier segment flattens
+    // to points one ulp apart), and its direction is meaningless.
+    normals[i] = len > DEGENERATE_LENGTH ? [-dy / len, dx / len] : null;
   }
+  // A zero-length stretch takes the nearest real normal: carry forward, then back-fill the start.
+  // Only a centreline that is a single point (a dot: the two caps make a circle) keeps [0, 1].
+  for (let i = 1; i < n; i++) if (!normals[i]) normals[i] = normals[i - 1];
+  for (let i = n - 2; i >= 0; i--) if (!normals[i]) normals[i] = normals[i + 1];
+  const normal = (i: number): Pt2 => normals[i] ?? [0, 1];
   const cap = (centre: Pt2, from: Pt2): Pt2[] => {
     // Half-turn clockwise from `from` (a unit normal) through the outward tangent.
     const pts: Pt2[] = [];
@@ -336,10 +343,10 @@ function strokeLoop(line: readonly Pt2[], r: number): Pt2[] {
     return pts;
   };
   const loop: Pt2[] = [];
-  for (let i = 0; i < n; i++) loop.push([line[i][0] + r * normals[i][0], line[i][1] + r * normals[i][1]]);
-  loop.push(...cap(line[n - 1], normals[n - 1]));
-  for (let i = n - 1; i >= 0; i--) loop.push([line[i][0] - r * normals[i][0], line[i][1] - r * normals[i][1]]);
-  const back = normals[0];
+  for (let i = 0; i < n; i++) loop.push([line[i][0] + r * normal(i)[0], line[i][1] + r * normal(i)[1]]);
+  loop.push(...cap(line[n - 1], normal(n - 1)));
+  for (let i = n - 1; i >= 0; i--) loop.push([line[i][0] - r * normal(i)[0], line[i][1] - r * normal(i)[1]]);
+  const back = normal(0);
   loop.push(...cap(line[0], [-back[0], -back[1]]));
   return loop;
 }
@@ -542,6 +549,56 @@ function cellRange(lo: number, hi: number, o: number, cell: number, size: number
   return [Math.max(0, Math.floor((lo - o) / cell - 0.5) - 1), Math.min(size - 1, Math.ceil((hi - o) / cell - 0.5) + 1)];
 }
 
+/** Consecutive centreline segments grouped for culling in `rasteriseStroke`. */
+const STROKE_CHUNK = 16;
+/** Safety margin of the chunk bound, far above float error in normalised units (all of order 1). */
+const CHUNK_MARGIN = 1e-9;
+
+/**
+ * Fill a stroke's cells: each cell in the part's range is tested once, so the cost never grows with
+ * how much segment boxes overlap (a short, wide stroke used to cost segments × cells). A chunk of
+ * segments is skipped only when the cell is provably farther than r + margin from every point of it
+ * (its bounding circle), so the bits are exactly `containsXY`'s: any segment with segDist2 <= r².
+ */
+function rasteriseStroke(
+  line: readonly Pt2[], r: number, v: number, bits: Uint8Array, size: number,
+  i0: number, i1: number, j0: number, j1: number, cx: (i: number) => number, cy: (j: number) => number,
+): void {
+  const r2 = r * r;
+  const chunks: { first: number; last: number; x: number; y: number; reach2: number }[] = [];
+  for (let s = 0; s + 1 < line.length; s += STROKE_CHUNK) {
+    const last = Math.min(line.length - 1, s + STROKE_CHUNK);
+    const box = boxOf(line.slice(s, last + 1));
+    const x = (box.min[0] + box.max[0]) / 2;
+    const y = (box.min[1] + box.max[1]) / 2;
+    let rho = 0;
+    for (let k = s; k <= last; k++) {
+      const dx = line[k][0] - x;
+      const dy = line[k][1] - y;
+      rho = Math.max(rho, Math.sqrt(dx * dx + dy * dy));
+    }
+    const reach = rho + r + CHUNK_MARGIN;
+    chunks.push({ first: s, last, x, y, reach2: reach * reach });
+  }
+  for (let j = j0; j <= j1; j++) {
+    const y = cy(j);
+    for (let i = i0; i <= i1; i++) {
+      const x = cx(i);
+      let inside = false;
+      for (const c of chunks) {
+        const dx = x - c.x;
+        const dy = y - c.y;
+        if (dx * dx + dy * dy > c.reach2) continue;
+        for (let e = c.first; e < c.last; e++) {
+          if (segDist2(x, y, line[e], line[e + 1]) <= r2) { inside = true; break; }
+        }
+        if (inside) break;
+      }
+      if (inside) bits[j * size + i] = v;
+    }
+  }
+}
+
 /**
  * Rasterise the region on a size² grid over [-1.2, 1.2]² of normalised space (spec §7.2 step 2).
  * A cell is filled when its centre is inside the region: bit-for-bit what `region.contains` gives at
@@ -590,19 +647,7 @@ export function rasterise(region: Region2D, size: number = MASK_SIZE): Mask2D {
         }
       }
     } else if (part.centreline && g.type === 'stroke') {
-      const line = part.centreline;
-      const r = g.width / 2;
-      const r2 = r * r;
-      for (let e = 0; e + 1 < line.length; e++) {
-        const a = line[e];
-        const b = line[e + 1];
-        const [si0, si1] = cellRange(Math.min(a[0], b[0]) - r, Math.max(a[0], b[0]) + r, ox, cell, size);
-        const [sj0, sj1] = cellRange(Math.min(a[1], b[1]) - r, Math.max(a[1], b[1]) + r, oy, cell, size);
-        for (let j = sj0; j <= sj1; j++) {
-          const y = cy(j);
-          for (let i = si0; i <= si1; i++) if (segDist2(cx(i), y, a, b) <= r2) bits[j * size + i] = v;
-        }
-      }
+      rasteriseStroke(part.centreline, g.width / 2, v, bits, size, i0, i1, j0, j1, cx, cy);
     }
   }
   return { size, cell, origin: [ox, oy], bits,
@@ -662,9 +707,10 @@ function ownerOf(region: Region2D, x: number, y: number): number {
 /**
  * V8 for a mask rasterised from `region` (spec §6.5, §7.11 simplification 1). An empty mask is the
  * rejection `empty-geometry`. Components under SPECK_SHARE of the filled cells are dropped
- * (`speck-dropped`), except one owned by a protected part (priority >= 4), which is kept and warned
- * with that part's id (`speck-kept`). More than one remaining component warns `disconnected`.
- * The input mask is not modified.
+ * (`speck-dropped`, naming the part that decides most of its cells), except one that any protected
+ * union part (priority >= 4) covers, even partly or under a later part: that speck is kept and warned
+ * with the protected part covering most of it (`speck-kept`). Ties go to the lower part index. More
+ * than one remaining component warns `disconnected`. The input mask is not modified.
  */
 export function checkConnectivity(mask: Mask2D, region: Region2D): MaskCheck {
   const first = components(mask);
@@ -673,20 +719,38 @@ export function checkConnectivity(mask: Mask2D, region: Region2D): MaskCheck {
   for (const s of first.sizes) total += s;
   const limit = SPECK_SHARE * total;
   const isSpeck = first.sizes.map((s) => s < limit);
-  const firstOwner = new Int32Array(first.count).fill(-1);
-  const protectedOwner = new Int32Array(first.count).fill(-1);
+  // Per speck: how many of its cells each part decides (`owners`), and how many each protected union
+  // part covers (`guards`). A protected part counts even where a later part draws over it: the cell is
+  // filled, so the protected part is part of what would be dropped (spec §7.11: never drop a protected
+  // part's speck, and never drop a protected part without a warning).
+  const owners = new Map<number, Map<number, number>>();
+  const guards = new Map<number, Map<number, number>>();
+  const bump = (m: Map<number, Map<number, number>>, c: number, k: number): void => {
+    let counts = m.get(c);
+    if (!counts) { counts = new Map(); m.set(c, counts); }
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  };
   const n = mask.size;
-
   for (let idx = 0; idx < n * n; idx++) {
     const label = first.labels[idx];
     if (!label || !isSpeck[label - 1]) continue;
+    const c = label - 1;
     const [x, y] = cellCentre(mask, idx % n, Math.floor(idx / n));
     const owner = ownerOf(region, x, y);
-    const c = label - 1;
-    if (firstOwner[c] < 0) firstOwner[c] = owner;
-    if (owner >= 0 && region.parts[owner].priority >= PROTECTED_PRIORITY &&
-      (protectedOwner[c] < 0 || owner < protectedOwner[c])) protectedOwner[c] = owner;
+    if (owner >= 0) bump(owners, c, owner);
+    for (let k = 0; k < region.parts.length; k++) {
+      const part = region.parts[k];
+      if (part.operation === 'union' && part.priority >= PROTECTED_PRIORITY && inBox(part.bbox, x, y) &&
+        part.containsXY(x, y)) bump(guards, c, k);
+    }
   }
+  /** The part with the most cells, ties to the lowest index; -1 when there is none. */
+  const most = (counts: Map<number, number> | undefined): number => {
+    let best = -1;
+    let bestN = 0;
+    for (const [k, cnt] of counts ?? []) if (cnt > bestN || (cnt === bestN && k < best)) { best = k; bestN = cnt; }
+    return best;
+  };
 
   const warnings: ShapeWarning[] = [];
   const drop = new Uint8Array(first.count);
@@ -694,13 +758,14 @@ export function checkConnectivity(mask: Mask2D, region: Region2D): MaskCheck {
   for (let c = 0; c < first.count; c++) {
     if (!isSpeck[c]) continue;
     const share = `${first.sizes[c]} of ${total} cells`;
-    if (protectedOwner[c] >= 0) {
-      warnings.push({ code: 'speck-kept', partId: region.parts[protectedOwner[c]].id,
+    const guard = most(guards.get(c));
+    if (guard >= 0) {
+      warnings.push({ code: 'speck-kept', partId: region.parts[guard].id,
         detail: `a speck of a protected part (${share}) is kept` });
     } else {
       drop[c] = 1;
       droppedCells += first.sizes[c];
-      const owner = firstOwner[c];
+      const owner = most(owners.get(c));
       warnings.push({ code: 'speck-dropped', ...(owner >= 0 ? { partId: region.parts[owner].id } : {}),
         detail: `a speck (${share}, under ${SPECK_SHARE * 100}%) was dropped` });
     }
