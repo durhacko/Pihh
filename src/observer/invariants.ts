@@ -95,7 +95,6 @@ export class ContactModel {
   // Scratch for components(), allocated once (performance only: P2-T18).
   private readonly parent: Int32Array;
   private readonly jamFlag: Uint8Array;
-  private readonly cellKey: Float64Array;
   private readonly buckets = new Map<number, number[]>();
   private pairBuf = new Int32Array(1024);
 
@@ -111,7 +110,6 @@ export class ContactModel {
     this.loss = params.loss;
     this.parent = new Int32Array(this.n0);
     this.jamFlag = new Uint8Array(this.n0);
-    this.cellKey = new Float64Array(this.n0);
   }
 
   /** Position of drone `id` in snapshot t - 1 (a copy). */
@@ -217,10 +215,9 @@ export class ContactModel {
         if (!d.alive) continue;
         live.push(d.id);
         this.jamFlag[d.id] = this.jammed(snapshot, d.id) ? 1 : 0;
-        // Integer cell key. Two cells sharing a key (coordinates beyond ±2^19 cells) only add candidates; every
-        // candidate still passes the exact pair test below, so the result is unchanged.
+        // Integer cell key. Keys wrap every 1024 cells per axis (cellKey), so two cells sharing a key only add
+        // candidates; every candidate still passes the exact pair test below, so the result is unchanged.
         const key = cellKey(Math.floor(px[3 * d.id] / cell), Math.floor(px[3 * d.id + 1] / cell), Math.floor(px[3 * d.id + 2] / cell));
-        this.cellKey[d.id] = key;
         const list = buckets.get(key);
         if (list) list.push(d.id); else buckets.set(key, [d.id]);
       }
@@ -236,7 +233,9 @@ export class ContactModel {
             const j = list[k];
             if (j <= i || this.jamFlag[j]) continue;
             const d2 = (px[3 * i] - px[3 * j]) ** 2 + (px[3 * i + 1] - px[3 * j + 1]) ** 2 + (px[3 * i + 2] - px[3 * j + 2]) ** 2;
-            if (d2 > r2) continue;
+            // Negated `<=`, as inRange() tests it: a NaN or infinite distance is never contact. That also keeps a
+            // non-finite position (whose cell key is not unique) from adding any pair, so no pair is added twice.
+            if (!(d2 <= r2)) continue;
             if (this.eventsRecorded) {
               let same = true;
               for (let g = 0; g < groups.length; g++) if (groups[g][i] !== groups[g][j]) { same = false; break; }
@@ -527,6 +526,8 @@ export function createInvariantChecker(options: InvariantCheckerOptions): Invari
       const p0 = pStart[i], p1 = pStart[i + 1], c0 = adjStart[i], c1 = adjStart[i + 1];
       let differs = p1 - p0 !== c1 - c0;
       if (!differs && c1 > c0) {
+        // Stamps never wrap: before the counter would pass the Int32 range, clear the array and start again.
+        if (cv.stampId >= 0x7fffffff) { stamp.fill(0); cv.stampId = 0; }
         const id = ++cv.stampId;
         for (let k = p0; k < p1; k++) stamp[pAdj[k]] = id;
         for (let k = c0; k < c1; k++) if (stamp[adj[k]] !== id) { differs = true; break; }
