@@ -1,6 +1,6 @@
 // Test doubles only. They are never wired into src/: the module as shipped has no provider (offline default), and
 // no fake output is ever presented as a live Gemini response.
-import type { FormationMode, GeminiProvider, ProviderOutcome, ProviderRequest, SceneCheck, SceneValidator } from '../../src/gemini/types.ts';
+import type { FormationMode, GeminiProvider, ProviderOutcome, ProviderRequest, SceneCheck, SceneSpec, SceneValidator } from '../../src/gemini/types.ts';
 
 export interface FakeProvider extends GeminiProvider {
   readonly calls: ProviderRequest[];
@@ -29,5 +29,6 @@ export function fakeValidator(check: (candidate: unknown, mode: FormationMode) =
 /** Accepts any object with matching `mode`, returning a fresh copy and a fixed hash. */
 export const acceptingValidator = fakeValidator((candidate, mode) => {
   const scene = JSON.parse(JSON.stringify(candidate)) as Record<string, unknown>;
-  return { ok: true, scene: { version: 1, ...scene, mode: (scene.mode ?? mode) as FormationMode }, sceneHash: 'hash-test' };
+  const accepted = { version: 1, ...scene, mode: (scene.mode ?? mode) as FormationMode } as unknown as SceneSpec;
+  return { ok: true, scene: accepted, sceneHash: 'hash-test', trialCompile: 'not-yet-compiled' };
 });
