@@ -95,7 +95,10 @@ describe('G3: the complete generated path on a real controller', () => {
     // Flown: adopted drones target the compiled formation's slots (the replay's formation, from scene + provenance).
     expect(replay?.ok, replayText(replay)).toBe(true);
     if (!replay?.ok) return;
-    expect(replayText(replay)).toMatch(/^Replay: the scene and its provenance alone re-derive the same formation/);
+    expect(replayText(replay)).toMatch(/^Reproducible: the scene and its provenance alone re-derive the same formation/);
+    expect(replay.provenance).toEqual(accepted.provenance);      // the send-time preflight's (same n0 here)
+    fx.source.clearAccepted();                                   // what the Composer does after a successful send
+    expect(fx.source.accepted).toBe(null);
     const slots = replay.formation.slots;
     const onFormation = fx.worlds.latest()!.encore.drones.filter(d => d.alive && versionKey(d.belief.version) === sent.key
       && slots[d.belief.slot] && slots[d.belief.slot].pos.every((v, a) => Math.abs(v - d.belief.target[a]) < 1e-6));

@@ -66,6 +66,11 @@ describe('honest states', () => {
     expect(seen).toHaveLength(0);
   });
 
+  it('only a Gemini model id (gemini-<digit>…) is labelled Gemini', () => {
+    for (const id of ['gemini-3.1-flash-lite', 'gemini-2.5-pro', 'Gemini-3-flash']) expect(providerLabel(id).gemini, id).toBe(true);
+    for (const id of ['gemini', 'geminix', 'gemini-', 'gemini-flash', 'gemini-x1', 'offline-fake', 'my-gemini-3']) expect(providerLabel(id).gemini, id).toBe(false);
+  });
+
   it('the gateway\'s offline-fake provider is never called Gemini; only a gemini* model id is', async () => {
     expect(providerLabel('offline-fake')).toEqual({ provider: 'offline-fake provider (not Gemini)', gemini: false });
     expect(providerLabel('gemini-3.1-flash-lite')).toEqual({ provider: 'live Gemini (gemini-3.1-flash-lite)', gemini: true });

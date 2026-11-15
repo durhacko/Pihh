@@ -42,6 +42,8 @@ describe('honest source labels', () => {
     await source.select('3d-sphere');
     expect(sourceText(source.status)).toBe('Source: offline fixture');
     expect(D3_UNAVAILABLE).toBe('live Gemini unavailable (D3 not granted)');
+    // While a gateway request runs, the source is the gateway (pending), never "offline fixture".
+    expect(sourceText({ state: 'generating', fixtureId: 'live', prompt: 'a cat', mode: 'scene3d' })).toBe('Source: gateway (pending)');
   });
 
   it('the shipped gateway\'s answer is shown with its own reason, once, never as a scene', async () => {

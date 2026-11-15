@@ -88,15 +88,16 @@ export async function injectAccepted(ctx: ComposeContext, accepted: AcceptedGene
   const pre = injectPreflight(accepted.scene, accepted.provenance, ctx.params);
   if (!pre.ok) return { outcome: { status: 'failed', message: `The scene no longer checks out (${pre.reason}): ${pre.detail}`, results: [] }, replay: null };
   const outcome = await inject(ctx, accepted.recipe, droneId, accepted.title);
-  return { outcome, replay: outcome.status === 'done' ? replayFromProvenance(accepted.scene, accepted.provenance) : null };
+  // The provenance the send-time preflight issued for THIS page's parameters, not the one remembered from Accept.
+  return { outcome, replay: outcome.status === 'done' ? replayFromProvenance(accepted.scene, pre.provenance) : null };
 }
 
-/** The replay line shown after an injection. */
+/** The reproducibility line shown after an injection ("Reproducible:", distinct from the event-log replay). */
 export function replayText(replay: ReplayResult | null): string {
   if (!replay) return '';
   return replay.ok
-    ? `Replay: the scene and its provenance alone re-derive the same formation (slots ${replay.provenance.slotsDigest.slice(0, 12)}…).`
-    : `Replay refused (${replay.reason}): ${replay.detail}`;
+    ? `Reproducible: the scene and its provenance alone re-derive the same formation (slots ${replay.provenance.slotsDigest.slice(0, 12)}…).`
+    : `Not reproducible (${replay.reason}): ${replay.detail}`;
 }
 
 export interface GeneratedSourceContext {
@@ -134,6 +135,8 @@ export interface GeneratedSource {
   readonly accepted: AcceptedGeneratedScene | null;
   /** Whether the page can inject at all (the inject path is loaded). */
   readonly injectConnected: boolean;
+  /** Drops the accepted scene (after a successful send, so the same scene is not re-injected by accident). */
+  clearAccepted(): void;
   subscribe(listener: () => void): () => void;
   dispose(): void;
 }
@@ -325,6 +328,7 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     },
     get accepted() { return accepted; },
     get injectConnected() { return !!ctx.injectConnected; },
+    clearAccepted() { if (accepted !== null) { accepted = null; emit(); } },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     dispose() {
       selection++;
@@ -381,6 +385,7 @@ export function sourceText(status: GeneratedStatus): string {
   if (status.state === 'compiling' || status.state === 'ready' || status.state === 'rejected') {
     return status.origin.kind === 'fixture' ? `Source: ${OFFLINE_FIXTURE}` : `Source: ${status.origin.provider}`;
   }
+  if (status.state === 'generating') return 'Source: gateway (pending)';
   return `Source: ${OFFLINE_FIXTURE}`;
 }
 
@@ -446,7 +451,7 @@ export function renderGeneratedSource(source: GeneratedSource, n0: number, onPre
       chip?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     }
   };
-  root.replaceChildren(h('span', { class: 'label' }, 'Generated · offline fixtures (committed scenes)'), chipsBox, liveBox, statusBox, actionsBox);
+  root.replaceChildren(h('span', { class: 'label' }, source.liveAvailable ? 'Generated · offline fixtures or the live gateway' : 'Generated · offline fixtures (committed scenes)'), chipsBox, liveBox, statusBox, actionsBox);
   source.subscribe(draw);
   draw();
   return root;

@@ -53,9 +53,10 @@ export interface GenerateClient {
   generate(request: { prompt: string; mode: LiveMode; requestId?: string; token?: string; signal?: AbortSignal }): Promise<GenerateOutcome>;
 }
 
-/** The provider label shown next to a generated scene. Only a model id that starts with `gemini` is called Gemini. */
+/** The provider label shown next to a generated scene. Only a Gemini model id (`gemini-<digit>…`, e.g.
+ *  gemini-3.1-flash-lite) is called Gemini; `gemini`, `geminix` or anything else is not. */
 export function providerLabel(model: string): { provider: string; gemini: boolean } {
-  const gemini = /^gemini[a-z0-9.-]*$/i.test(model);
+  const gemini = /^gemini-\d[a-z0-9.-]*$/i.test(model);
   return gemini ? { provider: `live Gemini (${model})`, gemini } : { provider: `${model} provider (not Gemini)`, gemini };
 }
 

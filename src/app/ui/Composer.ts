@@ -587,13 +587,19 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     const accepted = generated?.source.accepted ?? null;
     if (targetId === null || busy || !generated || !accepted) return;
     busy = true; renderTransmit();
-    const { outcome, replay } = await generated.inject(accepted, targetId);
-    busy = false;
-    if (outcome.sent) {
-      lastSent = outcome.sent;
-      feedback = { ok: true, text: `${outcome.message} Other drones learn it only by radio; adoption is measured by the observer below. ${generated.replayText(replay)}`.trim() };
-    } else feedback = { ok: outcome.status === 'done', text: outcome.message };
-    render();
+    try {
+      const { outcome, replay } = await generated.inject(accepted, targetId);
+      if (outcome.sent) {
+        lastSent = outcome.sent;
+        generated.source.clearAccepted();             // sent: Accept again to send the same scene to another drone
+        feedback = { ok: true, text: `${outcome.message} Other drones learn it only by radio; adoption is measured by the observer below. ${generated.replayText(replay)}`.trim() };
+      } else feedback = { ok: outcome.status === 'done', text: outcome.message };
+    } catch (error) {
+      feedback = { ok: false, text: `The injection failed: ${String(error)}` };
+    } finally {
+      busy = false;                                   // never stuck on "Sending…"
+      render();
+    }
   }
 
   const bar = h('div', { class: 'bar', role: 'meter', 'aria-label': 'Adoption of the injected score (observer)', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' });
