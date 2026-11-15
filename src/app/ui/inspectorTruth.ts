@@ -20,8 +20,14 @@ export function observerTruth(snapshot: WorldSnapshot, slots: SlotStatusReading 
   if (!drone || drone.id !== id) return null;
   let live = 0;
   let dead = 0;
+  // P2-WP-09: every other drone by id, for the peer diff (alive in radio range, alive out of range, dead).
+  const peers = { liveInRange: [] as number[], liveOutOfRange: [] as number[], dead: [] as number[] };
   for (const other of snapshot.drones) {
-    if (other.id === id || distance2(other.pos, drone.pos) > params.rRadio ** 2) continue;
+    if (other.id === id) continue;
+    const inRange = distance2(other.pos, drone.pos) <= params.rRadio ** 2;
+    if (!other.alive) peers.dead.push(other.id);
+    else (inRange ? peers.liveInRange : peers.liveOutOfRange).push(other.id);
+    if (!inRange) continue;
     if (other.alive) live++; else dead++;
   }
   const slot = drone.belief.slot;
@@ -41,5 +47,6 @@ export function observerTruth(snapshot: WorldSnapshot, slots: SlotStatusReading 
     jammedBy: snapshot.jams.filter(jam => distance2(jam.centre, drone.pos) <= jam.radius ** 2).map(jam => jam.id),
     partitionSide: drone.partitionSide,
     inRadioRange: { live, dead },
+    peers,
   };
 }
