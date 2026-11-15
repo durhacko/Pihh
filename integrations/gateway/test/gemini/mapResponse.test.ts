@@ -18,6 +18,12 @@ test('MAX_TOKENS is truncated; SAFETY and RECITATION are blocked; text is never 
   for (const finishReason of ['SAFETY', 'RECITATION']) assert.deepEqual(mapProviderResponse({ httpStatus: 200, finishReason, text: '{}' }), { kind: 'blocked' });
 });
 
+test('spec difference (orchestrator ruling): BLOCKLIST, PROHIBITED_CONTENT and SPII also block, and are never parsed', () => {
+  for (const finishReason of ['BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII']) {
+    assert.deepEqual(mapProviderResponse({ httpStatus: 200, finishReason, text: '{"version":1}' }), { kind: 'blocked' }, finishReason);
+  }
+});
+
 test('a promptFeedback.blockReason blocks, whatever the finish reason', () => {
   for (const finishReason of ['STOP', undefined, 'MAX_TOKENS']) {
     assert.deepEqual(mapProviderResponse({ httpStatus: 200, blockReason: 'PROHIBITED_CONTENT', finishReason, text: '{}' }), { kind: 'blocked' });
@@ -26,7 +32,7 @@ test('a promptFeedback.blockReason blocks, whatever the finish reason', () => {
 });
 
 test('any other or missing finish reason is never parsed', () => {
-  for (const finishReason of ['OTHER', 'BLOCKLIST', 'SPII', 'LANGUAGE', 'FINISH_REASON_UNSPECIFIED', 'stop', ' STOP-ish']) {
+  for (const finishReason of ['OTHER', 'LANGUAGE', 'MALFORMED_FUNCTION_CALL', 'FINISH_REASON_UNSPECIFIED', 'stop', 'spii', ' STOP-ish']) {
     assert.deepEqual(mapProviderResponse({ httpStatus: 200, finishReason, text: '{}' }), { kind: 'other-finish', finishReason: finishReason.trim() });
   }
   assert.deepEqual(mapProviderResponse({ httpStatus: 200, text: '{}' }), { kind: 'other-finish', finishReason: 'FINISH_REASON_MISSING' });

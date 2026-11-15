@@ -145,6 +145,7 @@ test('(5) finish reasons: MAX_TOKENS → RESPONSE_TOO_LARGE; SAFETY, RECITATION 
     [{ raw: { httpStatus: 200, finishReason: 'SAFETY', text: JSON.stringify(SPHERE) } }, 'PROVIDER_BLOCKED'],
     [{ raw: { httpStatus: 200, finishReason: 'RECITATION', text: JSON.stringify(SPHERE) } }, 'PROVIDER_BLOCKED'],
     [{ raw: { httpStatus: 200, blockReason: 'SAFETY', finishReason: 'STOP', text: JSON.stringify(SPHERE) } }, 'PROVIDER_BLOCKED'],
+    [{ raw: { httpStatus: 200, finishReason: 'PROHIBITED_CONTENT', text: JSON.stringify(SPHERE) } }, 'PROVIDER_BLOCKED'],
     [{ raw: { httpStatus: 200, finishReason: 'OTHER', text: JSON.stringify(SPHERE) } }, 'PROVIDER_ERROR'],
   ];
   for (const [step, reason] of cases) {

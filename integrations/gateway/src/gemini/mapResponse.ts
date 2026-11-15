@@ -4,8 +4,12 @@
 // interprets finish reasons itself, so the mapping is tested offline here. SDK-free: plain data in, plain data out.
 //
 // Rules: a non-200 status is an upstream error; a `promptFeedback.blockReason` blocks; only a `STOP` finish is parsed;
-// `MAX_TOKENS` is truncation (RESPONSE_TOO_LARGE); `SAFETY` or `RECITATION` blocks (PROVIDER_BLOCKED); any other or a
-// missing finish reason is never parsed (PROVIDER_ERROR).
+// `MAX_TOKENS` is truncation (RESPONSE_TOO_LARGE); `SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT` or `SPII`
+// blocks (PROVIDER_BLOCKED); any other or a missing finish reason is never parsed (PROVIDER_ERROR).
+//
+// SPEC DIFFERENCE (orchestrator ruling, #249): GF-WP-12 step 5 names only SAFETY and RECITATION. BLOCKLIST,
+// PROHIBITED_CONTENT and SPII are the provider's other block finishes, so they are blocks too: a conservative superset.
+// A blocked finish is never parsed, whatever its text.
 import type { ProviderOutcome } from './types.ts';
 
 /** The provider fields the module reads, already copied out of the SDK's response. */
@@ -22,7 +26,7 @@ export interface RawProviderResponse {
   readonly latencyMs?: number;
 }
 
-export const BLOCKING_FINISH_REASONS: readonly string[] = Object.freeze(['SAFETY', 'RECITATION']);
+export const BLOCKING_FINISH_REASONS: readonly string[] = Object.freeze(['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII']);
 
 const present = (value: string | null | undefined): value is string => typeof value === 'string' && value.trim() !== '';
 
