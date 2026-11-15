@@ -39,18 +39,24 @@ export interface Popover { readonly el: HTMLElement; render(): void }
  *  so a click that hits no drone does not answer it; a region pick (kill, jam) takes any point. */
 /**
  * The world a selection is made in, kept in one place. A selection is made in the static world only inside
- * within('static', ...) (a static-pane click, `inspect N --static`, or the static inspector's own links); every
+ * within('static', id, ...) (a static-pane click, `inspect N --static`, or the static inspector's own links); every
  * other selection (controller, demo, console --at/--drone/--pick, inject --pick) and every deselect is Encore.
- * The arm is one-shot: only the first selection made inside within() takes it. selectDrone emits its status
- * synchronously, so the scripted demo can run due beats (its own select and inject) while within() is still on the
- * stack; those selections must stay Encore. The pending arm never outlives the call, even when refused.
+ * The arm is one-shot and tied to the id: only the selection of that id made inside within() takes it.
+ * selectDrone emits its status synchronously, so the scripted demo can run due beats (its own select and inject)
+ * while within() is still on the stack; those stay Encore, even when the outer selection was refused (a bad id).
+ * The pending arm never outlives the call.
  */
 export function createSelectionArm() {
-  let pending: 'encore' | 'static' = 'encore';
+  let pending: { arm: 'encore' | 'static'; id: number | null } | null = null;
   return {
-    within<T>(arm: 'encore' | 'static', select: () => T): T { pending = arm; try { return select(); } finally { pending = 'encore'; } },
+    within<T>(arm: 'encore' | 'static', id: number | null, select: () => T): T { pending = { arm, id }; try { return select(); } finally { pending = null; } },
     /** The arm of the selection being made now (display.setSelected). */
-    current(id: number | null): 'encore' | 'static' { const arm = id === null ? 'encore' : pending; pending = 'encore'; return arm; },
+    current(id: number | null): 'encore' | 'static' {
+      if (id === null || pending === null || pending.id !== id) return 'encore';
+      const { arm } = pending;
+      pending = null;
+      return arm;
+    },
   };
 }
 
@@ -76,6 +82,16 @@ export function stageClick(input: { pick: { purpose: string; radius?: number } |
 export function jamKeyAction(jamOn: boolean, hasSelection: boolean): 'lift' | 'around-selected' | 'pick' {
   return jamOn ? 'lift' : hasSelection ? 'around-selected' : 'pick';
 }
+/** What K does: kill around the selected live drone, else ask for a centre. The radius is the shared one (store.killRadius). */
+export function killKeyRun(selectedLiveId: number | null, radius: number): DisruptRun {
+  return selectedLiveId !== null ? { kind: 'intent', intent: { type: 'kill-region', radius } } : { kind: 'pick', purpose: 'killRegion', radius };
+}
+/** What J does, as a run, with the shared radius (store.jamRadius). */
+export function jamKeyRun(jamOn: boolean, hasSelection: boolean, radius: number): DisruptRun {
+  const action = jamKeyAction(jamOn, hasSelection);
+  return action === 'lift' ? { kind: 'intent', intent: { type: 'jam' } }
+    : action === 'around-selected' ? { kind: 'intent', intent: { type: 'jam', radius } } : { kind: 'pick', purpose: 'jam', radius };
+}
 
 // ---------- Disrupt ----------
 export interface DisruptState { selectedId: number | null; selectedAlive: boolean; jamActive: boolean; partitioned: boolean }
@@ -83,50 +99,62 @@ export type DisruptRun = { kind: 'intent'; intent: ControlIntent } | { kind: 'pi
 export interface DisruptAction { id: string; title: string; desc: string; key?: string; disabled?: boolean; active?: boolean; run: DisruptRun }
 
 /** What the Disrupt popover offers in a given state. Pure, so the choices are tested without a DOM. */
-export function disruptActions(state: DisruptState, settings: { regionRadius: number; jamRadius: number }): DisruptAction[] {
+export function disruptActions(state: DisruptState, radii: { killRadius: number; jamRadius: number }): DisruptAction[] {
   const sel = state.selectedAlive ? state.selectedId : null;
   return [
-    { id: 'kill-region', title: 'Destroy a region', desc: `Click a centre in the stage; every live drone within ${settings.regionRadius} m dies`, key: 'K', run: { kind: 'pick', purpose: 'killRegion', radius: settings.regionRadius } },
+    { id: 'kill-region', title: 'Destroy a region', desc: `Click a centre in the stage; every live drone within ${radii.killRadius} m dies`, key: 'K', run: { kind: 'pick', purpose: 'killRegion', radius: radii.killRadius } },
     { id: 'kill-selected', title: sel !== null ? `Kill drone #${sel}` : 'Kill selected drone', desc: sel !== null ? 'Removed from sensing and radio next tick' : 'Select a drone first (click one)', disabled: sel === null, run: { kind: 'intent', intent: { type: 'kill-selected' } } },
     { id: 'kill-random', title: 'Kill 10% at random', desc: 'An even thinning: expect both worlds to look similar', run: { kind: 'intent', intent: { type: 'kill-random' } } },
     state.jamActive
       ? { id: 'jam', title: 'Lift jam', desc: 'Radio inside the sphere works again', key: 'J', active: true, run: { kind: 'intent', intent: { type: 'jam' } } }
-      : { id: 'jam', title: 'Jam radio', desc: `Click a centre; messages to or from within ${settings.jamRadius} m are blocked. Sensing still works`, key: 'J', run: { kind: 'pick', purpose: 'jam', radius: settings.jamRadius } },
+      : { id: 'jam', title: 'Jam radio', desc: `Click a centre; messages to or from within ${radii.jamRadius} m are blocked. Sensing still works`, key: 'J', run: { kind: 'pick', purpose: 'jam', radius: radii.jamRadius } },
     { id: 'partition', title: state.partitioned ? 'Reconnect partition' : 'Partition the swarm', desc: state.partitioned ? 'The two groups hear each other again' : 'Two radio groups split at x = 0, fixed wherever they fly', key: 'P', active: state.partitioned, run: { kind: 'intent', intent: { type: 'partition' } } },
   ];
 }
 
 export function createDisrupt(ctx: PopoverContext): Popover {
   const el = h('div', { class: 'popover surface chrome', 'aria-label': 'Disrupt: failures and radio' });
-  const settings = { regionRadius: 8, jamRadius: 12 };
   let loss = 5;
   function render(): void {
     const status = ctx.status();
     const live = ctx.live();
-    const actions = disruptActions({
-      selectedId: status.selectedId, selectedAlive: status.selectedAlive,
-      jamActive: live.jam, partitioned: live.partition,
-    }, settings);
-    const button = (a: DisruptAction) => h('button', {
-      type: 'button', class: `action ${a.active ? 'active' : ''}`, disabled: a.disabled, 'data-action': a.id,
-      onclick: () => {
-        ctx.surfaces.close('disrupt', false);   // a popover closes when it runs an action
-        if (a.run.kind === 'pick') ctx.pick(a.run.purpose, a.run.radius); else ctx.run(a.run.intent);
-      },
-    }, h('span', { class: 'ic', html: a.id === 'kill-region' ? icon.region : a.id === 'kill-random' ? icon.dice : a.id === 'jam' ? icon.jam : a.id === 'partition' ? icon.split : icon.kill }),
-    h('span', { class: 'txt' }, h('b', {}, a.title), h('small', {}, a.desc)), a.key ? h('kbd', {}, a.key) : null);
+    const state: DisruptState = { selectedId: status.selectedId, selectedAlive: status.selectedAlive, jamActive: live.jam, partitioned: live.partition };
+    // The radii live in the store (K and J read them too): read them again whenever they are used, never once per render.
+    const now = (id: string) => disruptActions(state, ctx.store.state).find(x => x.id === id);
+    const actions = disruptActions(state, ctx.store.state);
+    const descs = new Map<string, HTMLElement>();
+    const button = (a: DisruptAction) => {
+      const desc = h('small', {}, a.desc);
+      descs.set(a.id, desc);
+      return h('button', {
+        type: 'button', class: `action ${a.active ? 'active' : ''}`, disabled: a.disabled, 'data-action': a.id,
+        onclick: () => {
+          const run = (now(a.id) ?? a).run;   // a slider moved since render() is the radius that is used
+          ctx.surfaces.close('disrupt', false);   // a popover closes when it runs an action
+          if (run.kind === 'pick') ctx.pick(run.purpose, run.radius); else ctx.run(run.intent);
+        },
+      }, h('span', { class: 'ic', html: a.id === 'kill-region' ? icon.region : a.id === 'kill-random' ? icon.dice : a.id === 'jam' ? icon.jam : a.id === 'partition' ? icon.split : icon.kill }),
+      h('span', { class: 'txt' }, h('b', {}, a.title), desc), a.key ? h('kbd', {}, a.key) : null);
+    };
     const slider = (label: string, min: number, max: number, step: number, value: number, unit: string, set: (v: number) => void) => {
       const out = h('span', { class: 'mono hint' }, `${value}${unit}`);
       const input = h('input', { type: 'range', class: 'range', min, max, step, value, 'aria-label': label }) as HTMLInputElement;
       input.addEventListener('input', () => { set(Number(input.value)); out.textContent = `${input.value}${unit}`; });
       return [h('div', { class: 'row' }, h('label', { class: 'grow' }, label), out), h('div', { class: 'row' }, input)];
     };
+    /** A radius slider writes the store and updates its row's text in place (no re-render mid-drag). */
+    const radiusSlider = (label: string, min: number, max: number, key: 'killRadius' | 'jamRadius', id: string) =>
+      slider(label, min, max, 1, ctx.store.state[key], ' m', v => {
+        ctx.store.set(key === 'killRadius' ? { killRadius: v } : { jamRadius: v });
+        const el = descs.get(id), a = now(id);
+        if (el && a) el.textContent = a.desc;
+      });
     const byId = (id: string) => button(actions.find(a => a.id === id)!);
     const jam = actions.find(a => a.id === 'jam')!;
     el.replaceChildren(
       h('div', { class: 'pop-title' }, h('span', { class: 'eyebrow' }, 'Disrupt'), h('span', { class: 'hint' }, 'Both worlds, next tick')),
-      h('section', {}, byId('kill-region'), ...slider('Region radius', 3, 16, 1, settings.regionRadius, ' m', v => { settings.regionRadius = v; }), byId('kill-selected'), byId('kill-random')),
-      h('section', {}, button(jam), ...(jam.active ? [] : slider('Jam radius', 4, 30, 1, settings.jamRadius, ' m', v => { settings.jamRadius = v; })), byId('partition'),
+      h('section', {}, byId('kill-region'), ...radiusSlider('Region radius', 3, 16, 'killRadius', 'kill-region'), byId('kill-selected'), byId('kill-random')),
+      h('section', {}, button(jam), ...(jam.active ? [] : radiusSlider('Jam radius', 4, 30, 'jamRadius', 'jam')), byId('partition'),
         h('div', { class: 'row' }, h('span', { html: icon.loss, style: { width: '16px', color: 'var(--text-2)' } }), h('label', { class: 'grow' }, `Packet loss (now ${(status.loss * 100).toFixed(0)}%)`)),
         ...slider('Packet loss', 0, 100, 5, loss, '%', v => { loss = v; }),
         h('div', { class: 'row' }, h('span', { class: 'grow' }), h('button', { type: 'button', class: 'btn small', 'data-action': 'loss', onclick: () => { ctx.surfaces.close('disrupt', false); ctx.run({ type: 'loss', loss: loss / 100 }); } }, 'Apply loss'))),
@@ -154,12 +182,12 @@ export function createLenses(ctx: PopoverContext): Popover {
       sw('Radio X-ray', 'Real messages from the radio log, jam spheres and the partition plane; dims the show', 'X', () => lens().xray, () => ctx.run({ type: 'xray' })),
       sw('Belief colours', 'Colour each drone by the score version it holds', 'C', () => lens().colour === 'belief', () => ctx.run({ type: 'belief' })),
       sw('Ghost slots', 'Observer view: vacant, in-transit, contested', 'G', () => lens().ghosts, () => ctx.store.lens('ghosts', !lens().ghosts)),
-      sw('Tethers', 'Line to where a drone believes it should be (selected drone; all with X-ray)', '', () => lens().tethers, () => ctx.store.lens('tethers', !lens().tethers))),
+      sw('Tethers', 'Line to the target a drone believes in: belief, not radio (selected drone; all with X-ray)', '', () => lens().tethers, () => ctx.store.lens('tethers', !lens().tethers))),
     h('section', {},
       h('div', { class: 'row' }, h('span', { class: 'eyebrow grow' }, 'Camera'),
         ...(['audience', 'quarter', 'top'] as const).map((p, i) => h('button', { type: 'button', class: 'btn small', onclick: () => ctx.camera(p) }, p === 'quarter' ? '¾' : p === 'audience' ? 'Front' : 'Top', h('kbd', {}, String(i + 1))))),
       h('div', { class: 'row' },
-        h('button', { type: 'button', class: 'btn small ghost', onclick: () => { if (lens().xray) ctx.run({ type: 'xray' }); if (lens().colour === 'belief') ctx.run({ type: 'belief' }); ctx.store.lens('ghosts', false); render(); } }, 'Reset to performance view'),
+        h('button', { type: 'button', class: 'btn small ghost', onclick: () => { if (lens().xray) ctx.run({ type: 'xray' }); if (lens().colour === 'belief') ctx.run({ type: 'belief' }); ctx.store.lens('ghosts', false); ctx.store.lens('tethers', false); render(); } }, 'Reset to performance view'),
         h('span', { class: 'grow' }),
         h('button', { type: 'button', class: 'btn small ghost', onclick: () => { ctx.surfaces.close('lenses', false); ctx.store.set({ chromeHidden: true }); } }, 'Hide UI', h('kbd', {}, 'H')))),
   );

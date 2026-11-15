@@ -1,8 +1,9 @@
 // tests/app/demo.test.ts
 // WP-9a (#27): the scripted demo, run headless over the browser's own path: the real controls binder (bindControls)
 // on an event target, the demo connected to it by DOM events only (connectDemo), and status refreshed the way
-// main.ts refreshes it. These tests check scheduling, determinism and stop/restart only. They make no claim about
-// repair, adoption or radio behaviour (see BRAIN_DEPENDENT_BEATS): they run whatever brains the app's worlds fly.
+// main.ts refreshes it. These tests check scheduling, determinism and stop/restart, plus one measured timing: the
+// repair caption lands between the Encore arm's first claim and its first slot commit. Other repair, adoption and
+// radio behaviour (see BRAIN_DEPENDENT_BEATS) is not asserted here.
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { makeParams, OPERATOR } from '../../src/contracts';
 import type { EnvEvent, MetricsSample, WorldSnapshot } from '../../src/contracts';
@@ -13,7 +14,7 @@ import { readViewMode, resetViewMode } from '../../src/app/render/colourModes/vi
 import { controlContext, createWorlds, DEFAULT_N0, viewModeDisplay, type Pair, type ShellHooks, type Worlds } from '../../src/app/worlds';
 import { createSelectionArm } from '../../src/app/ui/popovers';
 import {
-  BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, dispatchTick,
+  BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoViewAt, dispatchTick,
   INJECT_DRONE, JAM_CENTRE, JAM_RADIUS, KILL_CENTRE, KILL_RADIUS, LEAD_TICKS, type DemoBeat,
 } from '../../src/app/ui/DemoScript';
 
@@ -77,6 +78,18 @@ describe('scripted demo constants', () => {
     expect(lowest).toContain(INJECT_DRONE);
     expect(expandRecipe({ kind: 'text', text: 'ENCORE' }, DEMO_N0, worlds.params).slots[INJECT_DRONE].pos[0]).toBeGreaterThan(28);
   });
+
+  it('the repair beat turns X-ray off so the hole and its refill show; the jam turns it back on (#134)', () => {
+    expect(DEMO_TICKS.REPAIR).toBe(460);   // measured: first claim 455, first commit 475, first hole slot filled 495
+    expect(DEMO_BEATS.find(beat => beat.id === 'repair')).toMatchObject({ tick: DEMO_TICKS.REPAIR, action: { kind: 'view', xray: false, beliefColours: false } });
+    expect(demoViewAt(DEMO_TICKS.XRAY - 1)).toEqual({ xray: false, beliefColours: false });
+    expect(demoViewAt(DEMO_TICKS.KILL)).toEqual({ xray: true, beliefColours: false });
+    for (const tick of [DEMO_TICKS.REPAIR, DEMO_TICKS.FORMATION, DEMO_TICKS.JAM_ON - 1]) expect(demoViewAt(tick)).toEqual({ xray: false, beliefColours: false });
+    expect(demoViewAt(DEMO_TICKS.JAM_ON)).toEqual({ xray: true, beliefColours: true });
+    expect(demoViewAt(DEMO_TICKS.FINAL)).toEqual({ xray: false, beliefColours: false });
+    // The stop and restart tests below read X-ray on at KILL - 30 and KILL + 20: both before the repair beat.
+    expect(DEMO_TICKS.REPAIR).toBeGreaterThan(DEMO_TICKS.KILL + 20);
+  });
 });
 
 describe('scripted demo run', () => {
@@ -88,13 +101,25 @@ describe('scripted demo run', () => {
   let jammedAtOn = 0;
   const leadIds: number[][] = [];
   const seen: Partial<Record<number, Pair<WorldSnapshot>>> = {};
+  const xrayChanges: [number, boolean][] = [];
+  const firstClaim: Pair<number | null> = { encore: null, static: null };
+  const firstCommit: Pair<number | null> = { encore: null, static: null };
+  let previous: Pair<WorldSnapshot> | null = null;
   const watched = [DEMO_TICKS.KILL - 1, DEMO_TICKS.KILL, DEMO_TICKS.JAM_ON, DEMO_TICKS.INJECT, DEMO_TICKS.JAM_OFF - 1, DEMO_TICKS.JAM_OFF];
   beforeAll(() => {
     r = rig();
     expect(r.runner.start()).toBe(true);
+    let xray = readViewMode().xray;
     play(r, DEMO_TICKS.END, 1, snapshots => {
       const tick = snapshots.encore.tick;
       if (watched.includes(tick)) seen[tick] = structuredClone(snapshots);
+      // play() refreshes status after this callback, so a view beat sent on tick t shows here on tick t + 1.
+      if (readViewMode().xray !== xray) { xray = !xray; xrayChanges.push([tick - 1, xray]); }
+      if (tick > DEMO_TICKS.KILL && tick < DEMO_TICKS.FORMATION) for (const arm of ['encore', 'static'] as const) {
+        firstClaim[arm] ??= snapshots[arm].radio.some(event => event.claimSlot !== null) ? tick : null;
+        firstCommit[arm] ??= previous && snapshots[arm].drones.some(d => d.alive && d.belief.slot !== previous![arm].drones[d.id].belief.slot) ? tick : null;
+      }
+      previous = snapshots;
       // Kill ids resolve from positions when the beat is sent, up to LEAD_TICKS early: they must not drift.
       if (tick >= DEMO_TICKS.KILL - LEAD_TICKS && tick < DEMO_TICKS.KILL) leadIds.push(idsInSphere(snapshots.encore, KILL_CENTRE, KILL_RADIUS));
       if (tick === DEMO_TICKS.JAM_ON) jammedAtOn = snapshots.encore.drones.filter(d => d.alive && dist(d.pos, JAM_CENTRE) <= JAM_RADIUS).length;
@@ -163,6 +188,20 @@ describe('scripted demo run', () => {
     const captioned = DEMO_BEATS.filter(beat => beat.caption);
     expect(r.captions.map(entry => entry.caption)).toEqual(captioned.map(beat => beat.caption));
     expect(r.captions.map(entry => entry.tick)).toEqual(captioned.map(beat => beat.tick));
+  });
+
+  it('X-ray is off from the repair caption until the jam, through the real display intents (#134)', () => {
+    expect(xrayChanges).toEqual([[DEMO_TICKS.XRAY, true], [DEMO_TICKS.REPAIR, false], [DEMO_TICKS.JAM_ON, true], [DEMO_TICKS.FINAL, false]]);
+  });
+
+  it('the repair caption lands after the Encore arm first claims and before it first commits (measured 455 / 475)', () => {
+    expect(r.worlds.worlds.encore.config.brain.kind).toBe('encore');   // re-measure REPAIR if the app flies another brain
+    expect(firstClaim.encore).not.toBeNull();
+    expect(firstClaim.encore!).toBeLessThanOrEqual(DEMO_TICKS.REPAIR);
+    expect(firstCommit.encore!).toBeGreaterThan(DEMO_TICKS.REPAIR);
+    expect(firstCommit.encore!).toBeLessThan(DEMO_TICKS.REPAIR + 2 * 20);   // the refill starts while the caption is read
+    expect(firstClaim.static).toBeNull();
+    expect(firstCommit.static).toBeNull();
   });
 
   it('runs twice from reset to identical state hashes, HUD samples and events, however often status arrives', () => {
@@ -282,7 +321,7 @@ describe('injection target and brain note', () => {
     r.runner.start();
     while (r.worlds.tick < 25) r.worlds.stepBoth();   // the beats are due, but no status has polled them yet
     expect(selected).toEqual([]);
-    arm.within('static', () => r.controls.selectDrone(3));   // a static-pane click: its status runs the beats
+    arm.within('static', 3, () => r.controls.selectDrone(3));   // a static-pane click: its status runs the beats
     expect(selected[0]).toEqual({ id: 3, arm: 'static' });
     expect(selected.slice(1).map(s => s.id)).toContain(INJECT_DRONE);
     expect(selected.slice(1).every(s => s.arm === 'encore')).toBe(true);   // the demo's own selections stay Encore

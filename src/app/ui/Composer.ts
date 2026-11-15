@@ -130,7 +130,7 @@ export interface ComposeContext {
 
 export function parseContext(ctx: ComposeContext): ParseContext {
   const status = ctx.controller.status();
-  return { snapshot: ctx.snapshots().encore, seed: status.seed, drafts: ctx.drafts.list.map(draft => draft.id), selectedId: status.selectedId };
+  return { snapshot: ctx.snapshots().encore, seed: status.seed, drafts: ctx.drafts.list.map(draft => draft.id), selectedId: status.selectedId, killRadius: ctx.store.state.killRadius, jamRadius: ctx.store.state.jamRadius };
 }
 
 /**

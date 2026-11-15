@@ -201,3 +201,14 @@ export function handleEscape(store: Store, surfaces: Surfaces, deselect: () => v
   }
   return null;
 }
+
+/**
+ * The stage's bottom inset and where split view's two panes meet, in client px, from the viewport height and the
+ * tops of the open trays (console, timeline). The stage stops 8 px above the highest open tray, and the panes are
+ * 50% / 50% of the stage, so the divider and the lower pane label belong at half the stage's height. One source for
+ * both numbers: the shell sets `stage.style.bottom` and `--split-mid` from the same call.
+ */
+export function stageLayout(viewportHeight: number, openTrayTops: readonly number[]): { stageBottom: number; splitMid: number } {
+  const stageBottom = openTrayTops.length ? Math.max(0, viewportHeight - Math.min(...openTrayTops) + 8) : 0;
+  return { stageBottom, splitMid: Math.max(0, viewportHeight - stageBottom) / 2 };
+}

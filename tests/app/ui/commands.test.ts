@@ -305,3 +305,16 @@ describe('rejections carry a useful message', () => {
     expect(error('form text "--pick"')).toMatch(/The font has no "-"/);
   });
 });
+
+describe('console faults follow the one radius (#134)', () => {
+  const shell: ParseContext = { ...ctx, killRadius: 6, jamRadius: 12 };
+  it('fault kill-region and fault jam without --radius use the shell radius', () => {
+    expect(parse('fault kill-region --at 5', shell)).toMatchObject({ ok: true, intent: { steps: [{ type: 'select', id: 5 }, { type: 'kill-region', radius: 6 }] } });
+    expect(parse('fault jam --at 4', shell)).toMatchObject({ ok: true, intent: { steps: [{ type: 'select', id: 4 }, { type: 'jam', radius: 12 }] } });
+    expect(parse('fault kill-region', { ...shell, killRadius: 9 })).toMatchObject({ ok: true, intent: { steps: [{ type: 'kill-region', radius: 9 }] } });
+  });
+  it('an explicit --radius still wins', () => {
+    expect(parse('fault kill-region --radius 8 --at 5', shell)).toMatchObject({ ok: true, intent: { steps: [{ type: 'select', id: 5 }, { type: 'kill-region', radius: 8 }] } });
+    expect(parse('fault jam --radius 20 --at 4', shell)).toMatchObject({ ok: true, intent: { steps: [{ type: 'select', id: 4 }, { type: 'jam', radius: 20 }] } });
+  });
+});

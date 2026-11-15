@@ -25,11 +25,11 @@ import { liveState } from './ui/commands';
 import { connectInspector, createPanel as createInspectorPanel, type InspectorSource } from './ui/Inspector';
 import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
-import { createLegend } from './ui/Legend';
-import { createDisrupt, createHelp, createLenses, createMetrics, createSelectionArm, jamKeyAction, stageClick, type PopoverContext } from './ui/popovers';
+import { createLegend, drawnTethers } from './ui/Legend';
+import { createDisrupt, createHelp, createLenses, createMetrics, createSelectionArm, jamKeyRun, killKeyRun, stageClick, type DisruptRun, type PopoverContext } from './ui/popovers';
 import { appPhaseTracker, createReadout, TRANSITION_TITLE, type ArmPhase } from './ui/Readout';
-import { defaultUIState, Store, type ViewMode } from './ui/store';
-import { handleEscape, Surfaces } from './ui/surfaces';
+import { defaultUIState, initialShellState, paneLabels, Store, type PaneLabel, type ViewMode } from './ui/store';
+import { handleEscape, stageLayout, Surfaces } from './ui/surfaces';
 import { connectTimeline } from './ui/Timeline';
 import { createToasts } from './ui/Toasts';
 import { ARMS, controlContext, createFrameLoop, createTickPipeline, createWorlds, hudPayload, type Arm, type Pair } from './worlds';
@@ -51,8 +51,9 @@ const n0 = ROSTERS.find(r => String(r) === requestedN0) ?? 200;
 if (requestedN0 !== null && String(n0) !== requestedN0) console.info(`Encore: ?n0=${requestedN0} ignored; allowed rosters are ${ROSTERS.join(', ')}. Using ${n0}.`);
 const initialView: ViewMode = query.get('split') === '1' ? 'split' : query.get('arm') === 'static' ? 'static' : 'encore';
 const initialState = defaultUIState({ quality: query.get('q') === 'low' ? 'low' : 'auto', reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false });
-// Tethers start on: the selected drone's tether is part of its neighbourhood (all tethers still need X-ray).
-const store = new Store({ ...initialState, view: initialView, lenses: { ...initialState.lenses, tethers: true } });
+// Tethers start off (#134): with X-ray they draw one line per drone, on both panes, and read as radio. Lenses ▸ Tethers
+// or `view tethers` turns them on, and the legend then keys them as belief.
+const store = new Store(initialShellState(initialState, initialView));
 resetViewMode();   // render view state is a module singleton (#25): every load and HMR reload starts from defaults
 
 // ---------- worlds ----------
@@ -116,10 +117,12 @@ function layoutViews(view: ViewMode): void {
   else if (view === 'encore') { place('encore', '0', '100%', true); place('static', '0', '100%', false); }
   else { place('static', '0', '100%', true); place('encore', '0', '100%', false); }
   divider.hidden = view !== 'split';
-  Object.assign(vpBottom.style, { top: 'calc(50% + 12px)' });
+  // --split-mid is the real boundary between the panes (set by layoutBottom from stageLayout); 50% only before the first layout.
+  Object.assign(vpBottom.style, { top: 'calc(var(--split-mid, 50%) + 12px)' });
   // style.display, not `hidden`: the .vp-label class sets display:flex, which overrides the hidden attribute.
-  vpBottom.style.display = view === 'split' ? '' : 'none';
-  vpTop.style.display = view === 'encore' ? 'none' : '';
+  // Every view names its top pane, the single Encore view too (#134). Only split has a bottom label.
+  vpBottom.style.display = paneLabels(view).bottom ? '' : 'none';
+  vpTop.style.display = '';
   for (const { view: v } of views) { v.setLayout(view); v.resize(); }   // setLayout: quality rung 4 half-rates the static view in split only
 }
 layoutViews(initialView);
@@ -275,7 +278,7 @@ const onPointerUp = (e: PointerEvent) => {
     const point = pointAt(e.clientX, e.clientY);
     if (point) pick.resolve({ droneId: action.droneId, point });
   } else if (action.kind === 'pick-in-encore') toaster.toast('Picks are answered in the Encore pane (the top one in split view).', 'info');
-  else if (action.kind === 'select') selectionArm.within(action.arm, () => controls.selectDrone(action.id));
+  else if (action.kind === 'select') selectionArm.within(action.arm, action.id, () => controls.selectDrone(action.id));
   else if (action.kind === 'deselect' && store.state.selected) controls.selectDrone(null);
   refreshChrome();
 };
@@ -307,9 +310,11 @@ window.addEventListener('pointerup', onPointerUp);
 window.addEventListener('pointercancel', onPointerCancel);
 
 // ---------- popovers ----------
-function radioTally(arm: Arm): { drawn: number; observed: number } | null {
-  const group = viewOf(arm).scene.children.find(child => child.userData.radio);
-  return group ? { drawn: group.userData.radio.drawn as number, observed: group.userData.radio.observed as number } : null;
+function radioTally(arm: Arm): { drawn: number; observed: number; filteredTo?: number; involving?: number } | null {
+  const radio = viewOf(arm).scene.children.find(child => child.userData.radio)?.userData.radio;
+  if (!radio) return null;
+  // With a drone selected the layer draws only its links and says so (#126): filteredTo / involving.
+  return { drawn: radio.drawn as number, observed: radio.observed as number, ...(radio.filteredTo !== undefined ? { filteredTo: radio.filteredTo as number, involving: radio.involving as number } : {}) };
 }
 let lastFps: number | null = null;
 const popCtx: PopoverContext = {
@@ -358,6 +363,7 @@ const inspectorPanel = createInspectorPanel({ host: root });
 // ---------- store reactions ----------
 let hintTimer: ReturnType<typeof setTimeout> | undefined;
 const offStore = store.subscribe((s, changed) => {
+  if (changed.length > 0 && changed.every(key => key === 'killRadius' || key === 'jamRadius')) return;   // a radius slider: nothing on screen depends on it
   if (changed.includes('lenses')) { setViewMode({ xray: s.lenses.xray, beliefColours: s.lenses.colour === 'belief' }); applyLayerLenses(); }
   if (changed.includes('view')) layoutViews(s.view);
   if (changed.includes('reducedMotion')) root.classList.toggle('reduced', s.reducedMotion);
@@ -386,6 +392,8 @@ function setCamera(preset: CameraPreset): void { rig.preset(preset); store.set({
 /** The operator's jam and partition as they will be next tick, by the console's rule (commands.ts liveState). */
 function live(): { jam: boolean; partition: boolean } { return liveState(controls.status(), snapshots().encore, controls.getEventLog()); }
 function selectedLive(): number | null { const s = controls.status(); return s.selectedAlive ? s.selectedId : null; }
+/** Runs a Disrupt / K / J choice: a pick asks for a centre in the stage, an intent goes straight to the controller. */
+function perform(choice: DisruptRun): void { if (choice.kind === 'pick') pickCentre(choice.purpose, choice.radius); else run(choice.intent); }
 const unbindKeys = bindShortcuts({
   play: () => run({ type: 'play' }, true),
   step: () => run({ type: 'step' }, true),
@@ -393,14 +401,10 @@ const unbindKeys = bindShortcuts({
   faster: () => run({ type: 'speed', speed: SPEEDS[Math.min(SPEEDS.length - 1, SPEEDS.indexOf(transport.speed) + 1)] }, true),
   reset: () => run({ type: 'reset', seed: worlds.seed }, true),
   'camera-audience': () => setCamera('audience'), 'camera-quarter': () => setCamera('quarter'), 'camera-top': () => setCamera('top'),
-  'kill-region': () => { const id = selectedLive(); if (id !== null) run({ type: 'kill-region', radius: 8 }); else pickCentre('killRegion', 8); },
-  jam: () => {
-    // The console's rule (liveState: pending toggles included), not snapshot.jams, so J never disagrees with it.
-    const action = jamKeyAction(live().jam, selectedLive() !== null);
-    if (action === 'lift') run({ type: 'jam' });
-    else if (action === 'around-selected') run({ type: 'jam', radius: 12 });
-    else pickCentre('jam', 12);
-  },
+  // K and J use the one radius the Disrupt sliders show (store.killRadius / store.jamRadius, 6 m and 12 m by default).
+  'kill-region': () => perform(killKeyRun(selectedLive(), store.state.killRadius)),
+  // The console's rule (liveState: pending toggles included), not snapshot.jams, so J never disagrees with it.
+  jam: () => perform(jamKeyRun(live().jam, selectedLive() !== null, store.state.jamRadius)),
   partition: () => run({ type: 'partition' }),
   xray: () => run({ type: 'xray' }, true),
   belief: () => run({ type: 'belief' }, true),
@@ -418,7 +422,7 @@ const unbindKeys = bindShortcuts({
 const caption = h('div', { class: 'caption surface chrome', hidden: true, 'aria-live': 'polite' });
 // connectDemo queries the controls while connecting, so `changed` fires before `demo` is assigned: wait for it.
 let demoReady = false;
-const demo = connectDemo(root, { camera: preset => setCamera(preset), layout: view => store.set({ view }), changed: () => { if (demoReady) renderCaption(); } });
+const demo = connectDemo(root, { camera: preset => setCamera(preset), layout: view => store.set({ view }), tethers: on => store.lens('tethers', on), changed: () => { if (demoReady) renderCaption(); } });
 demoReady = true;
 /** Starts the scripted show, or says why it cannot: a roster other than DEMO_N0, or no simulation connection. */
 function startDemo(): string | null {
@@ -458,7 +462,7 @@ const compose = { controller: controls, store, surfaces, drafts, params, host: r
 const composer = connectComposer(compose);   // also connects the stage preview to the store
 const consoleTray = connectConsole({ ...compose, hooks: {
   step: () => { run({ type: 'step' }, true); },
-  inspect: (id, arm) => selectionArm.within(arm, () => controls.selectDrone(id)),
+  inspect: (id, arm) => selectionArm.within(arm, id, () => controls.selectDrone(id)),
   demo: action => {
     if (action === 'stop') { demo.runner.stop(); refreshChrome(); return 'Demo stopped.'; }
     const problem = startDemo();
@@ -489,7 +493,10 @@ function layoutBottom(): void {
     root.style.setProperty('--bottom-h', `${Math.max(82, window.innerHeight - top + 12)}px`);
     root.classList.add('has-bottom');
     const trayTop = [consoleTray.el, timeline.el].filter(el => !el.hidden).map(el => el.getBoundingClientRect().top);
-    stage.style.bottom = trayTop.length ? `${Math.max(0, window.innerHeight - Math.min(...trayTop) + 8)}px` : '0';
+    const { stageBottom, splitMid } = stageLayout(window.innerHeight, trayTop);
+    stage.style.bottom = `${stageBottom}px`;
+    // The divider and the ▼ STATIC label sit where the panes meet (the panes are 50% / 50% of the stage, not of #app).
+    root.style.setProperty('--split-mid', `${splitMid}px`);
     legend.el.style.left = surfaces.isOpen('composer') ? '384px' : '';   // beside the composer panel, never under it
     // The inspector (#102, right, from top 120 px) ends above the bottom stack, so it never covers an open tray.
     const inspector = root.querySelector<HTMLElement>('.encore-inspector');
@@ -500,6 +507,9 @@ function layoutBottom(): void {
   });
 }
 window.addEventListener('resize', layoutBottom);
+// Trays can change height without a surface change (the console's expand toggle, timeline content): re-lay out then too.
+const bottomObserver = new ResizeObserver(() => layoutBottom());
+bottomObserver.observe(dock.el);
 layoutBottom();
 
 // ---------- #102 hooks: ghost slots in the frame, and the drone inspector ----------
@@ -515,7 +525,7 @@ inspectorSource = {
   agent: (id, arm) => { const drone = snapshots()[arm].drones[id]; return drone ? { id, inspect: worlds.worlds[arm].inspect(id), belief: drone.belief } : null; },
   truth: (id, arm) => observerTruth(snapshots()[arm], slotFeeds[arm].latest(), params, id),
   // The inspector's own links stay in the world it is showing.
-  select: id => { selectionArm.within(store.state.selected?.arm ?? 'encore', () => controls.selectDrone(id)); },
+  select: id => { selectionArm.within(store.state.selected?.arm ?? 'encore', id, () => controls.selectDrone(id)); },
 };
 connectInspector(inspectorSource);
 
@@ -548,12 +558,20 @@ function refreshChrome(): void {
     versions: samples[legendArm]?.versions ?? null, radio: radioTally(legendArm),
     deaf: snaps[legendArm].drones.filter(d => d.alive && d.belief.deaf).length, partitions: snaps[legendArm].partitions.length,
     ghosts: ghostCounts(legendArm), arm: view === 'split' ? 'Encore' : undefined,
+    quality: Number(document.documentElement.dataset.quality ?? 0),   // #126 mirrors its quality level here
+    // Only shown panes render, so a hidden pane's stale tally is never counted.
+    tethers: ARMS.reduce((n, arm) => n + (shown[arm] ? drawnTethers(viewOf(arm).scene.children) : 0), 0),
   });
-  const label = (name: string, desc: string, sample: MetricsSample | null, phase: ArmPhase | null) => [h('span', { class: 'name' }, name), h('span', { class: 'desc' }, desc), h('span', { class: 'num', style: phase && !phase.inHold ? { color: 'var(--text-3)' } : undefined, title: phase && !phase.inHold ? TRANSITION_TITLE : undefined }, `nPWC ${sample?.npwc === null || sample?.npwc === undefined ? '—' : sample.npwc.toFixed(3)}${phase && !phase.inHold ? ' · in transition' : ''}`)];
-  if (view === 'split') {
-    vpTop.replaceChildren(...label('▲ ENCORE', 'decentralised, self-healing', samples.encore, phases.encore));
-    vpBottom.replaceChildren(...label('▼ STATIC', 'pre-programmed baseline · sends no radio', samples.static, phases.static));
-  } else if (view === 'static') vpTop.replaceChildren(...label('STATIC', 'pre-programmed baseline · sends no radio', samples.static, phases.static));
+  // Every view names its arm (paneLabels, #134); each number is greyed and labelled while that arm is in transition (#127).
+  const label = ({ arm, name, desc }: PaneLabel) => {
+    const npwc = samples[arm]?.npwc;
+    const phase: ArmPhase | null = phases[arm];
+    const transit = phase !== null && !phase.inHold;
+    return [h('span', { class: 'name' }, name), h('span', { class: 'desc' }, desc), h('span', { class: 'num', style: transit ? { color: 'var(--text-3)' } : undefined, title: transit ? TRANSITION_TITLE : undefined }, `nPWC ${npwc === null || npwc === undefined ? '—' : npwc.toFixed(3)}${transit ? ' · in transition' : ''}`)];
+  };
+  const labels = paneLabels(view);
+  vpTop.replaceChildren(...label(labels.top));
+  if (labels.bottom) vpBottom.replaceChildren(...label(labels.bottom));
   if (surfaces.isOpen('metrics')) metrics.render();
   if (surfaces.isOpen('timeline')) timeline.update();
   if (surfaces.isOpen('composer')) composer.render();
@@ -648,6 +666,7 @@ if (import.meta.hot) import.meta.hot.dispose(() => {
   resetViewMode();
   composer.dispose(); consoleTray.dispose(); timeline.dispose(); demo.dispose(); inspectorPanel.dispose();
   window.removeEventListener('resize', layoutBottom);
+  bottomObserver.disconnect();
   rig.dispose();
   for (const { view } of views) view.dispose();
 });

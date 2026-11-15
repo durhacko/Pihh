@@ -2,7 +2,7 @@
 // Surface lifecycle and the DESIGN §2.2 rules, headless: minimal element, document and window stubs.
 import { describe, expect, it, vi } from 'vitest';
 import { defaultUIState, Store } from '../../../src/app/ui/store';
-import { handleEscape, Surfaces, type SurfaceDef, type SurfaceEnv, type SurfaceKind } from '../../../src/app/ui/surfaces';
+import { handleEscape, stageLayout, Surfaces, type SurfaceDef, type SurfaceEnv, type SurfaceKind } from '../../../src/app/ui/surfaces';
 
 class FakeEl {
   hidden = false;
@@ -251,5 +251,26 @@ describe('handleEscape order (DESIGN §2.2)', () => {
     const deselect = vi.fn(() => store.set({ selected: null }));
     expect(handleEscape(store, surfaces, deselect)).toBe('deselect');
     expect(deselect).toHaveBeenCalledOnce();
+  });
+});
+
+describe('stageLayout (#134: the split divider sits where the panes meet)', () => {
+  it('with no tray open the stage fills the viewport and the split is at half its height', () => {
+    expect(stageLayout(900, [])).toEqual({ stageBottom: 0, splitMid: 450 });
+  });
+  it('an open tray shrinks the stage to 8 px above it, and the split moves up to half the remaining stage', () => {
+    const { stageBottom, splitMid } = stageLayout(900, [600]);
+    expect(stageBottom).toBe(308);
+    expect(splitMid).toBe(296);
+    expect(splitMid).toBeLessThan(900 / 2);                  // the old bug: the divider stayed at 50% of the viewport
+    expect(splitMid * 2 + stageBottom).toBe(900);            // the two panes plus the inset fill the viewport exactly
+  });
+  it('with both trays open the highest tray decides, whatever order they come in', () => {
+    expect(stageLayout(900, [600, 380])).toEqual({ stageBottom: 528, splitMid: 186 });
+    expect(stageLayout(900, [380, 600])).toEqual(stageLayout(900, [600, 380]));
+  });
+  it('tracks a window resize and never goes negative', () => {
+    expect(stageLayout(700, [400]).splitMid).toBe(196);
+    expect(stageLayout(900, [-50])).toEqual({ stageBottom: 958, splitMid: 0 });
   });
 });

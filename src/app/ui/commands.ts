@@ -79,6 +79,9 @@ export interface ParseContext {
   drafts?: readonly string[];
   /** For completion only: offered first for `--drone` and `--at`. */
   selectedId?: number | null;
+  /** The shell's one region-kill and jam radius (store.killRadius / jamRadius, #134): the default when --radius is absent. */
+  killRadius?: number;
+  jamRadius?: number;
 }
 
 // --------------------------------------------------------------------------------------- the table
@@ -402,8 +405,9 @@ function buildKill(args: Args, ctx: ParseContext): Intent | string {
 }
 
 function buildKillRegion(args: Args, ctx: ParseContext): Intent | string {
-  const r = radius(args);
-  if (typeof r === 'string') return r;
+  const given = radius(args);
+  if (typeof given === 'string') return given;
+  const r = given ?? ctx.killRadius;   // the radius K and the Disrupt slider use (#134)
   const where = target(args, ctx, 'at', 'Click the drone at the centre of the region');
   if (typeof where === 'string') return where;
   return control('fault kill-region', [...where.steps, { type: 'kill-region', ...(r === undefined ? {} : { radius: r }) }], { pick: where.pick });
@@ -421,8 +425,9 @@ function buildKillRandom(args: Args, _ctx: ParseContext, spec: CommandSpec): Int
 }
 
 function buildJam(args: Args, ctx: ParseContext): Intent | string {
-  const r = radius(args);
-  if (typeof r === 'string') return r;
+  const given = radius(args);
+  if (typeof given === 'string') return given;
+  const r = given ?? ctx.jamRadius;   // the radius J and the Disrupt slider use (#134)
   const where = target(args, ctx, 'at', 'Click the drone at the centre of the jam');
   if (typeof where === 'string') return where;
   return control('fault jam', [...where.steps, { type: 'jam', ...(r === undefined ? {} : { radius: r }) }], { pick: where.pick, when: { jam: false } });
