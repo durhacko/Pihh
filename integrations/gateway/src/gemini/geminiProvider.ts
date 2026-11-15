@@ -25,12 +25,19 @@
 //   SPEC RULE, field name UNVERIFIED (§10.1/§10.3 design rules, not checked provider facts): parse only when
 //     `candidates[0].finishReason` is `STOP`; a `promptFeedback.blockReason` blocks; log `thoughtsTokenCount`;
 //     `maxOutputTokens` per mode, with the values 2,048 / 8,192 proposed defaults (†) for William to confirm.
-//   UNVERIFIED (not in the spec's checked sources; confirm against the REST reference before D3 goes live):
-//     the endpoint URL and API version (`v1beta`); the `x-goog-api-key` header; the REST body layout
-//     (`systemInstruction`, `contents[].parts[].text`, `generationConfig`); the casing of thinking-level values on the
-//     wire (lower case here, as in the handoff sketch; the JS SDK's enum is upper case); the response layout
-//     `candidates[0].content.parts[].text` with `thought: true` on thought parts; the `usageMetadata` name and its
-//     counter names. Whether thinking tokens count against `maxOutputTokens` is UNVERIFIED (§10.3).
+//   VERIFIED against Google's current public docs on 2026-11-15 (D3 lane; ai.google.dev redirects to aistudio.google.com):
+//     the method and path `POST /v1beta/models/{model}:generateContent` on generativelanguage.googleapis.com
+//     (https://aistudio.google.com/api-reference/generate-content); the `x-goog-api-key` header
+//     (https://aistudio.google.com/docs/api-key); `candidates[].finishReason` (string enum, STOP, MAX_TOKENS, SAFETY,
+//     RECITATION, BLOCKLIST, PROHIBITED_CONTENT, SPII, …) and `promptFeedback.blockReason`; the `usageMetadata` counters
+//     (promptTokenCount, cachedContentTokenCount, candidatesTokenCount, thoughtsTokenCount, totalTokenCount); the
+//     ThinkingLevel enum names MINIMAL/LOW/MEDIUM/HIGH, with minimal…high for gemini-3.1-flash-lite (Stable,
+//     https://aistudio.google.com/docs/models, /docs/thinking); its free tier (https://aistudio.google.com/docs/pricing).
+//   STILL UNVERIFIED (no current public page shows a generateContent request example; the docs now show the
+//     Interactions API): the top-level request layout (`systemInstruction`, `contents[].parts[].text`,
+//     `generationConfig` with `responseMimeType`, `responseJsonSchema`, `maxOutputTokens`, `thinkingConfig`), seen only
+//     as field names in the reference, not as a request example; `thought: true` on thought parts. The first live call is
+//     the check. Whether thinking tokens count against `maxOutputTokens` is UNVERIFIED (§10.3).
 //   PLACEHOLDER: the system instructions below are not William's prompts (he owns prompts, spec §2; handoff §8 names
 //     PROMPT_2D/PROMPT_3D as not yet written). Pass `prompts` to replace them.
 import type { GeminiConfig } from './config.ts';
@@ -45,8 +52,9 @@ export const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1bet
  *  real guard. */
 export const MAX_OUTPUT_TOKENS: Readonly<Record<FormationMode, number>> = Object.freeze({ silhouette2d: 2_048, scene3d: 8_192 });
 
-/** William's settings to benchmark (spec §10.6, handoff §2): minimal thinking for 2D, low for 3D. Wire casing UNVERIFIED. */
-export const THINKING_LEVEL: Readonly<Record<FormationMode, 'minimal' | 'low'>> = Object.freeze({ silhouette2d: 'minimal', scene3d: 'low' });
+/** William's settings to benchmark (spec §10.6, handoff §2): minimal thinking for 2D, low for 3D. Upper case, as the
+ *  generateContent reference lists the ThinkingLevel enum (MINIMAL, LOW, …; docs checked 2026-11-15). */
+export const THINKING_LEVEL: Readonly<Record<FormationMode, 'MINIMAL' | 'LOW'>> = Object.freeze({ silhouette2d: 'MINIMAL', scene3d: 'LOW' });
 
 /** The most response bytes read from one HTTP answer. A larger answer is an upstream fault, never parsed. */
 export const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -99,14 +107,98 @@ export interface ProviderObservation {
   readonly outcome: ProviderOutcome['kind'];
   readonly finishReason?: string;
   readonly usage?: Readonly<Record<string, number>>;
+  /** For a 4xx/5xx only: the sanitised classification of Google's error body (never its message or anything else). */
+  readonly error?: UpstreamErrorClass;
+}
+
+/** Google's error classification, each value filtered to an enum or field-path shape; nothing free-text. `unknownNames`
+ *  and `paths` are the identifiers quoted in a field violation's description (`Unknown name "X"`, `at 'a.b'`): the
+ *  description itself is never kept. */
+export interface UpstreamErrorClass {
+  readonly status?: string;
+  readonly reasons?: readonly string[];
+  readonly fields?: readonly string[];
+  readonly unknownNames?: readonly string[];
+  readonly paths?: readonly string[];
+}
+
+/** An error body is read up to this many bytes and this long, only to classify it. */
+const ERROR_BODY_MAX = 16 * 1024;
+const ERROR_BODY_MS = 2_000;
+const ENUM_SHAPE = /^[A-Z_]{1,64}$/;
+const FIELD_SHAPE = /^[A-Za-z0-9_.[\]]{1,128}$/;
+const IDENT_SHAPE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+/** The classification of a Google error body: error.status, details[].reason, details[].fieldViolations[].field. */
+export function classifyErrorBody(body: string): UpstreamErrorClass | undefined {
+  let json: unknown;
+  try { json = JSON.parse(body); } catch { return undefined; }
+  const error = record(record(json)?.error);
+  if (!error) return undefined;
+  const status = typeof error.status === 'string' && ENUM_SHAPE.test(error.status) ? error.status : undefined;
+  const reasons: string[] = [];
+  const fields: string[] = [];
+  const unknownNames: string[] = [];
+  const paths: string[] = [];
+  const add = (list: string[], value: string, shape: RegExp) => { if (shape.test(value) && list.length < 8 && !list.includes(value)) list.push(value); };
+  const details: unknown = error.details;
+  for (const detail of Array.isArray(details) ? details.map(record) : []) {
+    if (!detail) continue;
+    if (typeof detail.reason === 'string') add(reasons, detail.reason, ENUM_SHAPE);
+    const violations: unknown = detail.fieldViolations;
+    for (const v of Array.isArray(violations) ? violations.map(record) : []) {
+      if (!v) continue;
+      if (typeof v.field === 'string') add(fields, v.field, FIELD_SHAPE);
+      if (typeof v.description === 'string') {
+        // Only the identifiers the description quotes; the description text is never kept.
+        for (const m of v.description.matchAll(/Unknown name "([A-Za-z_][A-Za-z0-9_]{0,63})"/g)) add(unknownNames, m[1]!, IDENT_SHAPE);
+        for (const m of v.description.matchAll(/at '([A-Za-z_][A-Za-z0-9_.[\]]{0,127})'/g)) add(paths, m[1]!, FIELD_SHAPE);
+      }
+    }
+  }
+  if (!status && reasons.length + fields.length + unknownNames.length + paths.length === 0) return undefined;
+  return {
+    ...(status ? { status } : {}), ...(reasons.length ? { reasons } : {}), ...(fields.length ? { fields } : {}),
+    ...(unknownNames.length ? { unknownNames } : {}), ...(paths.length ? { paths } : {}),
+  };
+}
+
+/** Reads at most `max` bytes of a body stream within `ms`; whatever arrived (or '' on failure). Cancels the rest. */
+async function readErrorBody(stream: ReadableStream<Uint8Array> | null, max: number, ms: number, abort: AbortSignal): Promise<string> {
+  if (!stream || typeof stream.getReader !== 'function') return '';
+  const reader = stream.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  let text = '';
+  let bytes = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = new Promise<null>(resolve => {
+    timer = setTimeout(() => resolve(null), ms);
+    abort.addEventListener('abort', () => resolve(null), { once: true });
+  });
+  try {
+    for (;;) {
+      const next = await Promise.race([reader.read(), stop]);
+      if (next === null || next.done) break;
+      bytes += next.value.byteLength;
+      text += decoder.decode(next.value, { stream: true });
+      if (bytes >= max) break;
+    }
+  } catch {
+    // an unreadable error body classifies as nothing
+  } finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => {});
+  }
+  return text.slice(0, max);
 }
 
 export interface GeminiProviderDeps {
   /** The HTTP call. Under D3 the wiring passes the platform fetch; there is deliberately no default. */
   readonly transport: Transport;
-  /** The committed model-facing scene schemas (src/score/generated/schema/scene2d|scene3d.schema.json), loaded by
-   *  the wiring through the module's XI-2 bridge. Sent unchanged as `responseJsonSchema`. */
-  readonly schemas: Readonly<Record<FormationMode, object>>;
+  /** The committed model-facing scene schemas (src/score/generated/schema/scene2d|scene3d.schema.json), sent as
+   *  `responseJsonSchema`. `null` sends JSON mode without a schema (GEMINI_RESPONSE_SCHEMA=off): the server-side
+   *  validateScene stays authoritative either way (spec §10.2). */
+  readonly schemas: Readonly<Record<FormationMode, object>> | null;
   /** Milliseconds, for latency only. The module passes a monotonic clock. A failing clock reads as 0. */
   readonly now: () => number;
   /** Replaces the placeholder system instructions (William's prompts, once written). */
@@ -125,7 +217,7 @@ export function buildRequestBody(request: ProviderRequest, deps: Pick<GeminiProv
   const mode = request.mode;
   const generationConfig: Record<string, unknown> = {
     responseMimeType: 'application/json',
-    responseJsonSchema: deps.schemas[mode],
+    ...(deps.schemas ? { responseJsonSchema: deps.schemas[mode] } : {}),
     maxOutputTokens: MAX_OUTPUT_TOKENS[mode],
     thinkingConfig: { thinkingLevel: THINKING_LEVEL[mode] },
   };
@@ -257,10 +349,11 @@ export function createGeminiProvider(config: EnabledGeminiConfig, deps: GeminiPr
         });
         status = Number.isInteger(response.status) ? response.status : 0;
         if (status !== 200) {
-          // An error status (a 3xx included) is final whatever its body: nothing in it is read (a 429 stays a 429,
-          // however large; a redirect is never followed).
-          await response.body?.cancel().catch(() => {});
-          return finish(timedOut || controller.signal.aborted ? { kind: 'timeout' } : { kind: 'upstream-error', status }, status);
+          // An error status (a 3xx included) is final whatever its body (a 429 stays a 429, however large; a redirect
+          // is never followed). A 4xx/5xx body is read only to classify it (capped, sanitised, never returned).
+          const error = status >= 400 ? classifyErrorBody(await readErrorBody(response.body, ERROR_BODY_MAX, ERROR_BODY_MS, controller.signal)) : undefined;
+          if (status < 400) await response.body?.cancel().catch(() => {});
+          return finish(timedOut || controller.signal.aborted ? { kind: 'timeout' } : { kind: 'upstream-error', status }, status, error ? { error } : {});
         }
         body = await readBounded(response);
       } catch {

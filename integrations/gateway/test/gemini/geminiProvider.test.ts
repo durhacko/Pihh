@@ -13,7 +13,7 @@ import { getEventListeners } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { readGeminiConfig } from '../../src/gemini/config.ts';
 import {
-  buildRequestBody, createGeminiProvider, GEMINI_REST_BASE, MAX_OUTPUT_TOKENS, MAX_RESPONSE_BYTES, PLACEHOLDER_PROMPTS,
+  buildRequestBody, classifyErrorBody, createGeminiProvider, GEMINI_REST_BASE, MAX_OUTPUT_TOKENS, MAX_RESPONSE_BYTES, PLACEHOLDER_PROMPTS,
   readResponseBody, THINKING_LEVEL, type EnabledGeminiConfig, type ProviderObservation, type Transport, type TransportInit,
 } from '../../src/gemini/geminiProvider.ts';
 import { geminiModule } from '../../src/gemini/module.ts';
@@ -88,12 +88,12 @@ test('the request: one POST to the model\'s generateContent, key in a header onl
     assert.deepEqual(body.generationConfig.responseJsonSchema, SCHEMAS[mode], 'the committed scene schema, unchanged');
     assert.ok(!('responseSchema' in body.generationConfig), 'never combined with responseSchema (§10.6)');
     assert.equal(body.generationConfig.maxOutputTokens, mode === 'silhouette2d' ? 2_048 : 8_192);
-    assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: mode === 'silhouette2d' ? 'minimal' : 'low' });
+    assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: mode === 'silhouette2d' ? 'MINIMAL' : 'LOW' });
     assert.ok(!('temperature' in body.generationConfig), 'temperature is omitted unless set');
     assert.ok(!init.body.includes(KEY), 'the key is never in the body');
   }
   assert.deepEqual(MAX_OUTPUT_TOKENS, { silhouette2d: 2_048, scene3d: 8_192 });
-  assert.deepEqual(THINKING_LEVEL, { silhouette2d: 'minimal', scene3d: 'low' });
+  assert.deepEqual(THINKING_LEVEL, { silhouette2d: 'MINIMAL', scene3d: 'LOW' }, 'the generateContent reference enum casing');
 });
 
 test('GEMINI_MODEL picks the model in the URL; prompts, temperature and the endpoint can be replaced', async () => {
@@ -225,7 +225,8 @@ const unreadable = (status: number, extra: Partial<{ headers: { get(n: string): 
 test('an error status is final without reading its body: a 429 or 503 stays retryable however large', async () => {
   for (const status of [429, 503, 400]) {
     let cancelled = false;
-    const body = new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } });
+    // An endless body: only the capped classification read happens, then it is cancelled.
+    const body = new ReadableStream<Uint8Array>({ pull(c) { c.enqueue(new Uint8Array(4096).fill(0x20)); }, cancel() { cancelled = true; } });
     const outcome = await createGeminiProvider(config(), { transport: async () => unreadable(status, { body }), schemas: SCHEMAS, now }).generate(REQ3D, live());
     assert.deepEqual(outcome, { kind: 'upstream-error', status });
     assert.equal(cancelled, true, 'the unread body is cancelled');
@@ -266,6 +267,36 @@ test('redirects: a 3xx is an upstream error, unread; a fetch that rejects on red
   // With redirect: 'error' the platform fetch rejects with a TypeError on a 3xx: that is PROVIDER_ERROR, never a retry.
   const rejecting: Transport = async (_url, init) => { if (init.redirect === 'error') throw new TypeError('fetch failed: unexpected redirect'); return unreadable(200); };
   assert.deepEqual(await createGeminiProvider(config(), { transport: rejecting, schemas: SCHEMAS, now }).generate(REQ3D, live()), { kind: 'upstream-error', status: 0 });
+});
+
+test('a 4xx error body is classified (status, reasons, field paths) and nothing else: never its message', async () => {
+  // RECORDED-SHAPE Google error (the google.rpc.Status layout: error.status, details[].reason, fieldViolations[].field).
+  const errorBody = JSON.stringify({ error: { code: 400, message: `API key not valid: ${KEY} plus free text`, status: 'INVALID_ARGUMENT', details: [
+    { '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'API_KEY_INVALID', domain: 'googleapis.com', metadata: { service: 'generativelanguage.googleapis.com' } },
+    { '@type': 'type.googleapis.com/google.rpc.BadRequest', fieldViolations: [{ field: 'generation_config.thinking_config.thinking_level', description: `bad ${KEY}` }, { field: 'not a field! <script>' }] },
+    { reason: 'lower case or long free text is dropped' },
+  ] } });
+  const seen: ProviderObservation[] = [];
+  const t = transport(() => ({ status: 400, body: errorBody }));
+  const outcome = await createGeminiProvider(config(), { transport: t.fn, schemas: SCHEMAS, now, observe: o => { seen.push(o); } }).generate(REQ3D, live());
+  assert.deepEqual(outcome, { kind: 'upstream-error', status: 400 }, 'the outcome itself never carries the body');
+  assert.deepEqual(seen[0]!.error, { status: 'INVALID_ARGUMENT', reasons: ['API_KEY_INVALID'], fields: ['generation_config.thinking_config.thinking_level'] });
+  const text = JSON.stringify(seen);
+  for (const leak of [KEY, 'free text', 'API key not valid', '<script>']) assert.ok(!text.includes(leak), leak);
+  // A JSON-payload rejection: only the quoted identifiers come out of the description, never its text.
+  const payload = JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Invalid JSON payload received.', details: [
+    { '@type': 'type.googleapis.com/google.rpc.BadRequest', fieldViolations: [
+      { field: 'generation_config', description: `Invalid JSON payload received. Unknown name "responseJsonSchema" at 'generation_config': Cannot find field. ${KEY}` },
+      { description: 'Invalid value at \'generation_config.thinking_config.thinking_level\' (type.googleapis.com/x), "LOW"' },
+    ] },
+  ] } });
+  assert.deepEqual(classifyErrorBody(payload), {
+    status: 'INVALID_ARGUMENT', fields: ['generation_config'], unknownNames: ['responseJsonSchema'],
+    paths: ['generation_config', 'generation_config.thinking_config.thinking_level'],
+  });
+  assert.ok(!JSON.stringify(classifyErrorBody(payload)).includes(KEY));
+  assert.equal(classifyErrorBody('not json'), undefined);
+  assert.equal(classifyErrorBody(JSON.stringify({ error: { message: 'only text' } })), undefined);
 });
 
 test('a 200 without a body stream is refused (no whole-body fallback)', async () => {

@@ -7,7 +7,8 @@ import { request } from 'node:http';
 import { startGateway, type AccessEntry, type RunningGateway } from '../../src/server.ts';
 import type { ModuleEntry } from '../../src/modules.ts';
 import { readGeminiConfig } from '../../src/gemini/config.ts';
-import { geminiModule } from '../../src/gemini/module.ts';
+import { geminiModule, liveGeminiDeps } from '../../src/gemini/module.ts';
+import type { Transport, TransportInit } from '../../src/gemini/geminiProvider.ts';
 import { scriptedProvider, stopWith, FAKE_MODEL, type FakeStep, type ScriptedProvider } from '../../src/gemini/fakeProvider.ts';
 import { createSceneValidator, type TrialCompile } from '../../src/gemini/validate.ts';
 import { RETRY_POLICY } from '../../src/gemini/provider.ts';
@@ -229,13 +230,31 @@ test('(9) feasibility wiring: a trial compile that fails at one roster limit ref
   }, { compile });
 });
 
-test('offline default through the stack: the shipped module answers 503 MODULE_DISABLED even with a key; no key anywhere', async () => {
+test('D3 through the stack: flag + key make the module live; a FAKE transport answers once; the key appears nowhere but its header', async () => {
+  const calls: { url: string; init: TransportInit }[] = [];
+  // RECORDED-SHAPE fake answer (see geminiProvider.test.ts): one STOP candidate carrying the committed sphere scene.
+  const answer = JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(SPHERE) }] }, finishReason: 'STOP' }] });
+  const transport: Transport = async (url, init) => {
+    calls.push({ url, init });
+    const bytes = new TextEncoder().encode(answer);
+    return { status: 200, body: new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes); c.close(); } }) };
+  };
+  const registry: ModuleEntry[] = [{
+    name: 'gemini', envPrefix: 'GEMINI_',
+    create: env => geminiModule(liveGeminiDeps(readGeminiConfig(env), transport), { random: () => 0.5, sleep: async () => {} }),
+  }];
   const lines: AccessEntry[] = [];
-  const g = await startGateway({ GATEWAY_ALLOWED_ORIGINS: APP, GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY }, { port: 0, log: e => lines.push(e) });
+  const g = await startGateway({ GATEWAY_ALLOWED_ORIGINS: APP, GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY }, { port: 0, registry, log: e => lines.push(e) });
   try {
     const r = await post(g, ASK);
-    assert.deepEqual([r.status, code(r), reasons(r), r.body.error && (r.body.error as { requestId?: string }).requestId], [503, 'PROVIDER_UNAVAILABLE', ['MODULE_DISABLED'], 'r-000042']);
-    assert.deepEqual(g.gateway.health().modules.gemini, { enabled: false, trialCompile: false });
+    assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
+    assert.equal(r.body.model, 'gemini-3.1-flash-lite');
+    assert.equal(r.body.requestId, 'r-000042');
+    assert.equal(typeof r.body.sceneHash, 'string');
+    assert.equal((g.gateway.health().modules.gemini as { enabled: boolean }).enabled, true);
+    assert.equal(calls.length, 1, 'exactly one upstream call');
+    assert.equal(calls[0]!.init.headers['x-goog-api-key'], KEY);
+    assert.ok(!calls[0]!.url.includes(KEY) && !calls[0]!.init.body.includes(KEY));
     assert.ok(!JSON.stringify([r.body, g.gateway.health(), g.gateway.problems, lines]).includes(KEY));
   } finally {
     await g.close();
