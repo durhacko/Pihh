@@ -217,7 +217,8 @@ function checkTop(c: Collector, r: Obj): void {
 function checkRecipe(c: Collector, recipe: unknown, path: string): void {
   if (!isObj(recipe)) { c.error('BAD_EVENT', path, 'recipe must be an object'); return; }
   const kind = recipe.kind;
-  if (kind !== 'text' && kind !== 'sphere' && kind !== 'helix') { c.error('BAD_EVENT', pointer(path, 'kind'), 'recipe kind must be text, sphere or helix'); return; }
+  if (kind === 'generated') { checkGeneratedRecipe(c, recipe, path); return; }
+  if (kind !== 'text' && kind !== 'sphere' && kind !== 'helix') { c.error('BAD_EVENT', pointer(path, 'kind'), 'recipe kind must be text, sphere, helix or generated'); return; }
   exactKeys(c, recipe, kind === 'text' ? ['kind', 'text'] : ['kind'], path, ['palette']);
   if (kind === 'text') {
     const text = recipe.text;
@@ -229,6 +230,29 @@ function checkRecipe(c: Collector, recipe: unknown, path: string): void {
     const rgb = (v: unknown) => isVec3(v) && v.every(x => x >= 0 && x <= 1);
     if (!Array.isArray(palette) || palette.length !== 2 || !palette.every(rgb)) c.error('BAD_EVENT', pointer(path, 'palette'), 'palette must be two RGB triples in [0, 1]');
   }
+}
+
+/**
+ * A generated recipe in an INJECT_SCORE (GF-CC-01, #215; GF-WP-11, #214), checked STRUCTURALLY only: the shape and the
+ * label formats. Nothing is re-derived here (no scene validation, hashing or compile): src/telemetry imports neither
+ * src/score nor src/cli, and a record's provenance is re-derived by replayFromProvenance (src/cli/generated.ts).
+ * The scene's strings, numbers and nesting depth are already bounded by the generic walk and CAPS.eventBytes.
+ */
+function checkGeneratedRecipe(c: Collector, recipe: Obj, path: string): void {
+  if (!exactKeys(c, recipe, ['kind', 'compilerVersion', 'sceneHash', 'slotsDigest', 'scene'], path)) return;
+  if (!isInt(recipe.compilerVersion) || recipe.compilerVersion < 1) c.error('BAD_EVENT', pointer(path, 'compilerVersion'), 'compilerVersion must be a positive integer');
+  if (typeof recipe.sceneHash !== 'string' || !HEX64.test(recipe.sceneHash)) c.error('BAD_EVENT', pointer(path, 'sceneHash'), 'sceneHash must be 64 lower-case hex');
+  const digest = recipe.slotsDigest;
+  const dPath = pointer(path, 'slotsDigest');
+  if (!isObj(digest)) c.error('BAD_EVENT', dPath, 'slotsDigest must be an object');
+  else if (exactKeys(c, digest, ['n0', 'slotSpacingMin', 'digest'], dPath)) {
+    if (!isInt(digest.n0) || digest.n0 < 1 || digest.n0 > CAPS.n0) c.error('BAD_EVENT', pointer(dPath, 'n0'), `n0 must be an integer in [1, ${CAPS.n0}]`);
+    if (typeof digest.slotSpacingMin !== 'number' || !Number.isFinite(digest.slotSpacingMin) || digest.slotSpacingMin <= 0) c.error('BAD_EVENT', pointer(dPath, 'slotSpacingMin'), 'slotSpacingMin must be a positive number');
+    if (typeof digest.digest !== 'string' || !HEX64.test(digest.digest)) c.error('BAD_EVENT', pointer(dPath, 'digest'), 'digest must be 64 lower-case hex');
+  }
+  const scene = recipe.scene;
+  if (!isObj(scene)) c.error('BAD_EVENT', pointer(path, 'scene'), 'scene must be an object');
+  else if (typeof scene.title !== 'string') c.error('BAD_EVENT', pointer(pointer(path, 'scene'), 'title'), 'scene.title must be a string');
 }
 
 function checkScore(c: Collector, score: unknown, path: string): void {

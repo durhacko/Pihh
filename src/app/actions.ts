@@ -2,6 +2,9 @@ import type { EnvEvent, Params, Recipe, Score, Vec3, World, WorldSnapshot } from
 import { idsInSphere, randomIds } from '../sim';
 import { generatedRecipeProblem } from '../cli/generated';
 
+/** The longest per-injection lead (GF-WP-11 step 2): 60 s at 20 ticks per second. */
+export const MAX_LEAD_TICKS = 1200;
+
 /**
  * `at` and `centre` exist for the scripted demo (#27), which drives these same intents from the DOM: `at` lands
  * an event on an exact later tick instead of the next one, and `centre` fixes a region instead of the selected
@@ -11,7 +14,7 @@ export type ControlIntent =
   | { type: 'play' } | { type: 'step' } | { type: 'reset'; seed: number } | { type: 'speed'; speed: number }
   | { type: 'select'; id: number | null } | { type: 'kill-region'; radius?: number; centre?: Vec3; at?: number }
   | { type: 'kill-selected' } | { type: 'kill-random' } | { type: 'kill-ids'; ids: number[] } | { type: 'jam'; radius?: number; centre?: Vec3; at?: number }
-  | { type: 'partition' } | { type: 'loss'; loss: number } | { type: 'inject'; recipe: Recipe; at?: number }
+  | { type: 'partition' } | { type: 'loss'; loss: number } | { type: 'inject'; recipe: Recipe; at?: number; lead?: number }
   | { type: 'xray' } | { type: 'belief' }
   /** GF-WP-11 replay: reset from `seed`, then schedule the logged events exactly (a checked ReplayLogFile, #214). */
   | { type: 'replay'; seed: number; events: EnvEvent[] };
@@ -219,7 +222,14 @@ export function createActionController(context: ControlContext) {
           const generatedProblem = generatedRecipeProblem(intent.recipe);
           if (generatedProblem) throw new Error(`The generated scene was refused: ${generatedProblem}.`);
           const recipe = intent.recipe.kind === 'text' ? { ...intent.recipe, text: intent.recipe.text.toUpperCase() } : intent.recipe;
-          event = { type: 'INJECT_SCORE', tick, droneId: id, score: context.composeScore(authoredScore, tick, recipe, id, context.params.n0, context.params) };
+          // GF-WP-11 step 2: an optional per-injection lead, read only by composeScore through a params copy (no Params
+          // default or contract changes). Longer than the default only, at most 60 s: a longer lead lengthens the window
+          // in which a drone on a stale base may fly back (contract §8.5 limit 9).
+          if (intent.lead !== undefined && (!Number.isSafeInteger(intent.lead) || intent.lead < context.params.scoreLead || intent.lead > MAX_LEAD_TICKS)) {
+            throw new Error(`The lead must be a whole number of ticks from ${context.params.scoreLead} to ${MAX_LEAD_TICKS}.`);
+          }
+          const composeParams = intent.lead === undefined ? context.params : { ...context.params, scoreLead: intent.lead };
+          event = { type: 'INJECT_SCORE', tick, droneId: id, score: context.composeScore(authoredScore, tick, recipe, id, context.params.n0, composeParams) };
         }
       }
       const result = schedule(event); message = result.message; return result;

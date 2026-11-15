@@ -16,11 +16,15 @@ export const GENERATED_SENT_ID = 'generated';
 /**
  * Injects `recipe` into the one drone `droneId` through the controller, as the console's `inject --drone N` does.
  * Returns the same InjectOutcome as the Composer's draft path, with `sent` for the adoption bar (observer data only).
+ * `options.lead`: an optional per-injection lead in ticks (default params.scoreLead; up to MAX_LEAD_TICKS).
  */
-export async function injectGeneratedRecipe(ctx: ComposeContext, recipe: Recipe, droneId: number, label: string): Promise<InjectOutcome> {
+export async function injectGeneratedRecipe(ctx: ComposeContext, recipe: Recipe, droneId: number, label: string, options: { lead?: number } = {}): Promise<InjectOutcome> {
   if (!Number.isSafeInteger(droneId) || droneId < 0) return { status: 'failed', message: `No drone ${String(droneId)}.`, results: [] };
   const plan: InjectPlan = { kind: 'inject', command: 'inject', steps: [{ type: 'select', id: droneId }], draftId: null };
-  const outcome = await runControlPlan(ctx, withRecipe(plan, recipe));
+  const control = withRecipe(plan, recipe);
+  // The optional lead (GF-WP-11 step 2) rides on the inject step; the controller validates it.
+  const steps = options.lead === undefined ? control.steps : control.steps.map(s => (s.type === 'inject' ? { ...s, lead: options.lead } : s));
+  const outcome = await runControlPlan(ctx, { ...control, steps });
   if (outcome.status !== 'done') return outcome;
   const event = outcome.events.find((e): e is Extract<EnvEvent, { type: 'INJECT_SCORE' }> => e.type === 'INJECT_SCORE');
   if (!event) return outcome;
