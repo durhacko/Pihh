@@ -17,6 +17,7 @@ import type { Pair } from '../worlds';
 import { liveState, NAME_MAX, parse, shouldDispatch, TEXT_MAX, validateText, withRecipe, type ControlPlan, type InjectPlan, type ParseContext } from './commands';
 import { h } from './dom';
 import { lintDraft, type DraftLintContext } from './draftLint';
+import type { GeneratedSource } from './GeneratedSource';
 import { icon } from './icons';
 import { hexToRgb, rgbToHex, type PickRequest, type Store } from './store';
 import type { Surfaces } from './surfaces';
@@ -317,6 +318,28 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
   let thumbKey = '';
   let thumbFormation: ReturnType<typeof expandRecipe> | null = null;
   let targetSig = '';
+  // GF-WP-10 (#265): the opt-in "Generated" source (committed fixture scenes, preview only). Without ?p2=generated
+  // nothing below runs and the panel is exactly as before; with it, the tab and its worker client load lazily.
+  let generated: { source: GeneratedSource; el: HTMLElement; blocked: string } | null = null;
+  let generatedMode = false;
+  let composerDisposed = false;
+  if (generatedFlag()) {
+    void Promise.all([import('./GeneratedSource'), import('../workers/formationClient')]).then(([g, c]) => {
+      if (composerDisposed) return;
+      const source = g.createGeneratedSource({ params, store, client: c.createFormationClient(c.spawnFormationWorker) });
+      generated = { source, el: g.renderGeneratedSource(source, params.n0, () => render()), blocked: g.INJECT_BLOCKED };
+      source.subscribe(() => renderTransmit());
+      render();
+    }).catch(() => {
+      // A chunk that failed to load (flag on only): the generated tab stays absent and the panel works as before.
+    });
+  }
+  /** Leaving the generated source drops its fixture preview (a draft preview is the draft's own). */
+  const leaveGenerated = () => {
+    if (!generatedMode) return;
+    generatedMode = false;
+    generated?.source.preview(false);
+  };
 
   // Persistent fields
   const nameInput = h('input', { class: 'input', id: 'cmp-name', maxlength: NAME_MAX, autocomplete: 'off' });
@@ -353,7 +376,8 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
 
   const visible = () => !el.hidden;
   const previewOn = () => store.state.preview !== null;
-  const refreshPreview = () => { if (previewOn()) setPreview(ctx, true); };
+  // A fixture preview (it carries its own formation, #265) is not the draft's: draft edits never overwrite it.
+  const refreshPreview = () => { if (previewOn() && !store.state.preview?.formation) setPreview(ctx, true); };
   nameInput.addEventListener('input', () => drafts.update({ name: nameInput.value }));
   textInput.addEventListener('input', () => { drafts.update({ text: textInput.value.toUpperCase() }); refreshPreview(); });
   idInput.addEventListener('input', () => {
@@ -393,9 +417,22 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     const kinds: [Recipe['kind'], string, string][] = [['text', 'Text', icon.text], ['sphere', 'Sphere', icon.sphere], ['helix', 'Double helix', icon.helix]];
     fill(typeBox, h('span', { class: 'label', id: 'cmp-type-label' }, 'Formation'),
       h('div', { class: 'types', role: 'radiogroup', 'aria-labelledby': 'cmp-type-label' },
-        ...kinds.map(([kind, label, glyph]) => h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': `type-${kind}`, 'aria-checked': String(draft.kind === kind), onclick: () => { drafts.update({ kind, text: kind === 'text' ? draft.text || 'ENCORE' : draft.text }); refreshPreview(); } }, h('span', { html: glyph }), label))),
+        ...kinds.map(([kind, label, glyph]) => h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': `type-${kind}`, 'aria-checked': String(draft.kind === kind && !generatedMode), onclick: () => { leaveGenerated(); drafts.update({ kind, text: kind === 'text' ? draft.text || 'ENCORE' : draft.text }); refreshPreview(); } }, h('span', { html: glyph }), label)),
+        generated ? h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': 'type-generated', 'aria-checked': String(generatedMode), title: 'Committed fixture scenes, compiled for preview only', onclick: () => { generatedMode = true; if (previewOn() && !store.state.preview?.formation) store.set({ preview: null }); render(); } }, h('span', { html: icon.compose }), 'Generated (fixture)') : null),
       h('div', { class: 'future-types' }, h('span', { class: 'tag later' }, 'Later'),
         ...LATER_TYPES.map(type => h('span', { class: 'ft', title: `${type}: not in the Recipe contract yet; needs a new Recipe kind through a [contract] PR.` }, type))));
+
+    // Generated source (#265): its own tab replaces the text, light and preview regions; nothing here is injectable.
+    if (generatedMode && generated) {
+      textField.hidden = true;
+      lightBox.hidden = true;
+      errorsBox.replaceChildren();
+      warningsBox.replaceChildren();
+      if (previewBox.firstChild !== generated.el || previewBox.childNodes.length !== 1) previewBox.replaceChildren(generated.el);
+      renderTransmit();
+      return;
+    }
+    lightBox.hidden = false;
 
     // Text, validated live against the font table and expandRecipe
     textField.hidden = draft.kind !== 'text';
@@ -481,13 +518,15 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       parts.push(h('span', {}, `holds score v${versionKey(target.belief.version)}`));
     } else parts.push(h('span', { class: 'hint' }, targetId === null ? 'Choose a drone: the uplink reaches only that one.' : `No drone ${targetId} in this roster.`));
     statusBox.replaceChildren(...parts);
-    const reason = !status.composition ? 'Score injection is not connected to the simulation.' : !v.ok ? 'Fix the draft first.' : !target?.alive ? 'Choose a live drone.' : busy ? 'Sending…' : '';
+    // A generated (fixture) preview is never injectable: the generated Recipe kind is GF-WP-07, a D2 contract change.
+    const blocked = generatedMode && generated ? generated.blocked : '';
+    const reason = blocked || (!status.composition ? 'Score injection is not connected to the simulation.' : !v.ok ? 'Fix the draft first.' : !target?.alive ? 'Choose a live drone.' : busy ? 'Sending…' : '');
     const command = targetId === null ? `inject --drone <id> --draft ${draft.id}` : injectCommand(draft.id, targetId);
     fill(actionBox,
-      h('button', { type: 'button', class: 'btn primary', 'data-fk': 'inject', disabled: !!reason, 'aria-describedby': reason ? 'cmp-inject-reason' : undefined, onclick: () => void inject(draft.id, targetId) },
+      h('button', { type: 'button', class: 'btn primary', 'data-fk': 'inject', disabled: !!reason, 'aria-describedby': reason ? 'cmp-inject-reason' : undefined, onclick: blocked ? undefined : () => void inject(draft.id, targetId) },
         h('span', { html: icon.inject }), targetId !== null ? `Inject “${draft.name}” into drone ${targetId}` : 'Inject into one drone'),
       reason && !busy ? h('div', { class: 'hint', id: 'cmp-inject-reason' }, reason) : null,
-      h('div', { class: 'cmd-echo', title: 'The same action as a console command' }, h('span', {}, `› ${command}`)),
+      blocked ? null : h('div', { class: 'cmd-echo', title: 'The same action as a console command' }, h('span', {}, `› ${command}`)),
       feedback ? h('div', { class: `hint ${feedback.ok ? '' : 'err'}`, role: feedback.ok ? 'status' : 'alert' }, feedback.text) : null);
     fill(sentBox, lastSent ? sentCard(lastSent) : null);
     updateAdoption();
@@ -568,6 +607,8 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     open() { if (ctx.surfaces) ctx.surfaces.open('composer'); else { el.hidden = false; render(); } },
     render,
     dispose() {
+      composerDisposed = true;
+      generated?.source.dispose();
       clearInterval(timer);
       offDrafts(); offStore();
       ctx.events?.removeEventListener('encore:control-status', onStatus);
@@ -576,6 +617,13 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       el.remove();
     },
   };
+}
+
+/** `?p2=generated` (the Phase 2 opt-in flag form, read once per panel; off without a location). */
+export function generatedFlag(search: string | null = typeof location !== 'undefined' ? location.search : null): boolean {
+  if (search === null) return false;
+  const value = new URLSearchParams(search).get('p2');
+  return value !== null && value.split(',').map(part => part.trim()).includes('generated');
 }
 
 function parseVersion(key: string): { issuedTick: number; origin: number } {
