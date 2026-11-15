@@ -8,6 +8,20 @@ import type { Arm } from '../worlds';
 
 export type ColourMode = 'show' | 'belief';
 export type ViewMode = 'encore' | 'split' | 'static';
+
+/** One arm's name over its pane: which arm, its name and a one-line description. */
+export interface PaneLabel { arm: Arm; name: string; desc: string }
+
+/**
+ * The arm labels over the stage for a view (#134). Every view names its top pane. A single view uses the same
+ * name and wording as that arm's pane in split, without the ▲/▼ arrow. Only split has a bottom label.
+ */
+export function paneLabels(view: ViewMode): { top: PaneLabel; bottom: PaneLabel | null } {
+  const encore = { arm: 'encore', desc: 'decentralised, self-healing' } as const;
+  const baseline = { arm: 'static', desc: 'pre-programmed baseline · sends no radio' } as const;
+  if (view === 'split') return { top: { ...encore, name: '▲ ENCORE' }, bottom: { ...baseline, name: '▼ STATIC' } };
+  return { top: view === 'static' ? { ...baseline, name: 'STATIC' } : { ...encore, name: 'ENCORE' }, bottom: null };
+}
 export type CameraPreset = 'audience' | 'quarter' | 'top';
 export type Quality = 'auto' | 'high' | 'low';
 export interface Lenses { colour: ColourMode; xray: boolean; ghosts: boolean; tethers: boolean; zones: boolean; neighbourhood: boolean }
@@ -19,6 +33,11 @@ export interface PickRequest {
   prompt: string;
   resolve(result: { droneId: number | null; point: Vec3 } | null): void;
 }
+
+/** The operator's region-kill radius (m) by default: the demo's kill (DemoScript KILL_RADIUS) and the controller's own default (params.rClaim). */
+export const DEFAULT_KILL_RADIUS = 6;
+/** The operator's jam radius (m) by default (J and the Disrupt slider). */
+export const DEFAULT_JAM_RADIUS = 12;
 
 export interface UIState {
   lenses: Lenses;
@@ -32,6 +51,18 @@ export interface UIState {
   reducedMotion: boolean;
   chromeHidden: boolean;
   camera: CameraPreset | null;
+  /** The one radius (m) K, the Disrupt popover and its pick use for a region kill; the Region radius slider writes it. */
+  killRadius: number;
+  /** The one radius (m) J, the Disrupt popover and its pick use for a jam; the Jam radius slider writes it. */
+  jamRadius: number;
+}
+
+/**
+ * The state the shell starts from (main.ts): the caller's defaults with the view from the URL. No lens is
+ * overridden: tethers stay off (#134; before, main.ts switched them on and X-ray drew them as if they were radio).
+ */
+export function initialShellState(initial: UIState, view: ViewMode): UIState {
+  return { ...initial, view };
 }
 
 export type StoreListener = (state: Readonly<UIState>, changed: (keyof UIState)[]) => void;
@@ -44,6 +75,7 @@ export function defaultUIState(options: { quality?: Quality; reducedMotion?: boo
     quality: options.quality ?? 'auto',
     reducedMotion: options.reducedMotion ?? false,
     chromeHidden: false, camera: null,
+    killRadius: DEFAULT_KILL_RADIUS, jamRadius: DEFAULT_JAM_RADIUS,
   };
 }
 

@@ -12,6 +12,7 @@ import { composeNext, makeScore } from '../score';
 import { createWorld } from '../sim';
 import type { ControlContext } from './actions';
 import { readViewMode, setViewMode } from './render/colourModes/viewMode';
+import { sharedQuality } from './render/quality';
 
 // The Encore arm flies the decentralised Encore brain (#16); the static arm the pre-programmed baseline.
 const ENCORE_BRAIN: AgentBrain = encoreBrain as AgentBrain;
@@ -42,6 +43,8 @@ export interface Worlds {
   series(): Pair<readonly MetricsSample[]>;
   /** Registers a score with BOTH observers. Call before any drone can believe it (INJECT_SCORE). */
   registerScore(score: Score): void;
+  /** Every score registered with the observers since the last build or reset (the preloaded one first). */
+  scores(): readonly Score[];
   /** Tells BOTH observers about an event that both worlds accepted. scheduleBoth calls this itself. */
   recordEvent(event: EnvEvent): void;
   readonly params: Params;
@@ -62,6 +65,20 @@ export interface Worlds {
   scheduleBoth(event: EnvEvent): void;
   /** Rebuilds both worlds from `seed` (default: the current seed) with the same params, score and scripted events. */
   reset(seed?: number): void;
+  /**
+   * The root cause of a failed tick, or null. A failed world step (or a lockstep mismatch) may leave the two
+   * worlds half-stepped, so it is latched: stepBoth and scheduleBoth refuse with WorldsBrokenError until reset().
+   * An observer failure is not latched: both worlds have stepped consistently.
+   */
+  readonly broken: Error | null;
+}
+
+/** Thrown by stepBoth / scheduleBoth while the worlds are latched broken. `root` is the original failure. */
+export class WorldsBrokenError extends Error {
+  constructor(readonly root: Error) {
+    super(`The simulation stopped after a failed tick (${root.message}). Reset to continue.`);
+    this.name = 'WorldsBrokenError';
+  }
 }
 
 function checkSeed(seed: number): number {
@@ -82,10 +99,14 @@ export function createWorlds(options: WorldsOptions): Worlds {
   let latest: Pair<WorldSnapshot> | null;
   let latestSamples: Pair<MetricsSample | null>;
   let series: Pair<MetricsSample[]>;
+  let registered: Score[] = [];
   let tick: number;
+  let broken: Error | null = null;
+  const refuseIfBroken = (): void => { if (broken) throw new WorldsBrokenError(broken); };
 
   function registerScore(next: Score): void {
     for (const arm of ARMS) observers[arm].registerScore(next);
+    registered.push(structuredClone(next));
   }
   function recordEvent(event: EnvEvent): void {
     for (const arm of ARMS) observers[arm].recordEvent(event);
@@ -97,6 +118,7 @@ export function createWorlds(options: WorldsOptions): Worlds {
       static: createWorld({ seed, params, score, brain: brains.static, events: scripted }),
     };
     observers = { encore: createObserver(params), static: createObserver(params) };
+    registered = [];
     registerScore(score);
     for (const event of scripted) {
       if (event.type === 'INJECT_SCORE') registerScore(event.score);
@@ -115,15 +137,24 @@ export function createWorlds(options: WorldsOptions): Worlds {
     get worlds() { return pair; },
     get observers() { return observers; },
     get tick() { return tick; },
+    get broken() { return broken; },
     latest: () => latest,
     samples: () => ({ ...latestSamples }),
     series: () => ({ encore: series.encore, static: series.static }),
     registerScore,
+    scores: () => registered,
     recordEvent,
     stepBoth() {
-      const next = { encore: pair.encore.step(), static: pair.static.step() };
-      if (next.encore.tick !== next.static.tick || next.encore.tick !== tick + 1) {
-        throw new Error(`Worlds left lockstep: encore ${next.encore.tick}, static ${next.static.tick}, expected ${tick + 1}`);
+      refuseIfBroken();
+      let next: Pair<WorldSnapshot>;
+      try {
+        next = { encore: pair.encore.step(), static: pair.static.step() };
+        if (next.encore.tick !== next.static.tick || next.encore.tick !== tick + 1) {
+          throw new Error(`Worlds left lockstep: encore ${next.encore.tick}, static ${next.static.tick}, expected ${tick + 1}`);
+        }
+      } catch (error) {
+        broken = error instanceof Error ? error : new Error(String(error));   // latched until reset()
+        throw error;
       }
       tick = next.encore.tick;
       latest = next;
@@ -143,6 +174,7 @@ export function createWorlds(options: WorldsOptions): Worlds {
       return next;
     },
     scheduleBoth(event) {
+      refuseIfBroken();
       // Checked here first so a bad tick cannot reach one world and not the other. The remaining checks in
       // World.schedule do not depend on the brain, so both worlds accept or reject the same event.
       if (!Number.isInteger(event.tick) || event.tick <= tick) throw new Error(`Event tick ${event.tick} must be after the current tick ${tick}`);
@@ -154,6 +186,7 @@ export function createWorlds(options: WorldsOptions): Worlds {
     reset(next = seed) {
       seed = checkSeed(next);
       build();
+      broken = null;
     },
   };
 }
@@ -167,7 +200,7 @@ export function killEvent(worlds: Pick<Worlds, 'tick' | 'params'>, ids: readonly
 }
 
 /** What the app shell owns and the control binder needs: the clock (transport) and the view. */
-export type ShellHooks = Pick<ControlContext, 'getSnapshots' | 'getTransport' | 'setPlaying' | 'setSpeed' | 'reset' | 'display'>;
+export type ShellHooks = Pick<ControlContext, 'getSnapshots' | 'getTransport' | 'setPlaying' | 'setSpeed' | 'reset' | 'display' | 'step' | 'selectionWorld'>;
 
 /** The ControlContext the app hands to bindControls (#22): real worlds, real score composer, radio faults on, both observers. */
 export function controlContext(worlds: Worlds, shell: ShellHooks): ControlContext {
@@ -178,10 +211,10 @@ export function controlContext(worlds: Worlds, shell: ShellHooks): ControlContex
     getScore: () => worlds.score,
     composeScore: composeNext,
     radioFaults: true,   // the world implements JAM, PARTITION, SET_LOSS and INJECT_SCORE (#19)
-    // The adapter schedules into both worlds itself, then calls these: the injected score (synchronously, so
-    // well before its tick is reached) and every accepted event go to BOTH observers.
-    registerScore: next => worlds.registerScore(next),
-    onScheduledEvent: event => worlds.recordEvent(event),
+    // One path into both worlds: scheduleBoth refuses while the worlds are latched broken, registers an
+    // injected score with BOTH observers before scheduling it, and records every accepted event with both.
+    scheduleBoth: event => worlds.scheduleBoth(event),
+    blockedReason: () => worlds.broken ? `the simulation stopped after a failed tick (${worlds.broken.message})` : null,
   };
 }
 
@@ -197,10 +230,14 @@ export const viewModeDisplay: NonNullable<ControlContext['display']> = {
 
 /** What the comparison HUD (#24) is fed: both observers' latest samples plus view telemetry. After a reset the
  *  samples are null, so the HUD shows "waiting" at once instead of the old run's numbers. */
-export function hudPayload(worlds: Pick<Worlds, 'samples' | 'params' | 'worlds'>, view: { fps: number | null; layout: Arm | 'split' }) {
+/** `view.inHold`: per arm, whether the observer's reference formation is in its hold (from Observer.slotStatus), so the
+ *  HUD model (Metrics popover) can mark a mid-transition nPWC. Omitted or null: not reported. */
+export function hudPayload(worlds: Pick<Worlds, 'samples' | 'params' | 'worlds'>, view: { fps: number | null; layout: Arm | 'split'; inHold?: Pair<boolean | null> }) {
   return {
     ...worlds.samples(), rosterSize: worlds.params.n0, fps: view.fps, layout: view.layout,
+    quality: sharedQuality().describe(),   // render quality ladder level (render/quality.ts)
     brainKinds: { encore: worlds.worlds.encore.config.brain.kind, static: worlds.worlds.static.config.brain.kind },
+    ...(view.inHold ? { inHold: { encore: view.inHold.encore ?? undefined, static: view.inHold.static ?? undefined } } : {}),
   };
 }
 
@@ -247,4 +284,46 @@ export function createFrameLoop(transport: { playing: boolean; speed: number }, 
     }
   }
   return { frame };
+}
+
+// --- Tick pipeline: one simulation tick fanned out to the display (#46). Kept here, not in main.ts, so the
+// wiring is testable: every view ingests every tick's snapshot, in order, independent of render frames.
+export interface TickTarget {
+  arm: Arm;
+  ingest(snapshot: WorldSnapshot): void;
+  reset?(): void;
+}
+export function createTickPipeline(worlds: Worlds, buffers: Pair<{ push(snapshot: WorldSnapshot): void }>, targets: () => readonly TickTarget[]) {
+  let lastGood: Pair<WorldSnapshot> | null = worlds.latest();
+  function fanOut(snapshots: Pair<WorldSnapshot>): void {
+    lastGood = snapshots;
+    for (const arm of ARMS) buffers[arm].push(snapshots[arm]);
+    for (const target of targets()) target.ingest(snapshots[target.arm]);
+  }
+  const pipeline = {
+    /** Steps both worlds once and fans the snapshots out. If the step committed a tick but then threw (an
+     *  observer failure), the tick is still shown before the error is rethrown. */
+    advance(): Pair<WorldSnapshot> {
+      let failure: { error: unknown } | null = null;
+      try { worlds.stepBoth(); } catch (error) { failure = { error }; }
+      const snapshots = worlds.latest();
+      if (snapshots && snapshots !== lastGood) fanOut(snapshots);
+      if (failure) throw failure.error;
+      return snapshots!;
+    },
+    /** The newest snapshots, read-only: never steps a world (safe from error reporting). Null right after a
+     *  reset whose first tick failed. */
+    current(): Pair<WorldSnapshot> | null {
+      return worlds.latest() ?? lastGood;
+    },
+    /** Rebuilds the worlds, clears every target's retained evidence, then runs the new show's first tick.
+     *  A failure of that tick is thrown to the caller (and worlds.broken holds the root cause). */
+    restart(seed: number): Pair<WorldSnapshot> {
+      worlds.reset(seed);
+      lastGood = null;
+      for (const target of targets()) target.reset?.();
+      return pipeline.advance();
+    },
+  };
+  return pipeline;
 }

@@ -64,6 +64,7 @@ describe('Store change events', () => {
       lenses: { colour: 'show', xray: false, ghosts: false, tethers: false, zones: true, neighbourhood: true },
       view: 'encore', selected: null, hovered: null, pick: null, pickPoint: null, preview: null,
       quality: 'auto', reducedMotion: false, chromeHidden: false, camera: null,
+      killRadius: 6, jamRadius: 12,
     });
     expect(defaultUIState({ quality: 'low', reducedMotion: true })).toMatchObject({ quality: 'low', reducedMotion: true });
     expect(new Store().state).toEqual(defaultUIState());

@@ -114,6 +114,8 @@ describe('accepted commands become typed intents', () => {
     ['view xray', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'xray' } }],
     ['view beliefs off', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'beliefs', on: false } }],
     ['view zones on', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'zones', on: true } }],
+    ['view ghosts on', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'ghosts', on: true } }],
+    ['view tethers', { kind: 'ui', command: 'view', ui: { type: 'view', lens: 'tethers' } }],
     ['camera top', { kind: 'ui', command: 'camera', ui: { type: 'camera', preset: 'top' } }],
     ['compare on', { kind: 'ui', command: 'compare', ui: { type: 'compare', mode: 'on' } }],
     ['compare static', { kind: 'ui', command: 'compare', ui: { type: 'compare', mode: 'static' } }],
@@ -158,7 +160,7 @@ describe('"later" commands are honest and change nothing', () => {
     expect(seed.kind === 'control' && seed.steps[0].type === 'reset' && Object.is(seed.steps[0].seed, 0)).toBe(true);
   });
 
-  it.each(['fault unjam J', 'form svg logo.svg', 'form cloud x.ply', 'cue add', 'cue move', 'show save', 'show load', 'seek 10', 'demo run 180', 'fault kill-random --percent 25', 'view ghosts on', 'view tethers', 'view neighbourhood'])('%s', line => {
+  it.each(['fault unjam J', 'form svg logo.svg', 'form cloud x.ply', 'cue add', 'cue move', 'show save', 'show load', 'seek 10', 'demo run 180', 'fault kill-random --percent 25', 'view neighbourhood'])('%s', line => {
     const intent = ok(line);
     expect(intent.kind).toBe('planned');
     expect(intent.kind === 'planned' && intent.message).toMatch(/planned, not built.*Nothing was changed\.$/);
@@ -301,5 +303,18 @@ describe('rejections carry a useful message', () => {
 
   it('treats a quoted --flag as a value, not a flag', () => {
     expect(error('form text "--pick"')).toMatch(/The font has no "-"/);
+  });
+});
+
+describe('console faults follow the one radius (#134)', () => {
+  const shell: ParseContext = { ...ctx, killRadius: 6, jamRadius: 12 };
+  it('fault kill-region and fault jam without --radius use the shell radius', () => {
+    expect(parse('fault kill-region --at 5', shell)).toMatchObject({ ok: true, intent: { steps: [{ type: 'select', id: 5 }, { type: 'kill-region', radius: 6 }] } });
+    expect(parse('fault jam --at 4', shell)).toMatchObject({ ok: true, intent: { steps: [{ type: 'select', id: 4 }, { type: 'jam', radius: 12 }] } });
+    expect(parse('fault kill-region', { ...shell, killRadius: 9 })).toMatchObject({ ok: true, intent: { steps: [{ type: 'kill-region', radius: 9 }] } });
+  });
+  it('an explicit --radius still wins', () => {
+    expect(parse('fault kill-region --radius 8 --at 5', shell)).toMatchObject({ ok: true, intent: { steps: [{ type: 'select', id: 5 }, { type: 'kill-region', radius: 8 }] } });
+    expect(parse('fault jam --radius 20 --at 4', shell)).toMatchObject({ ok: true, intent: { steps: [{ type: 'select', id: 4 }, { type: 'jam', radius: 20 }] } });
   });
 });

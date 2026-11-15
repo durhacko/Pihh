@@ -19,6 +19,8 @@ export class RadioTrace {
   private history: Broadcast[] = [];
   private lastTick = -1;
   private ordinal = 0;
+  /** Drone positions at the end of tick lastTick, i.e. where every drone was when tick lastTick + 1 sent its radio. */
+  private lastPositions: Map<number, Vec3> | null = null;
 
   /**
    * Per-tick evidence (#46): call once for every simulation tick, in order. Each tick's broadcasts are kept
@@ -30,7 +32,7 @@ export class RadioTrace {
   }
 
   /** Drop all retained evidence (the world was rebuilt). */
-  reset(): void { this.history = []; this.lastTick = -1; this.ordinal = 0; }
+  reset(): void { this.history = []; this.lastTick = -1; this.ordinal = 0; this.lastPositions = null; }
 
   /** Render-frame fallback for views without per-tick ingestion: sees only the frame's prev/curr snapshots. */
   update(prev: WorldSnapshot, curr: WorldSnapshot): void {
@@ -41,30 +43,45 @@ export class RadioTrace {
 
   private record(snapshot: WorldSnapshot): void {
     if (snapshot.tick <= this.lastTick) return;
+    const own = new Map(snapshot.drones.map(drone => [drone.id, [...drone.pos] as Vec3]));
     if (snapshot.radio.length > 0) {
-      const positions = new Map(snapshot.drones.map(drone => [drone.id, [...drone.pos] as Vec3]));
+      // Draw each link where the medium decided it (#149). The world picks receivers within rRadio from the bodies
+      // BEFORE they move this tick, which is where the previous snapshot left them; this snapshot's positions are
+      // after the move, and two drones can drift up to 2 · vMax · DT further apart. So the previous snapshot's
+      // positions are used when it was the tick just before; otherwise (first tick seen, a gap) this one's.
+      // Guarantee, scoped: with every tick ingested in order (the app: WorldView.ingest on every tick, #46) a link is
+      // never longer than rRadio. In the fallback (a tick with no previous one, e.g. update()-only use that skips
+      // ticks) it can be up to rRadio + 2 · vMax · DT, the drift of one tick.
+      const positions = this.lastPositions !== null && snapshot.tick === this.lastTick + 1 ? this.lastPositions : own;
       for (const event of snapshot.radio) this.history.push({ tick: snapshot.tick, event: structuredClone(event), positions, ordinal: this.ordinal++, drawn: new Set() });
     }
     this.lastTick = snapshot.tick;
+    this.lastPositions = own;
     this.history = this.history.filter(broadcast => (snapshot.tick - broadcast.tick) * DT < 1);
   }
 
-  plan(tick: number, alpha: number, selectedDroneId: number | null = null, enabled = true) {
+  plan(tick: number, alpha: number, selectedDroneId: number | null = null, enabled = true, plainLines = true) {
     const segments: RadioSegment[] = [];
     const stubs: DropStub[] = [];
     let logged = 0;
     let drawn = 0;
+    // With a drone selected only its links are drawn, so `drawn` counts only them: `involving` is the matching
+    // denominator (observed deliveries sent by or to the selected drone), so a label can compare like with like
+    // (#134 P1-4). Absent without a selection.
+    let involving = 0;
     const ordered = [...this.history].sort((a, b) => Number(this.highlighted(b.event)) - Number(this.highlighted(a.event)) || a.tick - b.tick || a.ordinal - b.ordinal);
     for (const broadcast of ordered) {
       const { event, positions } = broadcast;
       logged += event.delivered.length;
+      if (selectedDroneId !== null) involving += event.from === selectedDroneId ? event.delivered.length : event.delivered.filter(id => id === selectedDroneId).length;
       const start = positions.get(event.from);
       if (!start) continue;
       const highlight = this.highlighted(event);
       const age = Math.max(0, (tick - broadcast.tick + Math.max(0, Math.min(alpha, 1))) * DT);
       const opacity = Math.max(0, 1 - age / RADIO_FADE_SECONDS);
       const candidates = event.delivered.filter(id => positions.has(id) && (selectedDroneId === null || event.from === selectedDroneId || id === selectedDroneId));
-      const recipients = highlight ? candidates.slice(0, HIGHLIGHT_RECEIVER_CAP) : broadcast.ordinal % 4 === 0 ? candidates.slice(0, 3) : [];
+      // plainLines false (quality level >= 1): plain heartbeats draw nothing; claims and SCOREs are unaffected.
+      const recipients = highlight ? candidates.slice(0, HIGHLIGHT_RECEIVER_CAP) : plainLines && broadcast.ordinal % 4 === 0 ? candidates.slice(0, 3) : [];
       if (opacity > 0 && enabled) {
         const colour = event.type === 'SCORE' ? score : event.claimSlot !== null ? claim : plain;
         for (const receiver of recipients) {
@@ -80,7 +97,9 @@ export class RadioTrace {
       }
       drawn += [...broadcast.drawn].filter(id => selectedDroneId === null || event.from === selectedDroneId || id === selectedDroneId).length;
     }
-    return { segments, stubs, drawn, logged };
+    return selectedDroneId === null
+      ? { segments, stubs, drawn, logged }
+      : { segments, stubs, drawn, logged, involving, filteredTo: selectedDroneId };
   }
 
   private highlighted(event: RadioEvent): boolean { return event.type === 'SCORE' || event.claimSlot !== null; }

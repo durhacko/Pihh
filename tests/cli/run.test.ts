@@ -33,8 +33,9 @@ function newLog(): StubLog {
   return { scores: [], events: [], ticks: [] };
 }
 
-/** These tests step a 200-drone world for 400-1400 ticks; under the parallel full suite that exceeds the 5 s default. */
-const SIM_TIMEOUT = 30_000;
+/** These tests step a 200-drone world for 400-1400 ticks; under the parallel full suite that exceeds the 5 s default.
+ * Heavy world stepping: headroom for CPU contention under parallel load (30 s was seen to time out at load ~20+). */
+const SIM_TIMEOUT = 60_000;
 
 describe('runOne', () => {
   it('produces a replayable RunRecord: equal stateHash and summary on a second run, events equal to the scenario', () => {

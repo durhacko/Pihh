@@ -8,7 +8,7 @@ Draft for roughly 90 seconds with action pauses; shorten the technical explanati
 
 1. **Hook — 10 s:** “What happens to a light show when some drones disappear? We are exploring whether nearby survivors can keep its important detail readable.”
 2. **Composition — 15 s:** “Encore is a software simulation. Each drone sees nearby motion and received radio messages. A timed score composes their decisions into text and shapes. Score and roster are preloaded; there is no central controller during the show.”
-3. **Demonstration — 30 s:** [Show only a verified path below.] “Both sides receive the same failures. Our repair rule asks nearby survivors to give up less important slots. Radio silence alone is not evidence of a vacancy. Cut-off drones keep flying their current score.” [The Encore arm flies the Encore brain and the other arm the static baseline. Check the HUD's per-arm brain labels before speaking, and describe only what the screen shows.]
+3. **Demonstration — 30 s:** [Show only a verified path below.] “Both sides receive the same failures. Our repair rule asks nearby survivors to give up less important slots. Radio silence alone is not evidence of a vacancy. Cut-off drones keep flying their current score.” [The Encore arm flies the Encore brain and the other arm the static baseline. Check the **Brains** row in the Metrics popover (click the readout at the top right, or press **M**) before speaking, and describe only what the screen shows.]
 4. **Technical depth — 20 s:** “Encore invents no new algorithm. It combines known ideas (gossip, local failure suspicion, priority slot claims) into an inspectable drone-show simulation that you can break, and it compares measured recovery against a static pre-uploaded baseline.”
 5. **Learning — 15 s:** “We separate lost capacity from coordination loss and count collisions rather than promise safety. Results must come from paired run records, including ties and losses. We show only results actually measured.”
 
@@ -18,9 +18,9 @@ Quote a numerical result only with its `RunRecord`, revision, seed count and lim
 
 ## Current run path and verification boundary
 
-Source checked at `9f78902` (14 Nov 2026, after #107): the app builds two real worlds in lockstep. The **Encore arm flies the Encore brain**: it heals, gossips scores and sends radio. The other arm flies the static pre-programmed baseline. The masthead caption says so, and the HUD labels each arm with the brain kind its world actually runs (`config.brain.kind`). Radio faults, injection, X-ray and belief colours are wired through the controls. The scripted demo (D) is described below. This paragraph covers wiring only; recovery results still need their own run records.
+Source checked at `9f78902` (14 Nov 2026, after #107): the app builds two real worlds in lockstep. The **Encore arm flies the Encore brain**: it heals, gossips scores and sends radio. The other arm flies the static pre-programmed baseline. The **Brains** row of the Metrics popover shows the brain kind each world actually runs (`config.brain.kind`). Radio faults (Disrupt in the dock), injection (Compose), X-ray and belief colours (Lenses, or **X** and **C**) are wired through the one action controller. The scripted demo (**Show** in the dock, or **D**) is described below. This paragraph covers wiring only; recovery results still need their own run records.
 
-The full headless pipeline at this revision passed 316 tests, typecheck, lint, build and internal links in #71/PR #73. That is engineering verification, not a recovery result or rehearsal. **The browser steps below are a source-based candidate path, not independently rehearsed by this document's author.** Record a browser pass below before calling it known-good.
+`bash scripts/check.sh` passes on `main` after #120 (typecheck, lint, tests, build, internal links). Re-run it at the rehearsal build and record the result here. That is engineering verification, not a recovery result or rehearsal. **The browser steps below are a source-based candidate path, not independently rehearsed by this document's author.** Record a browser pass below before calling it known-good.
 
 Prepare dependencies before going offline (Node 22.12+ and Python 3 required):
 
@@ -31,10 +31,10 @@ npm run build
 npm run preview -- --host 127.0.0.1
 ```
 
-On PowerShell use `npm.cmd` if execution policy blocks `npm`. Keep preview running; open Vite's printed loopback address with `?seed=101&split=1`. The local server is part of the app. Installation needs internet once; runtime needs no external services. A production browser check with networking off is pending.
+On PowerShell use `npm.cmd` if execution policy blocks `npm`. Keep preview running; open Vite's printed loopback address with `?seed=101&split=1`. The local server is part of the app. Installation needs internet once; runtime needs no external services. This was checked on a fresh clone at `9f78902` (15 Nov, about 00:00) in WSL, by an agent session; the log is in [#8](https://github.com/durhacko/Pihh/issues/8#issuecomment-6886715532). With networking removed (a separate network namespace with only loopback), `npm run preview` served the page, `?seed=101&split=1` and its assets to `curl`. A scan of the bundle found no external URL it loads: the only two are a three.js source comment and the SVG namespace. No browser loaded the page offline. Still to do: the same in a real browser with Wi-Fi off on the presentation laptop.
 
-1. Read the brain labels. The badge says **LIVE SIMULATION**; the masthead caption and the HUD's per-arm labels show which brain each arm flies, and the HUD label comes from the live world (`config.brain.kind`). Expect the Encore brain in the Encore arm and the static baseline in the other. If a label says otherwise, do not describe any difference as healing.
-2. Use camera presets `1`, `2`, `3` or their buttons; check orbit/zoom on the presentation laptop. Record actual fps during rehearsal, not a target or fixture measurement.
+1. Read the brain labels. Open Metrics (click the readout at the top right, or press **M**): its **Brains** row shows which brain each arm flies (Encore arm / static arm), read from the live worlds (`config.brain.kind`). Expect **Encore brain / static brain**. If it says otherwise, do not describe any difference as healing. The readout itself shows nPWC, alive, the score phase and fps; in split view it shows both arms (Encore / static).
+2. Use camera presets **1**, **2**, **3**, or the Front, ¾ and Top buttons under Lenses › Camera; check orbit/zoom on the presentation laptop. Switch worlds with **Encore · Split · Static** in the dock (or **B**, which cycles Encore → Split → Static). Record actual fps during rehearsal (the readout's fps), not a target or fixture measurement.
 3. For a development check, use the console below. It schedules identical explicit failure ids in both worlds; describe it as a failure-input check, not repair.
 
 ```js
@@ -47,21 +47,23 @@ window.encore.setPlaying(true);
 
 After simulation advances, pause and read `window.encore.alive()` again. Both arms should have lost those three ids. Restart with `window.encore.reset(101)` and `window.encore.setPlaying(true)`. Stop preview with Ctrl+C.
 
-4. Once G1/G4 evidence and UI integration exist, rehearse the [canonical script](../design/experience-and-demo.md#9-scripted-demo). Kill during a hold. Jamming does not freeze flight; a drone leaving a geometric jam may adopt before jam-off. Fixed partition groups stay isolated wherever they fly.
-5. Check reset/seed behavior, equal failure events, radio lines from real logs and observer-backed HUD against a matching headless record. Run the script twice unattended before using it for judging. No such pass is recorded here.
+4. G1 and G4 are met (#103, #21). In the app, the belief view is checked for both a jam and a partition (#132, merged as #136). The script is in the app (press D): rehearse the [canonical script](../design/experience-and-demo.md#9-scripted-demo). When you claim dissemination, state its cost in the same breath: in the partition scenario, Encore records a median of 103 collisions against 14 for static. That is not like-for-like: Encore flies the injected BRAVO change, while static flies its preloaded sphere change (RESULTS.md; #123). Kill during a hold. Jamming does not freeze flight; a drone leaving a geometric jam may adopt before jam-off. Fixed partition groups stay isolated wherever they fly.
+5. Check reset/seed behavior, equal failure events, radio lines from real logs and the observer-backed readout and Metrics popover against a matching headless record. Run the script twice unattended before using it for judging. No such pass is recorded here.
 
 Startup time, browser fps, offline pass and reset demonstration: **not measured/rehearsed here**. Needs: one laptop on mains power; external screen optional. No drone equipment or external runtime services.
 
 ## Known-good demo path
 
-> **Scripted, not yet rehearsed by a person.** The 90-second script ([experience §9](../design/experience-and-demo.md#9-scripted-demo), #27) runs unattended and gives the same result each time in headless tests. It has had one headless-browser run. No presenter rehearsal is recorded (see below).
+> **Scripted, not yet rehearsed by a person.** The 90-second script ([experience §9](../design/experience-and-demo.md#9-scripted-demo), #27) runs unattended and gives the same result each time in headless tests. It had two headless-browser runs before the #114 retiming and the Encore brain, and none since (see Verification below). No presenter rehearsal is recorded (see below).
 
-**Run it.** Open the production preview with `?split=1`, then press **D** or **Run demo** in the bar at the bottom. The script resets both worlds to its own seed, sets 1×, turns X-ray and belief colours off, and plays, so the seed in the URL does not matter.
-- **Stop:** press **D** again. The script stops and the show resets to seed 101. The reset discards any event the script had already scheduled, up to 3 s ahead. The show keeps playing.
-- **Restart:** resets and runs the script from the start.
-- **Outside reset:** a reset or seed change from the control panel, the keys or the console stops the script.
+**Run it.** Open the production preview, then press **Show** in the dock or **D**. The script resets both worlds to its own seed, sets 1×, turns X-ray and belief colours off, shows the Encore view, and plays, so neither the seed nor `?split=1` in the URL matters. Its captions appear above the dock. A line under each caption shows progress and any problem.
+- **Stop:** press **D** (or **Show**) again. The script stops, and the show resets to seed 101 in the Encore view. The reset discards any event the script had already scheduled, up to 3 s ahead. The show keeps playing.
+- **Run again:** there is no Restart button. Press **D** (or **Show**) to start from the beginning: once after the end, or twice while it runs (stop, then start).
+- **Outside reset:** a reset or seed change from the dock, the keys or the console stops the script.
+- **Wrong roster:** the script is written for 200 drones. Only `?n0=100` or `?n0=150` changes the roster; then the script refuses to start and says so in a toast. Reload without `?n0=`. Any other `?n0=` value is ignored and the app runs 200.
+- **Problems:** a beat that failed, or went out late, is toasted once and stays in the caption's sub-line for the rest of the run.
 
-**Frozen inputs.** These are defined in `src/app/ui/DemoScript.ts`. They assume the default roster, n0 = 200, and the default preloaded score: ENCORE text, then sphere, then helix. `tests/app/demo.test.ts` checks the seed, the beat ticks, and the measured facts below.
+**Frozen inputs.** These are defined in `src/app/ui/DemoScript.ts`. They assume the default roster, n0 = 200 (the script refuses any other), and the default preloaded score: ENCORE text, then sphere, then helix. `tests/app/demo.test.ts` checks the seed, the beat ticks, and the measured facts below.
 
 | Input | Value |
 |---|---|
@@ -72,8 +74,8 @@ Startup time, browser fps, offline pass and reset demonstration: **not measured/
 
 **Differences from experience §9:**
 - **Formation change:** it is the preloaded sphere at 48 s, because the default score has no helix before 93 s. The injected score is therefore a helix rather than a sphere.
-- **Split view:** it is a page option (`?split=1`). The script cannot toggle it, so the split beat is a caption only.
-- **Ghost slots:** they are not wired in this build, so there is no ghost beat.
+- **Split view:** the split beat at 16 s switches the stage to split view (Encore above, static below), and the final beat at 82 s sets split view again, in case the presenter changed it. Starting or stopping the script returns to the Encore view.
+- **Ghost slots:** the script has no ghost beat. Ghost slots exist in the app (**G**, or Lenses) and can be shown by hand.
 
 **Beats** (sim seconds at 1×; 20 ticks per second):
 
@@ -83,7 +85,7 @@ The "Encore arm" column was measured headless on `9f78902`: seed 101, the script
 |---|---|---|---|---|
 | 0 | 1 | Reset, Audience camera | Launch into ENCORE | Same |
 | 12 | 240 | X-ray on | No radio lines: the static brain sends nothing | Sampled heartbeats |
-| 16 | 320 | Caption only (split is a URL option) | Below, in split view | Above |
+| 16 | 320 | Switch to split view | Below | Above |
 | 20 | 400 | Regional `KILL` | 20-drone hole in the first E; alive 180 / 200 | Same ids, same tick |
 | 21–48 | 420 | Caption only | The hole stays; nPWC 0.931 | 8 survivors claim vacated slots by 30 s, so part of the hole refills; nPWC 0.931 → 0.972 by 48 s |
 | 48 | 963 | Preloaded sphere movement | Re-forms as a sphere, formed from tick 1216 | Same |
@@ -91,10 +93,10 @@ The "Encore arm" column was measured headless on `9f78902`: seed 101, the script
 | 64 | 1280 | `INJECT_SCORE` (helix) into drone 151, selected again as the injection is sent at 61 s, so a presenter's click cannot change the target; 0.5× | Nothing changes; the static brain ignores injection | 162 of 180 drones adopt within 1 s; none of the 18 inside the jam do |
 | 67 | 1340 | 1× (new movement starts) | Still a sphere | Adopters fly the helix; the cut-off cap keeps the sphere |
 | 73 | 1460 | `JAM_OFF` | Jam sphere gone | All 180 hold the new score within 1 s and join the helix by the clock |
-| 82 | 1640 | X-ray and belief colours off; Audience | Final view and HUD | Helix above, sphere below |
+| 82 | 1640 | X-ray and belief colours off; Audience; split view | Final view; the readout shows nPWC for both arms | Helix above, sphere below |
 | 90 | 1800 | End | "End of the 90-second demo" | |
 
-The amber note follows the brains the live worlds actually fly (their `config.brain.kind`, the same source as the HUD's labels). It appears only when the Encore arm is not flying the Encore brain, so with the Encore brain in the app it no longer shows.
+The brain note in the caption's sub-line follows the brains the live worlds actually fly (their `config.brain.kind`, the same source as the Metrics popover's Brains row). It appears only when the Encore arm is not flying the Encore brain, so with the Encore brain in the app it no longer shows.
 
 **Verification so far.**
 - Headless, `tests/app/demo.test.ts`. These run over the same event path as the browser: the real controls binder, the demo talking to it by DOM events only, and status refreshed periodically.
@@ -102,7 +104,7 @@ The amber note follows the brains the live worlds actually fly (their `config.br
   - Each caption appears on its own beat's tick, never early.
   - Two runs from the demo's own reset end with identical `stateHash` values, HUD samples and event logs, even when status arrives only every 7 ticks.
   - Stop, including inside the 3 s window before an event, restart and an outside reset work.
-  - A failed or late beat is reported in the bar.
+  - A failed or late beat is reported. The headless test reads it from the demo bar component; the shell toasts it and keeps it in the caption's sub-line, which #113 checked in a browser.
   - The jam starts on the formed sphere, and the injection target is low and outside the jam in both arms at the injection tick.
 - Two headless Chromium runs of the #104 version of the script (old jam ticks, static brain in both arms), split view, 1440×900, software WebGL. These have not been repeated since the #114 retiming and the Encore brain:
   - the whole script ran with no page errors;
@@ -110,25 +112,28 @@ The amber note follows the brains the live worlds actually fly (their `config.br
   - each caption appeared on its beat;
   - the runs ended at tick ~1800 after 105–111 s real time, which includes the 0.5× section;
   - they rendered 8–16 fps on software WebGL. That says nothing about a laptop GPU: record real fps at rehearsal.
-- Layout measured at 1440×900, 1280×800 and 1000×760: the bar does not overlap the HUD, the control panel, the camera buttons, the help text or the fps readout.
+- The app shell (#113), headless Chrome at 1440×900 and 1280×720 with real input:
+  - no clipping, overlap or dock overflow in 12 measured states, including the demo, split view, Metrics, Disrupt, the composer, the console and the timeline;
+  - the n0 = 100 refusal, and the split beat with its return to the Encore view, checked in the browser.
+  - Screenshots stayed local to that session and are not attached.
 
-**Not yet verified:** a presenter rehearsal, a run on the presentation laptop, and an offline run. The bar is laid out for windows 1280 px wide or more. From 861 to 1279 px it narrows and clips captions to two lines. Below 860 px it is hidden, but **D** still runs the script.
+**Not yet verified:** a presenter rehearsal, a run on the presentation laptop, an offline run, and the shell below 1280×720.
 
 ## Fallbacks
 
 | If this fails | Do this | Evidence boundary |
 |---|---|---|
 | Playback/controls misbehave | Reset to the rehearsed seed using tested UI or the console above; reload the production URL if necessary | No repair claim from an unrehearsed reset |
-| The demo bar says a step "went out at … s, so this run is off-script", or that a step "failed" | Press **Restart** at 1× and keep the tab in front. Do not quote numbers from that run | Only a run with no such message is the canonical one |
-| The scripted demo stops or misbehaves mid-run | Press **D** to stop; the show resets to seed 101. Then drive similar beats by hand from the control panel (a sequence follows this table) | Hand-driven events land on different ticks and use the controls' default radii (kill 6 m, jam 15 m), not the script's; say so |
-| Split is too slow | Reopen without `split=1`; show both arms' recorded results separately when available | Report the actual laptop observation, not fixture fps |
-| Healing/dissemination is unproven | Show the working shared-world/failure path; explain the mechanism as design and follow the fallback ladder | No staged repair or invented communication result |
+| A toast or the caption's sub-line says a step "went out at … s, so this run is off-script", or that a step "failed" | Press **D** twice (stop, then start) at 1× and keep the tab in front. Do not quote numbers from that run | Only a run with no such message is the canonical one |
+| The scripted demo stops or misbehaves mid-run | Press **D** to stop; the show resets to seed 101. Then drive similar beats by hand with the keys and the dock (a sequence follows this table) | Hand-driven events land on different ticks and use other radii than the script's 6 m: **K** always destroys 8 m and **J** always jams 12 m. Only the Disrupt popover's own buttons use its radius sliders, so a slider never changes K or J. Say so |
+| Split is too slow | Press **Encore** in the dock, or **B** twice (split → static → Encore), to show one world; show both arms' recorded results separately when available. A running demo switches back to split at its 16 s beat, so stop it first (**D**) | Report the actual laptop observation, not fixture fps |
+| Repair or spread does not show in this run | Say what the headless tests and the evaluation show (G1; G4 with the relay test and S5; [RESULTS](../../results/RESULTS.md)) and that this run did not show it; never stage it | Quote only the tests and results, with their limits and costs |
 | WebGL or all live paths fail | Play a labelled offline backup only if it exists; otherwise show source and real headless evidence with limits | No video/screenshots supplied by this drafting increment |
 
-**Hand-driven sequence** for the second fallback row:
-1. Once the word holds, click a drone in the middle of the first E, then press **K**.
-2. After the sphere forms, click a drone at its top and press **J**.
-3. Choose "Double helix" under New composition, click a drone at the bottom, and press **I**.
+**Hand-driven sequence** for the second fallback row. In split view, click drones in the **Encore pane** (the top one). Picks are answered only there. K and J act around a drone selected in the Encore pane; with a drone selected in the static pane they refuse, with the toast "Faults are centred in the Encore world: select in the Encore pane."
+1. Once the word holds, click a drone in the middle of the first E, then press **K**. With a drone selected, K destroys the 8 m region around it; with none selected, it asks for a click on the centre.
+2. After the sphere forms, click a drone at its top and press **J**. This jams 12 m around it.
+3. Press **F** (or **Compose** in the dock) and choose **Double helix**. Under Transmit, press **Pick in stage** and click a drone at the bottom, or type its id. Then press **Inject … into drone N**. The console does the same with `form helix` then `inject --pick`.
 4. Press **J** again to lift the jam.
 
 ## Judging traceability
@@ -137,10 +142,10 @@ Criteria come from [BRIEF J1](../competition/BRIEF.md#3-judging). Expected obser
 
 | Criterion / track | System feature | Expected observation | Evidence and current limit |
 |---|---|---|---|
-| Creativity / Innovation | Timed score plus local priority claims | Damage becomes thinner detail when repair succeeds | [Contracts §8](../design/contracts-and-algorithms.md#8-healing-local-claims-adr-007); G1/#17 required; no new-algorithm claim |
+| Creativity / Innovation | Timed score plus local priority claims | Damage becomes thinner detail when repair succeeds | [Contracts §8](../design/contracts-and-algorithms.md#8-healing-local-claims-adr-007); G1 passed (#103, 40 drones). It depends on where the kill lands: 38 of 40 kill centres on seed 1, after pacing and gossip, in the committed test `tests/g1/g1.beyond.test.ts` (CI). Separately, 183 of 200 (40 centres × seeds 1–5, before pacing and gossip) come from an opt-in sweep (`G1_WIDE`) reported in a PR #103 comment; that is not a committed record. At 200 drones ([RESULTS](../../results/RESULTS.md), #122), Encore was ahead on end nPWC (our own priority labels) on 5 of 5 seeds in the random and regional kills. Plain coverage ties at 0.900. Encore costs 4 msgs/drone-s, a median of 25 and 33 slot changes and a few more collisions (17 and 16 vs 14). No new-algorithm claim |
 | Polish / Completion | 3D view, reset, repeatable demo | Readable formations and reliable reset | [Visual acceptance](../design/experience-and-demo.md#11-visual-acceptance-criteria); browser rehearsal/video pending |
 | Technical Competence / Execution | Isolated brains, radio, read-only observer | Logs and beliefs explain actual decisions | T01–T05/T14 in [evaluation](../validation/evaluation-and-tests.md#6-automated-tests); component tests do not establish complete UI wiring |
-| Research / Learning | Paired baseline and loss split | Wins/ties/losses, censored recovery and collisions | [Evaluation procedure](../validation/evaluation-and-tests.md#5-procedure); #26 records/table pending, no outcome quoted |
+| Research / Learning | Paired baseline and loss split | Wins/ties/losses, censored recovery and collisions | [Evaluation procedure](../validation/evaluation-and-tests.md#5-procedure); [RESULTS](../../results/RESULTS.md) (#122): S0–S3 and S5 at 200 drones, 5 seeds; S5's collision cost in #123; S4 and 20 seeds not run |
 | Reported theme: Composition | Parts form images; movements form a score | Theme interpretation explained from the system | [BRIEF T1](../competition/BRIEF.md#2-theme): wording/judging unverified |
 | Neptune North | Brief not captured; feature mapping pending #1 | No sponsor-specific claim before brief capture | [BRIEF P7](../competition/BRIEF.md#5-prize-tracks), #1: track title/prize verified; fit/eligibility unverified |
 
@@ -154,7 +159,7 @@ Criteria come from [BRIEF J1](../competition/BRIEF.md#3-judging). Expected obser
 | Does it detect death or repair any damage? | It infers a vacancy from empty sensing plus missing heartbeats; it can be wrong and yield. Repair is local and greedy, paused during transitions/deafness/version disagreement. A hole nobody senses may remain. Never say “always converges.” |
 | Is it safe to fly? | No safety claim or flight software. Collisions/near-misses are counted from simulated true positions and cause no damage. Quote only the displayed run's recorded counts. |
 | Is the baseline fair? | Same seed, score, physics, steering and explicit failures. Static keeps flying, sends nothing and ignores injection by definition. Non-adoption is a capability difference, not a recovery win. Each arm has its own valid reference score. |
-| Does Encore win? | Results pending. Paired scenarios include null runs, random/regional kills, cuts and injection. Report ties/losses. Our geometric priority weighting is paired with coverage and label-independent shape distance. Williams owns records; Arnav owns interpretation. |
+| Does Encore win? | At 200 drones over 5 paired seeds ([RESULTS](../../results/RESULTS.md), #122), Encore was ahead on the random and regional kills on 5 of 5 seeds each (end nPWC about 0.997 vs 0.91) and level on the null run and the radio cut. There were no losses on that measure. Plain coverage ties at 0.900, and nPWC uses our own priority labels. Encore costs more radio messages, slot changes and a few collisions (17 and 16 vs 14). In the partition scenario (S5), every Encore drone adopted the new score, while static adopted none. Encore recorded a median of 103 collisions, against 14 for static, which flies a different formation change. About 80% came after the partition healed, and nearly all involved a drone that adopted late (one or both) (#123). Report ties and costs with the wins. Our geometric priority weighting is paired with coverage and label-independent shape distance. Arnav's sessions own the records (#26) and their interpretation. |
 | What did you build versus libraries and AI? | Point to README “Built with” and “AI use” and the commits. Update disclosures before submission (#8); do not describe AI-generated work as unaided. |
 | Does it meet the sponsor/theme brief? | It addresses them as reported to the team; wording/eligibility are unverified (#1). No confirmed sponsor-fit claim. |
 
@@ -170,6 +175,7 @@ Issue #7 requires three full rehearsals by different people. Each real entry mus
 
 ## Backup video record — no recording available
 
+- Recorder: [`scripts/demo/README.md`](../../scripts/demo/README.md) records the scripted demo automatically in headless Chrome, as a fallback for the human backup video (#131, #148). It refuses to record on software WebGL unless given `--allow-software`, so record on a laptop GPU. No recording from it is listed here yet, and its output still needs the offline playback checks below.
 - Recording build/tag, seed, duration and file path: **not recorded**.
 - Offline copy played on laptop 1 / laptop 2: **neither verified**.
 - Source run records for numerical claims/captions: **not attached**.
