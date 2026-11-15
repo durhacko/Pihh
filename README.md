@@ -31,7 +31,7 @@ Built for **DurHack 2026** (Durham, 14–15 November) and its *Composition* them
 <p align="center">
   <a href="docs/assets/readme/repair.gif"><img src="docs/assets/readme/repair.gif" width="840" alt="Animated comparison recorded from the simulator. Both worlds lose the same 20 drones at 20 seconds. Encore, top, shifts surviving drones into the important missing letter slots, while the static baseline, bottom, retains a permanent hole." /></a>
 </p>
-<p align="center"><sub>Actual simulator capture, seed 101. <strong>Top:</strong> decentralised Encore. <strong>Bottom:</strong> static baseline. Both lose the same 20 drones at 20 s. Frames are cropped and labelled, not simulated anew. <a href="docs/assets/readme/repair.gif">Open the looping GIF directly</a> · <a href="docs/assets/readme/repair-storyboard.png">View the three-step still comparison</a>.</sub></p>
+<p align="center"><sub>Actual simulator capture, seed 101. <strong>Top:</strong> decentralised Encore. <strong>Bottom:</strong> static baseline. Both lose the same 20 drones at 20 s. Frames are cropped and labelled, not simulated anew. <a href="docs/assets/readme/repair.gif">Open the looping GIF directly</a>View the three-step still comparison</a>.</sub></p>
 
 > **Animation not moving?** The GIF contains 44 frames and loops continuously. GitHub may pause GIFs according to your **Settings → Accessibility → Motion** preference or your operating system's reduced-motion setting. The [still comparison](docs/assets/readme/repair-storyboard.png) shows the same sequence without requiring animation; a README cannot override a visitor's GitHub playback settings.
 
@@ -40,7 +40,7 @@ Built for **DurHack 2026** (Durham, 14–15 November) and its *Composition* them
 
 <p align="center"><img src="docs/assets/readme/repair-storyboard.png" width="1000" alt="Six-panel still comparison from the recorded GIF: before the failure, just after 20 drones are killed and 25 seconds later. Encore's first letter becomes sparser as survivors fill valuable gaps; the static baseline's first letter retains its missing region." /></p>
 
-Only the first part of the word is enlarged here so the change is legible. Source: [repair.gif](docs/assets/readme/repair.gif); reproducible crop: [make-storyboard.py](docs/assets/readme/make-storyboard.py) (optional Pillow dependency).
+Only the first part of the word is enlarged here so the change is legible. Source: [repair.gif](docs/assets/readme/repair.gif).
 
 </details>
 
@@ -473,7 +473,7 @@ Built at DurHack 2026 by **Arnav Chitriv** ([@reverez](https://github.com/revere
 - **Claude Code** (Anthropic; Claude Opus 5.5 and Claude Fable 5.2 models) ran in Arnav's sessions, including an orchestrator session that handed issues to parallel worker sessions. It did the contracts, score, steering and baseline, the Encore brain and its G1 tests, score gossip, the app integration, the scripted demo, the interface modules, the evaluation runner and the evidence run, and most of the documentation. Commits carry a `Co-Authored-By: Claude …` trailer.
 - **OpenAI Codex** ran in William's and Haris's sessions, as reported by the team. It did the scaffold and CI, the world and radio faults, the renderer and X-ray layers, the controls, the observer, the isolation tests and the comparison HUD. Codex adds no commit trailer.
 
-Prior art that shaped the design is listed in [evidence and assumptions](docs/context/evidence-and-assumptions.md). The 5×7 dot font, all images and the diagrams in this README were made for this project or cropped from its recorded simulator output. The banner is drawn with the app's own formation font by [`make-hero.mjs`](docs/assets/readme/make-hero.mjs), the chart is drawn from the run records by [`make-charts.mjs`](docs/assets/readme/make-charts.mjs), and the static storyboard is cropped from the original GIF by [`make-storyboard.py`](docs/assets/readme/make-storyboard.py).
+Prior art that shaped the design is listed in [evidence and assumptions](docs/context/evidence-and-assumptions.md). The 5×7 dot font, all images and the diagrams in this README were made for this project or cropped from its recorded simulator output. The banner is drawn with the app's own formation font by [`make-hero.mjs`](docs/assets/readme/make-hero.mjs), the chart is drawn from the run records by [`make-charts.mjs`](docs/assets/readme/make-charts.mjs).
 
 ## License
 
