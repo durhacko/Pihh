@@ -30,7 +30,8 @@ export type GuardSettings = Pick<GatewayConfig, 'port' | 'allowedOrigins' | 'max
 type Rejection = { status: number; body: ErrorEnvelope };
 
 const HEALTH = '/api/health';
-const SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD']);
+/** Only GET skips the Origin check (boundaries §6.2: "exact match on every non-GET request"). HEAD is not exempt. */
+const SAFE_METHODS: ReadonlySet<string> = new Set(['GET']);
 
 /** 127.0.0.0/8, ::1 and their IPv4-mapped forms. */
 export function isLoopbackAddress(address: string | undefined): boolean {

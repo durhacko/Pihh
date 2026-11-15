@@ -50,17 +50,28 @@ export function toReason(code: string): string {
   return REASON_PATTERN.test(reason) ? reason.slice(0, 64) : 'INVALID';
 }
 
-/** A message safe to return or log: control characters removed, whitespace collapsed, at most 200 characters.
- *  Callers pass messages they wrote; upstream text is never passed through, even sanitised. */
+/** `scheme://userinfo@`: everything between `://` and the last `@` before the host is credentials (a password may
+ *  hold an unencoded `@`), e.g. `mongodb+srv://user:pass@cluster`. */
+const URI_CREDENTIALS = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi;
+
+/** A message safe to return or log: URI credentials replaced by `[redacted]`, control characters removed,
+ *  whitespace collapsed, at most 200 characters. Callers pass messages they wrote; upstream text is never passed
+ *  through, even sanitised. */
 export function sanitise(message: string): string {
-  const flat = message.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const flat = message
+    .replace(URI_CREDENTIALS, '$1[redacted]@')
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   return flat.length > MESSAGE_MAX ? `${flat.slice(0, MESSAGE_MAX - 1)}…` : flat;
 }
 
-/** Replaces every occurrence of each secret with `[redacted]`. Empty secrets are ignored. */
+/** Replaces every occurrence of each secret with `[redacted]`, longest first, so a secret that contains another is
+ *  never left half-replaced. Empty secrets are ignored. */
 export function redact(text: string, secrets: readonly string[]): string {
   let out = text;
-  for (const secret of secrets) if (secret.length > 0) out = out.split(secret).join('[redacted]');
+  const ordered = [...new Set(secrets)].filter(s => s.length > 0).sort((a, b) => b.length - a.length);
+  for (const secret of ordered) out = out.split(secret).join('[redacted]');
   return out;
 }
 

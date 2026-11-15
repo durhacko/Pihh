@@ -103,15 +103,29 @@ test('no outbound network API, eval or module loader in the code', () => {
   for (const file of source) if (rel(file) !== 'src/server.ts') assert.ok(!raw(file).includes('node:http'), rel(file));
 });
 
-test('only the entry point touches process, and only env, argv, stderr, exitCode and signal handlers', () => {
+/** Every mention of the identifier `process` in code, with what follows it. Catches `process.x`, `process[...]`,
+ *  `const { env } = process`, `f(process)` and `process?.env` alike: anything but `process.<allowed>` fails. */
+function processUses(text: string): string[] {
+  return [...text.matchAll(/(?<![\w$.])process\b(\s*\.\s*[A-Za-z_$][\w$]*)?/g)].map(m => (m[1] ?? '').replace(/[\s.]/g, '') || '<bare>');
+}
+
+test('only the entry point touches process, and only env (once, into main), argv, stderr, exitCode and on', () => {
   for (const file of source) {
-    const uses = [...raw(file).matchAll(/\bprocess\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[)/g)].map(m => m[1] ?? '[');
+    const uses = processUses(code(file));
     if (rel(file) !== 'src/server.ts') {
       assert.deepEqual(uses, [], `${rel(file)} touches process`);
       continue;
     }
-    for (const use of uses) assert.ok(['env', 'argv', 'stderr', 'exitCode', 'on'].includes(use), `server.ts uses process.${use}`);
+    for (const use of uses) assert.ok(['env', 'argv', 'stderr', 'exitCode', 'on'].includes(use), `server.ts uses process ${use}`);
+    assert.equal(uses.filter(u => u === 'env').length, 1, 'server.ts reads process.env exactly once');
+    assert.match(code(file), /\bmain\(process\.env,/, 'process.env goes straight into main()');
   }
+});
+
+test('the process scan catches destructuring, aliasing and optional chaining', () => {
+  assert.deepEqual(processUses('const { env } = process;'), ['<bare>']);
+  assert.deepEqual(processUses('const p = process; read(process?.env);'), ['<bare>', '<bare>']);
+  assert.deepEqual(processUses("process['env']; process . env; x.process.y; myprocess.env"), ['<bare>', 'env']);
 });
 
 test('the package has no dependencies', () => {

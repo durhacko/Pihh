@@ -29,3 +29,10 @@ test('gemini module: enabled only with config, provider and validator together',
   assert.equal(geminiModule({ config: readGeminiConfig({}), provider, validator }).health().enabled, false);
   assert.equal(geminiModule(defaultGeminiDeps(config)).health().enabled, false);
 });
+
+test('(6) createModule reports ignored GEMINI_* values as problems, never their values', () => {
+  const module = createModule({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY, GEMINI_MODEL: 'Bad Model!', GEMINI_REQUEST_TIMEOUT_MS: '-5' });
+  assert.equal(module.problems?.length, 2);
+  assert.ok(module.problems?.every(p => !p.includes('Bad Model!') && !p.includes('-5') && !p.includes(KEY)));
+  assert.deepEqual(createModule({}).problems, [], 'a disabled module reads, and reports, nothing');
+});

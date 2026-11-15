@@ -23,4 +23,10 @@ export function geminiModule(deps: GeminiDeps): GatewayModule {
   };
 }
 
-export const createModule: ModuleFactory = (env: Env) => geminiModule(defaultGeminiDeps(readGeminiConfig(env)));
+/** Ignored GEMINI_* values (a bad model id or timeout replaced by its default) go to the start-up log as `problems`,
+ *  naming the variable, never the value. */
+export const createModule: ModuleFactory = (env: Env) => {
+  const problems: string[] = [];
+  const module = geminiModule(defaultGeminiDeps(readGeminiConfig(env, problems)));
+  return { ...module, problems: Object.freeze(problems) };
+};
