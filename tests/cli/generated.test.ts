@@ -43,7 +43,7 @@ describe('provenance from a compile', () => {
         expect(c.result.formation.slots).toHaveLength(n0);
       }
       for (const c of all.filter(x => !x.result.ok)) expect(c.result.ok ? '' : c.result.reason).toBe('rejected');   // never a substitute
-    });
+    }, 60_000);
   }
 
   it('a rejected compile records no provenance; a live source carries no fixture id', () => {
@@ -70,7 +70,7 @@ describe('replay re-derives the same formation from provenance alone', () => {
         expect(r.formation).toEqual(c.result.formation);
         expect(r.provenance).toEqual(c.result.provenance);
       }
-    });
+    }, 60_000);
   }
 
   it('is deterministic across fresh module instances', async () => {

@@ -12,7 +12,9 @@ export type ControlIntent =
   | { type: 'select'; id: number | null } | { type: 'kill-region'; radius?: number; centre?: Vec3; at?: number }
   | { type: 'kill-selected' } | { type: 'kill-random' } | { type: 'kill-ids'; ids: number[] } | { type: 'jam'; radius?: number; centre?: Vec3; at?: number }
   | { type: 'partition' } | { type: 'loss'; loss: number } | { type: 'inject'; recipe: Recipe; at?: number }
-  | { type: 'xray' } | { type: 'belief' };
+  | { type: 'xray' } | { type: 'belief' }
+  /** GF-WP-11 replay: reset from `seed`, then schedule the logged events exactly (a checked ReplayLogFile, #214). */
+  | { type: 'replay'; seed: number; events: EnvEvent[] };
 
 export interface ControlContext {
   params: Params;
@@ -149,6 +151,24 @@ export function createActionController(context: ControlContext) {
         if (!Number.isSafeInteger(intent.seed) || intent.seed < 0 || intent.seed > 0xffffffff) throw new Error('Seed must be an unsigned 32-bit integer.');
         context.reset(intent.seed); log.length = 0; selectedId = null; context.display?.setSelected(null); authoredScore = structuredClone(context.getScore());
         message = `Reset from seed ${intent.seed}.`; return { ok: true, message };
+      }
+      if (intent.type === 'replay') {
+        // Every generated scene is checked BEFORE anything is reset; then the worlds are rebuilt from the seed and the
+        // logged events are scheduled through the one schedule() path (logged, observers told), never adapted.
+        if (!Number.isSafeInteger(intent.seed) || intent.seed < 0 || intent.seed > 0xffffffff) throw new Error('Seed must be an unsigned 32-bit integer.');
+        for (const e of intent.events) {
+          if (e.type !== 'INJECT_SCORE') continue;
+          for (const m of e.score.movements) {
+            const problem = generatedRecipeProblem(m.recipe);
+            if (problem) throw new Error(`The replay was refused: ${problem}.`);
+          }
+        }
+        context.reset(intent.seed); log.length = 0; selectedId = null; context.display?.setSelected(null); authoredScore = structuredClone(context.getScore());
+        const now = context.getSnapshots().encore.tick;
+        const early = intent.events.find(e => !Number.isSafeInteger(e.tick) || e.tick <= now);
+        if (early) throw new Error(`The replay was refused after the reset: an event at tick ${String(early.tick)} is not after tick ${now}.`);
+        for (const e of intent.events) schedule(e);
+        message = `Replay from seed ${intent.seed}: ${intent.events.length} event${intent.events.length === 1 ? '' : 's'} scheduled.`; return { ok: true, message };
       }
       if (intent.type === 'select') {
         if (intent.id !== null && (!Number.isSafeInteger(intent.id) || !context.getSnapshots().encore.drones.some(drone => drone.id === intent.id))) throw new Error('Drone id is not in this roster.');

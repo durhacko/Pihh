@@ -7,6 +7,7 @@
 // Events scheduled by other paths (buttons, keys) are reported in the same stream.
 // No createPanel export: the shell mounts it with connectConsole(ctx).
 import type { EnvEvent } from '../../contracts';
+import { checkReplayLog, makeReplayLog, parseReplayLog, serializeReplayLog } from '../../cli/generated';
 import { versionKey } from '../render/colourModes/belief';
 import { readViewMode } from '../render/colourModes/viewMode';
 import { complete, parse, type Lens, type Suggestion, type UiAction } from './commands';
@@ -26,6 +27,32 @@ export interface ConsoleHooks {
   inspect?(id: number, arm: 'encore' | 'static'): void;
   /** The scripted demo (FE-E, #94). Returns what to print. */
   demo?(action: 'run' | 'stop'): string;
+  /** `replay save` (#214): write a file; false if it cannot. Default: a browser download. */
+  saveFile?(name: string, text: string): boolean;
+  /** `replay load` (#214): the chosen file's text, or null if none. Default: a browser file picker. */
+  openFile?(): Promise<string | null>;
+}
+
+/** A browser download of `text` as `name`. False where there is no DOM (headless). */
+function browserSaveFile(name: string, text: string): boolean {
+  if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return false;
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  return true;
+}
+
+/** A browser file picker for one JSON file; null when cancelled or where there is no DOM. */
+function browserOpenFile(): Promise<string | null> {
+  if (typeof document === 'undefined') return Promise.resolve(null);
+  return new Promise(resolve => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'application/json,.json';
+    input.addEventListener('change', () => { const file = input.files?.[0]; if (file) void file.text().then(resolve, () => resolve(null)); else resolve(null); });
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
 }
 export interface ConsoleContext extends ComposeContext {
   surfaces?: Surfaces;
@@ -208,7 +235,28 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
       }
       case 'demo-run': case 'demo-stop':
         return ctx.hooks?.demo ? say('info', ctx.hooks.demo(action.type === 'demo-run' ? 'run' : 'stop')) : say('error', 'The scripted demo is not available yet (#94).');
+      case 'replay-save': {
+        // GF-WP-11: the run's own event log, in THE file form (serializeReplayLog: original key order, #285).
+        const status = ctx.controller.status();
+        const log = makeReplayLog(status.seed, ctx.params, ctx.controller.getEventLog());
+        const name = `encore-replay-seed${status.seed}-t${tick() ?? 0}.json`;
+        const save = ctx.hooks?.saveFile ?? browserSaveFile;
+        if (!save(name, serializeReplayLog(log))) return say('error', 'Saving a file is not available here.');
+        return say('info', `Saved ${name}: seed ${log.seed}, ${log.events.length} event${log.events.length === 1 ? '' : 's'}. replay load rebuilds this run from it.`);
+      }
+      case 'replay-load': return replayLoad();
     }
+  }
+
+  async function replayLoad(): Promise<void> {
+    const open = ctx.hooks?.openFile ?? browserOpenFile;
+    const text = await open();
+    if (text === null) return say('info', 'replay load: no file chosen. Nothing changed.');
+    const checked = checkReplayLog(parseReplayLog(text), ctx.params);   // refused, never adapted: other params, bad events, a tampered scene
+    if (!checked.ok) return say('error', `replay load refused (${checked.reason}): ${checked.detail}. Nothing changed.`);
+    cancelPendingPick(ctx);
+    const result = ctx.controller.handle({ type: 'replay', seed: checked.log.seed, events: checked.log.events });
+    return say(result.ok ? 'info' : 'error', result.message);
   }
 
   async function run(raw: string): Promise<void> {

@@ -1,7 +1,8 @@
 // src/cli/generated.ts: run provenance and replay for generated scenes (GF-WP-11, #214; spec gemini-generated-formations.md
 // §6.7, §7.1, §8.2; work package gemini-integration-work-packages.md §GF-WP-11).
 //
-// PURE: imports only src/contracts and src/score/generated. No Node built-ins, DOM, clock, randomness or network, so
+// PURE: imports only src/contracts (types), src/score/canonical (canonicalJson) and src/score/generated (compiler, hashing,
+// validation). No Node built-ins, DOM, clock, randomness or network (tests/cli/generated.test.ts scans this), so
 // the app (the Composer's accept → inject path) and the CLI share it. No model is ever called: a replay re-derives
 // the formation from the stored scene and its provenance alone (William: "replay doesn't depend on Gemini returning
 // the same content").
