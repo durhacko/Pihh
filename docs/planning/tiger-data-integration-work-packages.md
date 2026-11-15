@@ -1,6 +1,6 @@
 # Tiger Data experiment analytics: work packages
 
-> **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing in this file exists in code. Do not open these issues or start coding until Arnav approves and decision TIG-D1 (= Phase 2 D3) is made (see [Gating](#10-gating)).
+> **STATUS: PROPOSED — NOT IMPLEMENTED.** Nothing in this file exists in code. Do not open these issues or start coding until Arnav approves and decision TIG-D1 (= Phase 2 D3, approved per integration; XI-9, XI-21) is made (see [Gating](#10-gating)).
 
 Purpose: split William's Tiger Data plan into issue-ready packages `TIG-01` to `TIG-11`, each small enough for one person and their agent to finish in one PR. Status: proposal, issue #142, audit base `origin/main` 23d6748. Source author: William Pimentel (`wpimento`), [source handoff](../handoffs/Encore_Tiger_Data_Technical_Plan.md) (cited below as "William §n"). Integrator: Arnav.
 
@@ -34,7 +34,7 @@ The overview assigns the numbers; this plan follows the order of the decision sh
 
 | ID | Topic |
 |---|---|
-| TIG-D1 | Network decision, the same as Phase 2 D3, GF-D1 and MDB-D1 (linked, not decided again) |
+| TIG-D1 | Network decision. TIG-D1 = Phase 2 D3, approved per integration (= GF-D1 = MDB-D1; XI-9, XI-21). Approval for Gemini or MongoDB does not cover this module |
 | TIG-D2 | MongoDB catalogue option. Recommended: none in the MVP |
 | TIG-D3 | Dashboard placement |
 | TIG-D4 | `run_id` scheme. Recommended in the RFC: UUIDv5 of `artifactHash` |
@@ -47,10 +47,12 @@ The overview assigns the numbers; this plan follows the order of the decision sh
 | TIG-D11 | Dirty and unknown revisions: importable, flagged, conflict-exempt, never compared |
 | TIG-D12 | Tiger Data track at DurHack, and the smallest slice if approved (William for sponsor eligibility, plus Arnav). Recommended: forgo |
 | TIG-D13 | Live write authentication for TIG-11 (options in [§13](#13-open-questions)); defined in the overview's decision table (§20) |
+| TIG-D14 | How the importer reads DT at a record's `git` without a child process (XI-23). Open; decided with TIG-04; options in the overview's decision table |
+| TIG-D15 | Credential for the owner tools `tiger archive \| restore \| delete` (Q16–Q16c): the admin credential `TIGER_ADMIN_DATABASE_URL`, supplied only for that command; no fourth, owner credential. Widens TR-6's "migrations and the live-test harness only" |
 | TCR-01…09 | `src/server/`+`sql/` placement · catalogue vs Show Library · `experiment_key` not unique · MongoDB upsert in the import path · `Pihh.zip` facts vs `main` · minimum-matrix command vs committed `results/` · `--report` comparison · HTTP upload vs CLI importer · separate page vs shell |
 | TCR-10…41 | As numbered by the overview (§18). Cited here: TCR-10 recovery windows · TCR-11 sample schedule · TCR-12 metric-range tolerance · TCR-13 file bytes not canonical · TCR-14 dirty git · TCR-15 DT source · TCR-16 `canonicalJson` placement · TCR-17 `report.ts` private helpers · TCR-18 UI tokens unwired · TCR-19 `pairKey` vs `fairPair` · TCR-20 `compositionId` · TCR-22 ledger location · TCR-23 CHECK immutability · TCR-26 app export · TCR-27 purity lint · TCR-28 `inHold` derivation · TCR-30 `verified` from Tiger rows · TCR-35 S5 · TCR-36 `run_verifications` table · TCR-37 `archived` state and owner-only restore · TCR-38 manifest identity vs first-observation fields · TCR-39 one `hashVersion` per database · TCR-40 version gates and `search_path` · TCR-41 live boundary |
 | TIG-CC-01 | `inHold` and composition fields in a `RunRecord` v2 or `MetricsSample`. Deferred: **PROPOSED CONTRACT CHANGE — REQUIRES ARNAV APPROVAL** |
-| XI-1…XI-21 | Cross-integration rulings shared with #110/#117/#130. Used here: XI-1 one shared gateway with modules `gemini`, `shows`, `tiger`; XI-2 the gateway imports only pure `src/` modules, never `src/cli` (`report.ts` included); XI-3 one error envelope and code list; XI-4 X-RUN/live and X-PERSIST (provisional, #110); XI-5 calls may happen while the simulation runs, never in the tick loop; XI-6 MongoDB holds no telemetry; XI-7 one `canonicalJson`, sha256 server-side; XI-8 size caps; XI-9 one network decision; XI-10 nobody assigned; XI-11 `requestId`; XI-12 one gateway skeleton and guard; XI-13 the pure composition validator's location; XI-14 app-side network code only in `src/app/live/`; XI-16 `details[].reason` values in SCREAMING_SNAKE; XI-19 `canonicalJson` extracted to `src/score/canonical.ts`; XI-20 the gateway layout (`src/<module>/`, `test/<module>/`, and a second entry point only for the Tiger live writer) |
+| XI-1…XI-24 | Cross-integration rulings shared with #110/#117/#130. Used here: XI-1 one shared gateway with modules `gemini`, `shows`, `tiger`; XI-2 the gateway imports only pure `src/` modules, never `src/cli` (`report.ts` included); XI-3 one error envelope and code list; XI-4 X-RUN/live and X-PERSIST (provisional, #110); XI-5 calls may happen while the simulation runs, never in the tick loop; XI-6 MongoDB holds no telemetry; XI-7 one `canonicalJson`, sha256 server-side; XI-8 size caps; XI-9 one network decision; XI-10 nobody assigned; XI-11 `requestId`; XI-12 one gateway skeleton and guard; XI-13 the pure composition validator's location; XI-14 app-side network code only in `src/app/live/`; XI-16 `details[].reason` values in SCREAMING_SNAKE; XI-19 `canonicalJson` extracted to `src/score/canonical.ts`; XI-20 the gateway layout (`src/<module>/`, `test/<module>/`, and a second entry point only for the Tiger live writer); XI-21 every D3 equation says "approved per integration"; XI-22 Tiger's MVP imports committed CLI `RunRecord` files through the importer CLI, with no upload route, and reads X-OUT records only after P2-WP-30a exists; XI-23 the gateway, importer CLI included, never spawns a child process; XI-24 GF-WP-15's Tiger half is realised by #142 (TIG-01…TIG-11), with nobody assigned |
 
 ## 1. Repo facts the packages rest on (verified at 23d6748)
 
@@ -119,7 +121,7 @@ A suggested repo label (P0–P2) for after submission follows each.
 6. `buildReport(results/)` still equals `RESULTS.md` lines 1–226, and `git diff -- results/` is empty.
 
 **Standard security S1–S5**, required for every networked package:
-1. Credentials are server-side only: never `VITE_*`, never in bundles, logs, error bodies or screenshots. `.env.example` holds names only. There are three, one per process (TIG-03): reader `TIGER_READ_DATABASE_URL` (API process), importer `TIGER_DATABASE_URL` read from `src/tiger/.env.importer` (importer CLI), and admin `TIGER_ADMIN_DATABASE_URL` (migrations and the live-test harness; the ingestion RFC §13 also uses it for the owner tools, §13 q4). Each process refuses to start if a credential it must not hold is set. TIG-11 adds a fourth, `TIGER_LIVE_WRITE_URL`, for its own process only.
+1. Credentials are server-side only: never `VITE_*`, never in bundles, logs, error bodies or screenshots. `.env.example` holds names only. There are three, one per process (TIG-03): reader `TIGER_READ_DATABASE_URL` (API process), importer `TIGER_DATABASE_URL` read from `src/tiger/.env.importer` (importer CLI), and admin `TIGER_ADMIN_DATABASE_URL` (migrations, the live-test harness and the owner tools `tiger archive | restore | delete`, supplied only for that command; TIG-D15). There is no fourth, owner credential. Each process refuses to start if a credential it must not hold is set. TIG-11 adds a fourth, `TIGER_LIVE_WRITE_URL`, for its own process only.
 2. Queries are parameterised only.
 3. Roles are least-privilege: the schema owner runs migrations only; `encore_importer` writes, with no UPDATE/DELETE/TRUNCATE and no CREATE; `encore_reader` is read-only (RFC §13).
 4. The module relies on the shared guard (XI-12, [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard), provisional, #110) and adds no rule of its own. That guard binds `127.0.0.1` only, refuses non-loopback peers, allows only `Host` `127.0.0.1:<port>` and `localhost:<port>` (plus the dev proxy if one is used), requires an exact `Origin` on every non-GET request (missing or `null` gives 403 `FORBIDDEN`), answers 415 `UNSUPPORTED_MEDIA_TYPE` to a non-JSON body, and sends no CORS headers unless OIB-Q2 is decided for CORS. Every Tiger route is a `GET`, so the `Host` allow-list is its DNS-rebinding defence. Errors use the XI-3 envelope from the shared `errors.ts` (`sanitise`, `redact`); Tiger causes are `details[].reason` values under the shared codes, and a valid `requestId` is echoed per XI-11.
@@ -226,7 +228,7 @@ export function rowsToRecord(rows: RunRows): RunRecord;                    // ex
   - TIG-01;
   - **TIG-D1**, plus X-RUN/live and X-PERSIST (provisional, #110). Stored experiment evidence is X-PERSIST (XI-4);
   - TIG-D4 and TIG-D8;
-  - the shared gateway skeleton (XI-12): one server, `guard.ts`, `errors.ts`, `config.ts` and `GET /api/health`, built once by whichever of MDB-WP-03, GF-WP-12 and TIG-03 is approved first. XI-20 fixes its files: `integrations/gateway/{package.json,package-lock.json,tsconfig.json,README.md,.env.example}` with `src/server.ts`, `src/guard.ts`, `src/errors.ts`, `src/config.ts` and `src/health.ts` (MDB-WP-03's `src/http/` subfolder does not match XI-20). If TIG-03 is first, it builds exactly that, to the rules of [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard) (provisional, #110);
+  - the shared gateway skeleton (XI-12): one server, `guard.ts`, `errors.ts`, `config.ts` and `GET /api/health`, built once by whichever of MDB-WP-03, GF-WP-12 and TIG-03 is approved first. XI-20 fixes its files: `integrations/gateway/{package.json,package-lock.json,tsconfig.json,README.md,.env.example}` with `src/server.ts`, `src/guard.ts`, `src/errors.ts`, `src/config.ts` and `src/health.ts`. If TIG-03 is first, it builds exactly that, to the rules of [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard) (provisional, #110);
   - P2-WP-30b or build-config sign-off for the ESLint ignore of `integrations/**`.
 - **Priority.** W1. P1.
 - **Suggested owner.** Lane B. Assignee: TBD by Arnav.
@@ -254,8 +256,8 @@ export function loadTigerReaderConfig(env: NodeJS.ProcessEnv): (TigerConnSetting
 export function loadTigerImporterConfig(env: NodeJS.ProcessEnv): TigerConnSettings & { importerConnections: 2 };
   // importer CLI: reads TIGER_DATABASE_URL from src/tiger/.env.importer; refuses if TIGER_ADMIN_DATABASE_URL is set
 export function loadTigerAdminConfig(env: NodeJS.ProcessEnv): TigerConnSettings;
-  // read only by `tiger:migrate`, the live-test harness and, per ingestion RFC §13, the owner tools (§13 q4):
-  // TIGER_ADMIN_DATABASE_URL (tsdbadmin or `encore_owner`)
+  // read only by `tiger:migrate`, the live-test harness and the owner tools `tiger archive | restore | delete`
+  // (TIG-D15; supplied only for that command): TIGER_ADMIN_DATABASE_URL (tsdbadmin or `encore_owner`)
 export function connect(s: TigerConnSettings, role: 'owner' | 'importer' | 'reader'): Promise<Pool>;
   // sets extra_float_digits = 1, a safe-integer int8 parser, application_name (RFC §6.6);
   // every transaction runs set_config('search_path', $1, true) with a name checked by schemaName.ts
@@ -288,7 +290,7 @@ export function migrate(ownerPool: Pool, dir: string, schema: string): Promise<{
 - **Provider checklist.** Run by hand after TIG-D1, following RFC §13 and §17; this plan does not restate the provider facts. Record the tier, region, TimescaleDB and PostgreSQL versions, the TLS mode and the date in the README. The RFC marks the version and the free-tier columnstore as UNVERIFIED.
 - **Tests.** TIG-T31–T36 (credentials never logged, sanitised config errors, grants); TIG-T41–T44, live-migration step (separate test service, by hand).
 - **Performance.** Connection budget per RFC §13: shared compute allows 25 connections, and free services have no pooler.
-- **Security.** S1–S3 and the dependency policy. Passwords never appear in migrations; roles are created by the service owner. Three credentials, one per process: admin (migrations and the live-test harness only), importer, reader. The test container is pinned by digest (`timescale/timescaledb@sha256:…`), recorded in the T41 evidence.
+- **Security.** S1–S3 and the dependency policy. Passwords never appear in migrations; roles are created by the service owner. Three credentials, one per process: admin (migrations, the live-test harness and the owner tools only; TIG-D15), importer, reader. The test container is pinned by digest (`timescale/timescaledb@sha256:…`), recorded in the T41 evidence.
 - **Regression.** R1–R4, R6. The root `npm ci` installs no `pg`.
 - **Rollback.** Local `down` scripts; otherwise drop schema `encore`. Tiger is a copy (TD-1).
 - **Integration blockers.**
@@ -345,7 +347,7 @@ export function importDirectory(dir: string, deps: { repo: TigerRepository; ledg
   - A clean same-`experimentKey`, different-hash import is `conflict`, and nothing changes.
   - A dirty duplicate is conflict-exempt.
   - A run whose row is `archived` is reported `ARCHIVED`, never restored and never `VERIFY_MISMATCH` (RFC §10, case 2(a′); TCR-37).
-  - `dt_seconds` is the DT at the record's `git` (RFC §8): a clean record whose commit is missing is `rejected` with `DT_UNVERIFIABLE`; an `unknown`-git record gets `DT_ASSUMED`. How the importer reads `params.ts` at that commit without spawning a child process is open (§13).
+  - `dt_seconds` is the DT at the record's `git` (RFC §8): a clean record whose commit is missing is `rejected` with `DT_UNVERIFIABLE`; an `unknown`-git record gets `DT_ASSUMED`. How the importer reads `params.ts` at that commit without spawning a child process (XI-23) is open: TIG-D14, decided with this package (§13 q5).
   - A failure injected after the metric inserts leaves zero rows.
   - `npwc = null` becomes SQL NULL; zero `alive` fabricates nothing.
   - Inserts are batched per run, never per tick.
@@ -403,7 +405,7 @@ export function reconcile(repo: TigerRepository, ledger: ImportLedger, manifests
   - A row deleted by hand surfaces as `incomplete`, which is distinct from "zero measurements" (William §14).
   - A changed file at a run's recorded path is reported as "superseded", for information only. Only a database-side digest mismatch demotes a run.
   - The API's `verified` flag derives from Tiger rows, never from the ledger (TCR-30, TCR-36). It is `true` when the latest `run_verifications` row is `verified`, its digests equal the `experiment_runs` digests and `telemetry_state = 'present'` (RFC §11.1). Routes that return series or events also recompute the digests on every read (analytics RFC §2.1), so a flag set at import is never the only check.
-  - Archive, restore and delete (Q16, Q16b, Q16c) are run by the owner by hand (RFC §13, TCR-37). No TIG package automates them in the MVP. The ingestion RFC §13 runs them with the admin credential; which package builds the tools is open (§13 q4).
+  - Archive, restore and delete (Q16, Q16b, Q16c) are run by the owner by hand (RFC §13, TCR-37). No TIG package automates them in the MVP. They run through the owner tools `tiger archive | restore | delete` with the admin credential `TIGER_ADMIN_DATABASE_URL`, supplied only for that command (TIG-D15). Which package builds the tools is open (§13 q4).
 - **Tests.** TIG-T01–T12 (digests); TIG-T13–T16 (append-only, crash and retry, rebuild, no false "complete"); TIG-T41–T44, live re-read step.
 - **Performance.** One ordered `SELECT` of 360 rows per run.
 - **Security.** S1–S3. Ledger lines hold no credentials and no payloads.
@@ -579,13 +581,14 @@ export function createHttpClient(transport: typeof fetch, timeoutMs: number): An
 - **Dependencies.**
   - TIG-05;
   - **TIG-D2**, taken by Arnav with William;
-  - **TIG-D1** (= MDB-D1);
-  - MDB-WP-03 (the single gateway `MongoClient`, reused);
+  - two network approvals, **TIG-D1** and **MDB-D1** (each is D3, approved per integration; XI-21): this package reaches both Tiger and Atlas;
+  - the shared gateway skeleton (XI-12), built by whichever module package lands first;
   - MDB-D2 (visibility).
 - **Priority.** W4. P2, stretch.
 - **Suggested owner.** Lane B. Assignee: TBD by Arnav.
-- **Allowed files.** `integrations/gateway/src/tiger/catalog/{types,reconcile,mongoCatalog,fakeCatalog}.ts`; `integrations/gateway/test/tiger/catalog.test.ts`; variable names in `.env.example`. No `shows`-module file is edited; its db helper is only imported.
-- **Existing interfaces reused.** `currentStates`; MDB-WP-03 `getDb`; `compositionId` values that cite `contentHash` (#130) or `sceneHash` (#117).
+- **Allowed files.** `integrations/gateway/src/tiger/catalog/{types,reconcile,mongoCatalog,fakeCatalog}.ts`; `integrations/gateway/test/tiger/catalog.test.ts`; variable names in `.env.example`. No `shows`-module file is edited or imported.
+- **Credential and client.** The catalogue has its own URI (variable name not yet chosen; never `MONGODB_URI`), read only by the `tiger` module's config section (XI-12: each module reads only its own secrets). It authenticates as its own least-privilege Atlas user, whose role covers `experiment_catalog` only. `mongoCatalog.ts` creates its own `MongoClient`; it never reuses the `shows` module's client or `getDb`, because the shows runtime user can write only `saved_shows`. The catalogue works whether or not the `shows` module is enabled (XI-1).
+- **Existing interfaces reused.** `currentStates`; `compositionId` values that cite `contentHash` (#130) or `sceneHash` (#117).
 - **Proposed interfaces.**
 
 ```ts
@@ -608,7 +611,7 @@ export function reconcileCatalog(ledger: readonly LedgerLine[], repo: TigerRepos
 - **Security.** S1, S4, S5; MongoDB MD-10.
 - **Regression.** R1–R6. The Show Library tests are unchanged.
 - **Rollback.** Drop the collection and delete `catalog/`.
-- **Integration blockers.** TIG-D2; MDB-WP-03; Atlas network access.
+- **Integration blockers.** TIG-D2; TIG-D1 and MDB-D1; the shared gateway skeleton; Atlas network access and the catalogue's own Atlas user.
 - **Contract approvals.** None.
 
 ### TIG-10 End-to-end validation
@@ -643,7 +646,7 @@ export function reconcileCatalog(ledger: readonly LedgerLine[], repo: TigerRepos
 ### TIG-11 Optional live ingestion (stretch)
 
 - **Purpose.** William §4.2, §14 live mode, §16 phase 4 and §18 "Live telemetry: Stretch goal" (TD-14). A bounded, provisional stream: drop and count, never in the tick loop, never claimed complete. It becomes authoritative only through a verified batch import of the final `RunRecord`.
-- **Boundary status: not covered by any Phase 2 boundary.** X-OUT is an offline file writer, and X-RUN/live allows only operator-initiated requests with "no world state per tick" ([boundaries §6.1](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#61-x-runlive-provisional-d3-gated), provisional, #110). A continuous, automatic stream of samples needs a **new, separately approved boundary**, proposed here as an "X-OUT/live" amendment to #110, which D3 (= TIG-D1) must name explicitly (TCR-41). The #110 boundaries doc records it as an open question, OIB-Q5 (proposed by #142), not as an accepted boundary ([boundaries §13](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#13-open-questions), provisional, #110). Until it is accepted, TIG-11 cannot be approved.
+- **Boundary status: not covered by any Phase 2 boundary.** X-OUT is an offline file writer, and X-RUN/live allows only operator-initiated requests with "no world state per tick" ([boundaries §6.1](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#61-x-runlive-provisional-d3-gated), provisional, #110). A continuous, automatic stream of samples needs a **new, separately approved boundary**, proposed here as an "X-OUT/live" amendment to #110, which D3, approved per integration (= TIG-D1; XI-21), must name explicitly (TCR-41). The #110 boundaries doc records it as an open question, OIB-Q5 (proposed by #142), not as an accepted boundary ([boundaries §13](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#13-open-questions), provisional, #110). Until it is accepted, TIG-11 cannot be approved.
 - **Dependencies.**
   - TIG-04 to TIG-06;
   - **TIG-D1** naming X-OUT/live, and the X-RUN/live folder (#110);
@@ -695,7 +698,7 @@ export function createLiveExporter(o: { capacity: number; batchSize: number; flu
 flowchart LR
   SUB{{Base submission done}} --> T01[TIG-01 verify]
   CJ{{XI-7 / TIG-D7 pure extraction · Arnav}}
-  D1{{TIG-D1 = D3 / GF-D1 / MDB-D1}}
+  D1{{TIG-D1 = D3, approved per integration}}
   GW{{shared gateway skeleton and guard · XI-12}}
   P30{{P2-WP-30b eslint ignore}}
   P30A{{P2-WP-30a X-OUT}}
@@ -788,9 +791,9 @@ These are **William's estimates, quoted from §16**: "all estimates are rough an
 **Nothing Tiger-backed is shown or claimed at DurHack unless TIG-D12 says otherwise** (overview §15). TIG-D12 recommends forgoing the track.
 
 **MVI-0, judge-inspectable copy** (the smallest slice TIG-D12 could approve; it still needs a TIG-D1 exception and Arnav's approval):
-- TIG-02 and TIG-07 offline, so validation, identity and E2 over local records exist first.
-- Migrations 001–005 pasted by hand into the Tiger console SQL editor (as the service owner, with `search_path` set to `encore`), into a disposable trial service created at least 30 minutes before the first `verify-full` connection (TIG-D8).
-- One importer script outside the core, using TIG-02's pure functions: validate, then Q1 (skip if identical) and Q2–Q6 per run in one transaction, then the Q10–Q12 re-read, a digest comparison and the Q13 row. No ledger files, reconcile, API, gateway skeleton or dashboard.
+- TIG-02 and TIG-07 offline, so validation, identity and E2 over local records exist first. TIG-02 waits for the `src/score/canonical.ts` extraction (XI-7, XI-19), so MVI-0 waits for it too.
+- Migrations 001–005, then the owner's run-once role script and 006 (grants only; ingestion RFC §13), pasted by hand into the Tiger console SQL editor (as the service owner, with `search_path` set to `encore`), into a disposable trial service created at least 30 minutes before the first `verify-full` connection (TIG-D8). The schema owner runs migrations only (S3).
+- One importer script outside the core, run as `encore_importer` with the importer credential, never the admin credential (TR-6, TIG-D15). It uses TIG-02's pure functions, which import `src/score/canonical.ts`, never `src/cli` (XI-2, XI-19): validate, then Q1 (skip if identical) and Q2–Q6 per run in one transaction, then the Q10–Q12 re-read, a digest comparison and the Q13 row. No ledger files, reconcile, API, gateway skeleton or dashboard.
 - **Done when** 50 runs are imported, the digests are equal for all 50, and these console queries are saved with their outputs: Q7 (per-run counts), Q17 (run list), Q21 (recovery state for S1/S2), and Q23 (S2 seed 1 alignment). The outputs go into the dated judge-evidence file the overview describes (§15), outside `results/`, with no credential in it.
 - **Estimate (planning figure, not a measurement):** about 4–6 h after TIG-02, of which about 1 h is provisioning and console work; about 7–11 h including TIG-02. It is not a commitment, and it never replaces `RESULTS.md` (TD-1).
 
@@ -810,7 +813,7 @@ These are **William's estimates, quoted from §16**: "all estimates are rough an
 
 ## 9. Reconciliation with existing work
 
-- **GF-WP-15** (#117) reserves the Tiger Data half "for William; interface only". Under XI-10 and TIG-D6, nobody is assigned and William keeps sponsor-specific decisions. TIG-01 to 11 realise that half from his own plan, so GF-WP-15 should point here. This is reported, not edited.
+- **GF-WP-15** (#117). Resolved by XI-24: GF-WP-15's Tiger half is TIG-01…TIG-11; nobody is assigned (XI-10, TIG-D6); William keeps sponsor-specific decisions, not a reserved implementation lane.
 - **Gateway layout. Resolved by XI-20.** One package: the skeleton in `integrations/gateway/src/`, one folder per module (`src/tiger/` here, `src/shows/` in MDB-WP-03, #130), tests in `integrations/gateway/test/<module>/`. The only second entry point is TIG-11's `src/tiger-live/server.ts`, and only if OIB-Q5 is accepted. TD-2's earlier `integrations/gateway/tiger/` is replaced.
 - **XI-2 in the Phase 2 text.** Boundaries §6 (Coupling) now lists XI-2's pure modules, `src/telemetry/**` among them, and MongoDB spec §7.3 uses the one shared canonical-JSON extraction. `report.ts` is `src/cli`, so TIG-06's multi-seed route waits for TIG-D7; there is no exception for it.
 - **#137** rewrites `git` in identical records and moves superseded ones. Tiger treats a rewrite as a new experiment, and the state folder is never in `results/`.
@@ -820,7 +823,7 @@ These are **William's estimates, quoted from §16**: "all estimates are rough an
 ## 10. Gating
 
 - **No package starts before the base submission** unless Arnav explicitly approves. These are Track P packages ([roadmap](PHASE2_ROADMAP.md), provisional, #110).
-- **The networked packages wait for TIG-D1** (= D3 = GF-D1 = MDB-D1; linked, not decided a fourth time; XI-9): TIG-03, 04, 05, 06, TIG-08's Tiger mode, 09, 10 and 11. D3 amends NFR-04, the `AGENTS.md` ground rule, the contract §12 row and the decision log together, scoped to the optional gateway only ([boundaries §9](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3), provisional, #110). The core and the default build stay offline, and the default build makes zero external requests. Phase 2 recommends no D3 amendment during the hackathon window.
+- **The networked packages wait for TIG-D1** (TIG-D1 = Phase 2 D3, approved per integration (= GF-D1 = MDB-D1; XI-9, XI-21)): TIG-03, 04, 05, 06, TIG-08's Tiger mode, 09, 10 and 11. D3 amends NFR-04, the `AGENTS.md` ground rule, the contract §12 row and the decision log together, scoped to the optional gateway only ([boundaries §9](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3), provisional, #110). The core and the default build stay offline, and the default build makes zero external requests. Phase 2 recommends no D3 amendment during the hackathon window.
 - **DurHack:** nothing Tiger-backed is shown or claimed unless TIG-D12 approves the MVI-0 slice (§8).
 - TIG-01, 02, 07 and TIG-08's local mode have no network code but still need Arnav's approval.
 - **TIG-11 also waits for a new boundary.** No Phase 2 boundary covers an automatic stream (TIG-11); D3 must name the proposed X-OUT/live amendment explicitly, and #110 lists it as the open question OIB-Q5.
@@ -849,11 +852,11 @@ In scope: <allowed files, exact paths>
 Out of scope: src/agent, src/sim, src/observer, src/contracts, src/cli (except via XI-7 / TIG-D7), results/, root package.json, CI (except CI-GW in TIG-03, if signed off), main.ts, worlds.ts, #113-owned files; the gateway guard and errors (XI-12); any contract change
 
 **References**
-Overview: docs/integrations/tiger-data-analytics.md (TCR-xx, TIG-D1…D13)
+Overview: docs/integrations/tiger-data-analytics.md (TCR-xx, TIG-D1…D15)
 RFCs: docs/design/TIGER_TELEMETRY_AND_INGESTION_RFC.md §n; docs/design/TIGER_ANALYTICS_AND_DASHBOARD_RFC.md §n
 
 **Depends on / blocks**
-Depends on: TIG-xx (#…), XI-7, P2-WP-30a/b (provisional, #110), the shared gateway skeleton (XI-12; MDB-WP-03 / GF-WP-12, provisional, #130 / #117), #113, <TIG-D1…D13>
+Depends on: TIG-xx (#…), XI-7, P2-WP-30a/b (provisional, #110), the shared gateway skeleton (XI-12; MDB-WP-03 / GF-WP-12, provisional, #130 / #117), #113, <TIG-D1…D15>
 Blocks: TIG-xx
 
 **Test requirements**
@@ -865,7 +868,7 @@ Target branch: feat/<issue#>-tig-nn-<slug>
 
 ## 12. Instruction
 
-**Do not open these issues and do not start coding any package until Arnav approves, and, for networked packages, until TIG-D1 (= D3) is decided.** Approval is recorded as a row in [`decisions-and-risks.md`](decisions-and-risks.md#decision-log-newest-first).
+**Do not open these issues and do not start coding any package until Arnav approves, and, for networked packages, until TIG-D1 (= D3, approved per integration; XI-21) is decided.** Approval is recorded as a row in [`decisions-and-risks.md`](decisions-and-risks.md#decision-log-newest-first).
 
 ## 13. Open questions
 
@@ -873,8 +876,8 @@ For Arnav; none is decided here.
 
 1. **Live write authentication (TIG-11; TIG-D13).** (a) The live process issues a short-lived, per-session, HttpOnly SameSite=Strict cookie plus a CSRF token, and the route requires both, a matching `Host`, a per-session byte budget and a row cap. Caveat: the cookie must be same-origin with the app page, which works through the Vite dev proxy but must not mean the gateway serving the 3D app's `dist/` (TIG-08). (b) No HTTP write route: the app writes an X-OUT file and a local Node process tails it and writes with a staging-only role. Caveat: a browser app cannot append to a local file without a picker-granted handle. The TIG-T45+ tests are written against the choice.
 2. **X-OUT/live amendment (#110, OIB-Q5).** Whether Phase 2 accepts an automatic, bounded sample stream as a new boundary at all, and which D3 revision names it.
-3. **MVI-0 importer placement.** Where the single script lives (`integrations/gateway/src/tiger/cli/` without the gateway skeleton, or a standalone folder), and whether it may import `canonicalJson` from `src/cli/run.ts` before XI-7 lands (XI-2).
-4. **Owner-run archive, restore and delete.** Ingestion RFC §13 runs Q16, Q16b and Q16c by hand through `tiger archive | restore | delete <runId>`, with the admin credential `TIGER_ADMIN_DATABASE_URL` supplied only for that command and never stored in the API's or the importer's environment. The overview's credential list still names admin for migrations and the live-test harness only. Open: confirm this use (or the `SECURITY DEFINER` function of ingestion RFC §17), and which package builds the tools.
-5. **DT check without a child process.** Ingestion RFC §8 reads `params.ts` at the record's `git` with `git show`, but the `tiger` module never spawns a child. Options: the operator passes the file, or a pure reader of the local git objects.
+3. **MVI-0 importer placement.** Where the single script lives (`integrations/gateway/src/tiger/cli/` without the gateway skeleton, or a standalone folder). The import question is answered by XI-2 and XI-19: the script never imports `src/cli`; it uses TIG-02's pure functions on `src/score/canonical.ts`, so MVI-0 waits for that extraction (§8).
+4. **Owner-run archive, restore and delete.** The credential is closed by TIG-D15: Q16, Q16b and Q16c run by hand through `tiger archive | restore | delete <runId>`, with the admin credential `TIGER_ADMIN_DATABASE_URL` supplied only for that command and never stored in the API's or the importer's environment. Open: which package builds the tools.
+5. **DT check without a child process.** TIG-D14 (open): how the importer reads DT at a record's `git` without a child process (XI-23); options per the overview's decision table. `git show` is not part of the design (ingestion RFC §8).
 6. **A second gateway process for TIG-11. Resolved by XI-20.** XI-1's "no module creates its own server" means no module builds its own HTTP stack. XI-20 allows one second entry point, `integrations/gateway/src/tiger-live/server.ts`, built on the same skeleton, only if OIB-Q5 is accepted.
 7. **`CI-GW` owner.** Who approves the workflow (evaluation §1 rule 2), and does it stay in TIG-03's allowed files?
