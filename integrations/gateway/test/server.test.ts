@@ -49,7 +49,7 @@ test('binds 127.0.0.1 only and serves /api/health with every module disabled off
     assert.equal(r.status, 200);
     assert.deepEqual(r.body, {
       service: 'encore-gateway', version: '0.0.0',
-      modules: { gemini: { enabled: false }, shows: { db: 'disabled', writable: false, enabled: false }, tiger: { db: 'disabled', enabled: false } },
+      modules: { gemini: { enabled: false, trialCompile: false }, shows: { db: 'disabled', writable: false, enabled: false }, tiger: { db: 'disabled', enabled: false } },
     });
     assert.equal(r.headers['content-type'], 'application/json; charset=utf-8');
     assert.equal(r.headers['cache-control'], 'no-store');

@@ -186,7 +186,14 @@ export async function importArtifact(file: ArtifactFile, deps: ImporterDeps): Pr
 
   // Manifest: written once, before any connection; an existing one is reused only if its identity fields match.
   const fresh = buildManifest(id, { artifactPath: label, runId, sourceKind, validatorVersion: VALIDATOR_VERSION, fileForm, dtSeconds: dt.dt, createdAt: deps.now() });
-  const existing = deps.manifests.read(id.artifactHash);
+  let existing: ImportManifestV1 | null;
+  try {
+    existing = deps.manifests.read(id.artifactHash);
+  } catch {
+    // An unreadable or mismatched manifest file rejects this artifact only; the batch goes on. Never overwritten.
+    step('rejected', 'MANIFEST_CORRUPT');
+    return done('MANIFEST_CORRUPT');
+  }
   if (existing && manifestMismatches(existing, fresh).length > 0) { step('rejected', 'MANIFEST_MISMATCH'); return done('MANIFEST_MISMATCH'); }
   const manifest = existing ?? fresh;
   if (!existing) deps.manifests.write(fresh);

@@ -9,7 +9,7 @@
 // resolution) need the 512² mask of GF-WP-03; V11 (trial compile) and V12 (linter) run
 // operator-side once the compiler exists (GF-WP-10). No clock, no randomness, no I/O.
 
-import { canonicalJson } from '../canonical';
+import { canonicalSceneBytes } from './hashing';
 import type { SceneSpec } from './types';
 
 export interface SceneIssue { code: string; path: string; message: string }
@@ -98,9 +98,9 @@ function validateDecoded(raw: unknown, limits: SceneLimits): SceneValidation {
   checkSchema(raw, limits, schema);                     // V3
   if (schema.any) return fail(schema.list);
   const scene = canonicalise(raw as Obj);               // §6.7 steps 1–3
-  // V1b measures the one canonical JSON (XI-7, spec §6.7 step 4) of the quantised scene.
-  // TODO(GF-WP-02): switch to canonicalSceneJson once it exists.
-  const bytes = utf8Length(canonicalJson(scene));
+  // V1b measures sceneBytes (GF-WP-02, spec §6.5, §6.7): the UTF-8 bytes of the canonical scene JSON, exactly what
+  // sceneHash hashes. hashing.ts imports this module too; the cycle is safe because neither uses the other at load.
+  const bytes = canonicalSceneBytes(scene as unknown as SceneSpec);
   if (bytes > limits.canonicalBytes) {                  // V1b
     return fail([{ code: 'too-large', path: '', message: `canonical scene is ${bytes} bytes; the cap is ${limits.canonicalBytes}` }]);
   }
