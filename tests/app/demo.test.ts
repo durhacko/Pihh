@@ -443,6 +443,8 @@ describe('generated-scene demo (E5, ?p2=generated-demo)', () => {
     expect(beats.slice(0, formation + 1)).toEqual(DEMO_BEATS.slice(0, formation + 1));
     expect(beats.slice(formation + 1).map(beat => beat.id)).toEqual(['partition', 'gen-belief', 'accept', 'gen-inject', 'gen-deselect', 'diverge', 'partition-off', 'final-layout', 'final-view', 'final', 'end']);
     for (let i = 1; i < beats.length; i++) expect(dispatchTick(beats[i])).toBeGreaterThanOrEqual(dispatchTick(beats[i - 1]));
+    expect(beats.filter(beat => beat.action?.kind === 'generated')).toHaveLength(1);   // exactly one inject beat
+    expect(beats.filter(beat => beat.action?.kind === 'control' && beat.action.intent.type === 'inject')).toHaveLength(0);
     const inject = beats.find(beat => beat.id === 'gen-inject')!;
     expect(inject.action).toEqual({ kind: 'generated', fixture: GENERATED_FIXTURE, droneId: GENERATED_DRONE, at: GENERATED_TICKS.INJECT });
     expect(dispatchTick(inject)).toBe(GENERATED_TICKS.INJECT - LEAD_TICKS);   // timed, like the other world events
@@ -457,7 +459,9 @@ describe('generated-scene demo (E5, ?p2=generated-demo)', () => {
     expect(demoViewAt(DEMO_TICKS.FINAL, beats)).toEqual({ xray: false, beliefColours: false });
   });
 
-  it('the scene reaches ONE drone at its exact tick through the controller; adoption rises only by gossip, partition respected', async () => {
+  // Heavy (n0 200, 1560 ticks, about 22-25 s): opt-in, WP §2.3 item 7. The browser smoke's check 7 drives the same
+  // sequence in the real app; this is the headless proof of one uplink, gossip-only adoption and the partition.
+  it.skipIf(process.env.P2_WIDE !== '1')('the scene reaches ONE drone at its exact tick through the controller; adoption rises only by gossip, partition respected (P2_WIDE=1)', async () => {
     expect(await preloadGeneratedScene()).toBe(true);
     const recipe = generatedSceneRecipe()!;
     expect(recipe).toMatchObject({ kind: 'generated' });
