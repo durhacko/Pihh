@@ -8,6 +8,8 @@ import type { Recipe, Vec3 } from '../../contracts';
 import type { ControlIntent, ControlResult, ControlStatus } from '../actions';
 import type { CameraPreset } from '../render/CameraRig';
 import { readViewMode } from '../render/colourModes/viewMode';
+import { cascadeOptIn } from '../render/layers/CascadeLayer';
+import { parseQuality } from '../render/quality';
 import type { PanelContext } from './index';
 
 // --- Frozen demo inputs. Placements are measured for the app's default roster (n0 = 200) and preloaded score
@@ -80,6 +82,39 @@ export const DEMO_BEATS: readonly DemoBeat[] = [
   { id: 'final', tick: T.FINAL, action: { kind: 'camera', preset: 'audience' }, caption: '' },
   { id: 'end', tick: T.END, action: null, caption: 'End of the 90-second demo. Press D to run it again.' },
 ];
+/**
+ * Opt-in cascade trail (#232, P2-WP-03; ?p2=cascade, PHASE2_WORK_PACKAGES §2.1). The trail layer draws only in X-ray,
+ * and the default script turns X-ray off at the repair beat, so with the flag the demo would show no arrow. With the
+ * flag only, the repair beat keeps X-ray on and `trail-off` turns it off once the measured arrows have faded; the
+ * jam beat turns it back on as before. Nothing else changes: same world events, same ticks, same other captions.
+ * Measured (seed 101, Encore brain, this script, layer opted in; tests/app/demo.test.ts): 18 observed slot changes;
+ * between the repair beat and the jam, arrows are drawn on 298 ticks, from 491 to 788 (the last one fades by 788).
+ * So TRAIL_OFF, at 45 s (tick 900), shows every one of them and leaves X-ray off again before the next movement.
+ */
+export const TRAIL_OFF = 45 * SECOND;
+/** Two lines, like the caption it replaces: the arrows are the refill, so they replace "part of the hole refills". */
+export const REPAIR_TRAIL_CAPTION = 'Encore arm: neighbours sense the gap and claim its most important slots by heartbeat; each green arrow is one observed slot change. Static baseline: the hole stays.';
+
+/** The demo's beats: exactly DEMO_BEATS (the same array) without the cascade flag. */
+export function demoBeatsFor(options: { cascade: boolean }): readonly DemoBeat[] {
+  if (!options.cascade) return DEMO_BEATS;
+  return DEMO_BEATS.flatMap(beat => beat.id !== 'repair' ? [beat] : [
+    { ...beat, action: { kind: 'view', xray: true, beliefColours: false }, caption: REPAIR_TRAIL_CAPTION },
+    { id: 'trail-off', tick: TRAIL_OFF, action: { kind: 'view', xray: false, beliefColours: false }, caption: '' },
+  ]);
+}
+
+/**
+ * The beats for this page: the URL is read once per call (off when there is no location, as in node). A forced render
+ * quality above 0 (?q=low, ?q=1..4) hides the trail layer (WP §2.4), so the flag then keeps today's script rather than
+ * an X-ray view whose caption promises arrows that are never drawn. An automatic step-down during the show cannot be
+ * known here: the rehearsal confirms the level stays at 0 (storyboard §1).
+ */
+export function activeDemoBeats(): readonly DemoBeat[] {
+  const search = typeof location !== 'undefined' ? location.search : '';
+  return demoBeatsFor({ cascade: cascadeOptIn(search) && parseQuality(search).level === 0 });
+}
+
 /** Beats whose caption describes what only the Encore brain shows. While the live Encore world flies another brain
  * (status.brains, the HUD's brainKinds source), the bar marks them; with the Encore brain in the app (#107) the mark
  * goes by itself, and these beats are the ones to re-check on screen. */
@@ -238,7 +273,7 @@ export function createDemoRunner(host: DemoHost, beats: readonly DemoBeat[] = DE
  * Connects a runner to a page's controls over DOM events only, exactly as the control panel talks to them: it sends
  * `encore:control` intents and reads `encore:control-status`, including the result reported right after each intent.
  */
-export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPreset): void; changed(): void; layout?(view: 'encore' | 'split' | 'static'): void; tethers?(on: boolean): void }, beats: readonly DemoBeat[] = DEMO_BEATS) {
+export function connectDemo(host: EventTarget, hooks: { camera(preset: CameraPreset): void; changed(): void; layout?(view: 'encore' | 'split' | 'static'): void; tethers?(on: boolean): void }, beats: readonly DemoBeat[] = activeDemoBeats()) {
   let status: ControlStatus | undefined;
   let result: ControlResult | undefined;
   const runner = createDemoRunner({
