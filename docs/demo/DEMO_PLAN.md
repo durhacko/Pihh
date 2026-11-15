@@ -48,7 +48,7 @@ window.encore.setPlaying(true);
 After simulation advances, pause and read `window.encore.alive()` again. Both arms should have lost those three ids. Restart with `window.encore.reset(101)` and `window.encore.setPlaying(true)`. Stop preview with Ctrl+C.
 
 4. G1 and G4 are met (#103, #21). In the app, the belief view is checked for both a jam and a partition (#132, merged as #136). The script is in the app (press D): rehearse the [canonical script](../design/experience-and-demo.md#9-scripted-demo). When you claim dissemination, state its cost in the same breath: in the partition scenario, Encore records a median of 103 collisions against 14 for static. That is not like-for-like: Encore flies the injected BRAVO change, while static flies its preloaded sphere change (RESULTS.md; #123). Kill during a hold. Jamming does not freeze flight; a drone leaving a geometric jam may adopt before jam-off. Fixed partition groups stay isolated wherever they fly.
-5. Check reset/seed behavior, equal failure events, radio lines from real logs and observer-backed HUD against a matching headless record. Run the script twice unattended before using it for judging. No such pass is recorded here.
+5. Check reset/seed behavior, equal failure events, radio lines from real logs and the observer-backed readout and Metrics popover against a matching headless record. Run the script twice unattended before using it for judging. No such pass is recorded here.
 
 Startup time, browser fps, offline pass and reset demonstration: **not measured/rehearsed here**. Needs: one laptop on mains power; external screen optional. No drone equipment or external runtime services.
 
@@ -126,7 +126,7 @@ The brain note in the caption's sub-line follows the brains the live worlds actu
 | Playback/controls misbehave | Reset to the rehearsed seed using tested UI or the console above; reload the production URL if necessary | No repair claim from an unrehearsed reset |
 | A toast or the caption's sub-line says a step "went out at … s, so this run is off-script", or that a step "failed" | Press **D** twice (stop, then start) at 1× and keep the tab in front. Do not quote numbers from that run | Only a run with no such message is the canonical one |
 | The scripted demo stops or misbehaves mid-run | Press **D** to stop; the show resets to seed 101. Then drive similar beats by hand with the keys and the dock (a sequence follows this table) | Hand-driven events land on different ticks and use the app's default radii (region 8 m, jam 12 m; adjustable in Disrupt), not the script's 6 m; say so |
-| Split is too slow | Reopen without `split=1`; show both arms' recorded results separately when available | Report the actual laptop observation, not fixture fps |
+| Split is too slow | Press **Encore** in the dock (or **B**) to show one world; show both arms' recorded results separately when available. A running demo switches back to split at its 16 s beat, so stop it first (**D**) | Report the actual laptop observation, not fixture fps |
 | Repair or spread does not show in this run | Say what the headless tests and the evaluation show (G1; G4 with the relay test and S5; [RESULTS](../../results/RESULTS.md)) and that this run did not show it; never stage it | Quote only the tests and results, with their limits and costs |
 | WebGL or all live paths fail | Play a labelled offline backup only if it exists; otherwise show source and real headless evidence with limits | No video/screenshots supplied by this drafting increment |
 
