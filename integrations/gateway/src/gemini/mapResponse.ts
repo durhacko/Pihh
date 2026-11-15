@@ -34,13 +34,16 @@ export function mapProviderResponse(raw: RawProviderResponse): ProviderOutcome {
   const status = Number.isInteger(raw.httpStatus) ? raw.httpStatus : 0;
   if (status !== 200) return { kind: 'upstream-error', status };
   if (present(raw.blockReason)) return { kind: 'blocked' };
+  // Only the exact, untrimmed value 'STOP' is parsed (§10.3: never parse a partial response, never repair). The
+  // trimmed value is used only to classify and report the other finishes, none of which is ever parsed.
   const finish = present(raw.finishReason) ? raw.finishReason.trim() : 'FINISH_REASON_MISSING';
-  if (finish === 'STOP') {
+  if (raw.finishReason === 'STOP') {
     const latency = typeof raw.latencyMs === 'number' && Number.isFinite(raw.latencyMs) && raw.latencyMs >= 0 ? raw.latencyMs : 0;
     // A STOP with no text is still output: an empty string fails JSON parsing, so it is reported INVALID_MODEL_OUTPUT.
     return { kind: 'output', text: typeof raw.text === 'string' ? raw.text : '', latencyMs: latency };
   }
   if (finish === 'MAX_TOKENS') return { kind: 'truncated' };
   if (BLOCKING_FINISH_REASONS.includes(finish)) return { kind: 'blocked' };
+  // A padded ' STOP ' lands here: reported as STOP, never parsed.
   return { kind: 'other-finish', finishReason: finish };
 }

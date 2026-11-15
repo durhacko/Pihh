@@ -73,7 +73,10 @@ export type ProviderOutcome =
 
 /** The provider port. The live implementation holds the key it was constructed with; the handler never sees it.
  *  Two clocks (§10.3): it applies `request.attemptTimeoutMs` to each attempt, and it must stop all work, retries
- *  included, when `signal` aborts at the whole-request deadline (`GEMINI_REQUEST_TIMEOUT_MS`, 45 s†). */
+ *  included, when `signal` aborts at the whole-request deadline (`GEMINI_REQUEST_TIMEOUT_MS`, 45 s†).
+ *  Obligations of the live adapter (spec §10.3): set `maxOutputTokens` per mode (2,048 for silhouette2d and 8,192 for
+ *  scene3d†), so the model cannot produce text past the 64 KiB raw cap the handler enforces; turn the SDK's own retries
+ *  off (`withRetries` retries 429 and 503 only); and map each response through `mapProviderResponse`. */
 export interface GeminiProvider {
   readonly model: string;
   generate(request: ProviderRequest, signal: AbortSignal): Promise<ProviderOutcome>;

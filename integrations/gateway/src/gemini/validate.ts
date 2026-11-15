@@ -30,10 +30,20 @@ export type TrialCompile =
  */
 export const trialCompileHook: (scene: SceneSpec, n0s: readonly number[]) => TrialCompile = () => ({ status: 'not-yet-compiled' });
 
+function plainObject(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 /** The real validator: shared pure code only. `compile` is injectable so GF-T33 (9) can be tested now. */
 export function createSceneValidator(compile: (scene: SceneSpec, n0s: readonly number[]) => TrialCompile = trialCompileHook): SceneValidator {
   return {
     validate(candidate: unknown, mode: FormationMode): SceneCheck {
+      // The model's output was parsed once already; a scene must be a plain object. validateScene also accepts JSON
+      // text, so a double-encoded string would be parsed a second time and accepted: that is a silent repair, and
+      // §10.3 says reject, never repair.
+      if (!plainObject(candidate)) return { ok: false, issues: [{ path: '', code: 'schema' }] };
       const result = validateScene(candidate);
       if (!result.ok) return { ok: false, issues: result.errors.map(e => ({ path: e.path, code: e.code })) };
       if (result.scene.mode !== mode) return { ok: false, issues: [{ path: '/mode', code: 'schema' }] };

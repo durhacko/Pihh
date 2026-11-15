@@ -44,3 +44,10 @@ test('a non-200 status is an upstream error, checked before anything else', () =
   }
   assert.deepEqual(mapProviderResponse({ httpStatus: 200.5, finishReason: 'STOP', text: '{}' }), { kind: 'upstream-error', status: 0 });
 });
+
+test('#268 review: only the exact, untrimmed STOP is parsed; a padded STOP is reported, never parsed', () => {
+  for (const finishReason of [' STOP ', 'STOP ', ' STOP', '\tSTOP\n']) {
+    assert.deepEqual(mapProviderResponse({ httpStatus: 200, finishReason, text: '{}' }), { kind: 'other-finish', finishReason: 'STOP' }, JSON.stringify(finishReason));
+  }
+  assert.equal(mapProviderResponse({ httpStatus: 200, finishReason: 'STOP', text: '{}' }).kind, 'output');
+});

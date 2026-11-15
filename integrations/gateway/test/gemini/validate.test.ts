@@ -94,3 +94,14 @@ test('GF-T34 fuzz: hostile titles and ids are rejected or carried as inert text;
   assert.ok(!validator.validate(polluted, 'silhouette2d').ok);
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
 });
+
+test('#268 review: a candidate that is not a plain object is refused, so double-encoded JSON is never parsed twice', () => {
+  const sphere = load('valid-3d-sphere.json');
+  const doubleEncoded = JSON.stringify(sphere);
+  // validateScene alone accepts JSON text; the gemini bridge must not.
+  for (const candidate of [doubleEncoded, JSON.stringify(doubleEncoded), [sphere], null, 42, true, new Map(Object.entries(sphere))]) {
+    assert.deepEqual(validator.validate(candidate, 'scene3d'), { ok: false, issues: [{ path: '', code: 'schema' }] }, typeof candidate);
+  }
+  assert.ok(validator.validate(Object.assign(Object.create(null), sphere), 'scene3d').ok, 'a null-prototype object is plain');
+  assert.ok(validator.validate(sphere, 'scene3d').ok);
+});

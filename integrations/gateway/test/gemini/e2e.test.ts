@@ -241,3 +241,16 @@ test('offline default through the stack: the shipped module answers 503 MODULE_D
     await g.close();
   }
 });
+
+test('#268 review: a double-encoded scene and a padded STOP are refused end to end, never repaired', async () => {
+  await withGemini([{ raw: { httpStatus: 200, finishReason: 'STOP', text: JSON.stringify(JSON.stringify(SPHERE)) } }], async g => {
+    const r = await post(g, ASK);
+    assert.deepEqual([r.status, reasons(r)], [400, ['SCENE_INVALID', 'SCHEMA']]);
+    assert.equal(r.body.scene, undefined);
+  });
+  await withGemini([{ raw: { httpStatus: 200, finishReason: ' STOP ', text: JSON.stringify(SPHERE) } }], async g => {
+    const r = await post(g, ASK);
+    assert.deepEqual([r.status, reasons(r)], [502, ['PROVIDER_ERROR']]);
+    assert.equal(r.body.scene, undefined);
+  });
+});
