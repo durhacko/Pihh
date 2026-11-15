@@ -47,7 +47,9 @@ export const createModule: ModuleFactory = (env: Env): GatewayModule => ({
 The rules, all enforced by `src/router.ts` and its tests:
 
 - **Environment.** `env` holds only the module's own prefix: `GEMINI_*`, `MONGODB_*` or `TIGER_*`. A module cannot read another module's secret or a gateway setting. Wrap secrets in `secret()` (`config.ts`), which never prints its value. Document the variables, names only, in `src/<name>/.env.example`.
-- **Missing configuration is not an error.** A module with no key is a disabled module: it still registers its routes and answers its own `MODULE_DISABLED`. A factory that throws disables that module only, and the gateway records a problem that names no value.
+- **Missing configuration is not an error.** A module with no key is a disabled module: it still registers its routes and answers its own `MODULE_DISABLED`. A factory that throws, or returns an object of the wrong shape (no `name`, `routes` not an array, `health` not a function, a throwing getter), disables that module only, and the gateway records a problem that names no value. Routes are copied when they are registered.
+- **Refusing to start.** For a security-critical misconfiguration (for example a write or admin database URL in the HTTP server's environment), throw `FatalConfigError` from `errors.ts` in `createModule`. It is the one error that stops the whole gateway; every other error disables only your module. Name the variable, never its value; the message is sanitised.
+- **Ignored configuration.** A module may return `problems: string[]`, notes about values it replaced by a default (for example `GEMINI_MODEL is not a model id`). The gateway prints them in the start-up log, sanitised and at most 10. Name the variable, never its value.
 - **Routes.**
   - Paths start with `/api/`. Segments are lower-case literals or `:params`.
   - `GET /api/health` belongs to the skeleton.
@@ -62,7 +64,7 @@ The rules, all enforced by `src/router.ts` and its tests:
   - messages are your own, never upstream text, and are sanitised.
 
   A handler that throws gives that request 500 `INTERNAL`, without its message.
-- **Health.** `health()` returns `{ enabled: boolean, ...fields from your spec }`. Report `enabled: true` only when the module can actually answer. Never include a secret or a reason for being disabled. A `health()` that throws reads as `{ enabled: false }`.
+- **Health.** `health()` returns `{ enabled: boolean, ...fields from your spec }`. Report `enabled: true` only when the module can actually answer. Never include a secret or a reason for being disabled. The entry is a JSON round-trip of what you return (data only, at most 4 KiB). A `health()` that throws, returns a non-object, or cannot be serialised reads as `{ enabled: false }`, and `/api/health` still answers.
 - **Imports.** A module imports only `../*.ts` skeleton files, its own folder, and, under XI-2, the pure `src/` modules its spec allows, by relative path.
   - No packages until its D3, then exact pins, `npm ci --ignore-scripts`, a 14-day release age and `npm audit signatures` (XI-12).
   - Each module's tests must keep `test/offline.test.ts` green until its live PR deliberately relaxes it for one provider file.
@@ -72,7 +74,7 @@ The rules, all enforced by `src/router.ts` and its tests:
 1. **Peer:** loopback only (`127.0.0.0/8`, `::1`); otherwise 403 `NON_LOOPBACK_PEER`.
 2. **Host:** exactly `127.0.0.1:<port>` or `localhost:<port>`; otherwise 403 `HOST_NOT_ALLOWED`. This defeats DNS rebinding.
 3. **Token** (only with `GATEWAY_REQUIRE_TOKEN`): `Authorization: Bearer <per-launch token>` on every route except `GET /api/health`; otherwise 401 `TOKEN_MISSING`. The token is made at start and printed once.
-4. **Origin:** every non-GET needs an Origin exactly in `GATEWAY_ALLOWED_ORIGINS`.
+4. **Origin:** every non-GET, HEAD included, needs an Origin exactly in `GATEWAY_ALLOWED_ORIGINS`.
    - A missing or `null` Origin is 403 `ORIGIN_MISSING`.
    - Any other Origin is 403 `ORIGIN_NOT_ALLOWED`.
    - The list is empty by default, so every non-GET is refused until the operator names the app's origin.
