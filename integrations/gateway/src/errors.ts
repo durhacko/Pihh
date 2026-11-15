@@ -75,6 +75,20 @@ export function redact(text: string, secrets: readonly string[]): string {
   return out;
 }
 
+/**
+ * The one exception to "a failing module disables only itself" (XI-1). A module factory throws it for a
+ * security-critical misconfiguration, for example a write or admin database URL in the HTTP server's environment
+ * (TIG-03 T31), and `buildGateway` re-throws it, so the gateway refuses to start instead of running with that secret
+ * loaded. The message is sanitised; name the variable, never its value. Every other error a factory throws stays
+ * contained.
+ */
+export class FatalConfigError extends Error {
+  constructor(message: string) {
+    super(sanitise(message));
+    this.name = 'FatalConfigError';
+  }
+}
+
 /** Builds the envelope. `message` is sanitised; reasons are normalised to SCREAMING_SNAKE. */
 export function errorResponse(
   code: ErrorCode,

@@ -6,7 +6,7 @@
 // invalid or collide, is replaced by a disabled module and reported in `problems`; a handler that throws answers
 // 500 INTERNAL for that request only.
 import { moduleEnv, readGatewayConfig, type Env, type GatewayConfig } from './config.ts';
-import { errorResponse, sanitise, type RouteResponse } from './errors.ts';
+import { errorResponse, FatalConfigError, sanitise, type RouteResponse } from './errors.ts';
 import { healthBody, type HealthBody } from './health.ts';
 import { disabledModule, type GatewayModule, type HttpMethod, type ModuleHealth, type ModuleRoute } from './module.ts';
 import { MODULES, type ModuleEntry } from './modules.ts';
@@ -137,7 +137,9 @@ export function buildGateway(env: Env, registry: readonly ModuleEntry[] = MODULE
           accepted = { module: shape.module, routes: copies, own, notes: shape.notes };
         }
       }
-    } catch {
+    } catch (error) {
+      // A security-critical misconfiguration stops the whole gateway (errors.ts); anything else is contained.
+      if (error instanceof FatalConfigError) throw new FatalConfigError(`module ${entry.name}: ${error.message}`);
       problem = `module ${entry.name} failed to start`;
       accepted = null;
     }

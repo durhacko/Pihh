@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MODULES, type ModuleEntry } from '../src/modules.ts';
 import { buildGateway, HEALTH_PATH } from '../src/router.ts';
+import { FatalConfigError } from '../src/errors.ts';
 import type { GatewayModule, ModuleRoute, RouteRequest } from '../src/module.ts';
 
 const ok = (body: unknown = { ok: 1 }) => async () => ({ status: 200, body });
@@ -157,4 +158,22 @@ test('(6) a module\'s problems reach gateway.problems, sanitised and capped at 1
   assert.equal(g.problems.length, 10);
   assert.equal(g.problems[0], 'module m: GEMINI_MODEL is not a model id; using x');
   assert.equal(g.problems[1], 'module m: line break');
+});
+
+test('FatalConfigError from a factory stops the build; a plain Error only disables that module', () => {
+  const good = entry('good', 'GOOD_', [{ method: 'GET', path: '/api/good', handle: ok() }]);
+  const fatal: ModuleEntry = { name: 'tiger', envPrefix: 'TIGER_', create: () => { throw new FatalConfigError('TIGER_ADMIN_URL must not be set in the HTTP server; refusing to start'); } };
+  assert.throws(() => buildGateway({}, [good, fatal]), (error: unknown) =>
+    error instanceof FatalConfigError && error.message === 'module tiger: TIGER_ADMIN_URL must not be set in the HTTP server; refusing to start');
+  const plain: ModuleEntry = { name: 'tiger', envPrefix: 'TIGER_', create: () => { throw new Error('TIGER_ADMIN_URL is bad'); } };
+  const g = buildGateway({}, [good, plain]);
+  assert.deepEqual(g.health().modules, { good: { enabled: true }, tiger: { enabled: false } });
+  // A FatalConfigError from a getter on the returned object counts too: it is thrown while the module is built.
+  const lazy: ModuleEntry = { name: 'tiger', envPrefix: 'TIGER_', create: () => Object.defineProperty({ name: 'tiger', health: () => ({ enabled: false }) }, 'routes', { get() { throw new FatalConfigError('TIGER_X'); } }) as never };
+  assert.throws(() => buildGateway({}, [lazy]), FatalConfigError);
+});
+
+test('FatalConfigError messages are sanitised: URI credentials never reach the start-up error', () => {
+  const fatal: ModuleEntry = { name: 'tiger', envPrefix: 'TIGER_', create: () => { throw new FatalConfigError('admin URL postgres://admin:hunter2@db:5432/x found in env'); } };
+  assert.throws(() => buildGateway({}, [fatal]), (error: unknown) => error instanceof Error && !error.message.includes('hunter2') && error.message.includes('[redacted]'));
 });

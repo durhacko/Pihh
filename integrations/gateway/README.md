@@ -48,6 +48,7 @@ The rules, all enforced by `src/router.ts` and its tests:
 
 - **Environment.** `env` holds only the module's own prefix: `GEMINI_*`, `MONGODB_*` or `TIGER_*`. A module cannot read another module's secret or a gateway setting. Wrap secrets in `secret()` (`config.ts`), which never prints its value. Document the variables, names only, in `src/<name>/.env.example`.
 - **Missing configuration is not an error.** A module with no key is a disabled module: it still registers its routes and answers its own `MODULE_DISABLED`. A factory that throws, or returns an object of the wrong shape (no `name`, `routes` not an array, `health` not a function, a throwing getter), disables that module only, and the gateway records a problem that names no value. Routes are copied when they are registered.
+- **Refusing to start.** For a security-critical misconfiguration (for example a write or admin database URL in the HTTP server's environment), throw `FatalConfigError` from `errors.ts` in `createModule`. It is the one error that stops the whole gateway; every other error disables only your module. Name the variable, never its value; the message is sanitised.
 - **Ignored configuration.** A module may return `problems: string[]`, notes about values it replaced by a default (for example `GEMINI_MODEL is not a model id`). The gateway prints them in the start-up log, sanitised and at most 10. Name the variable, never its value.
 - **Routes.**
   - Paths start with `/api/`. Segments are lower-case literals or `:params`.

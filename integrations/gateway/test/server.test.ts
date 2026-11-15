@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { startGateway, startupLines, type RunningGateway } from '../src/server.ts';
 import type { ModuleEntry } from '../src/modules.ts';
+import { FatalConfigError } from '../src/errors.ts';
 
 const APP = 'http://localhost:5173';
 
@@ -180,4 +181,20 @@ test('(6) ignored GEMINI_* values are logged at start-up, by name and never by v
     assert.match(lines, /note: module gemini: GEMINI_PROVIDER_TIMEOUT_MS must be an integer/);
     assert.ok(!lines.includes('Bad Model!') && !lines.includes('soon') && !lines.includes('test-key-not-real'));
   });
+});
+
+test('a module throwing FatalConfigError makes startGateway refuse to start; nothing listens', async () => {
+  const registry: ModuleEntry[] = [{ name: 'tiger', envPrefix: 'TIGER_', create: () => { throw new FatalConfigError('TIGER_ADMIN_URL must not be set'); } }];
+  let started: RunningGateway | null = null;
+  try {
+    started = await startGateway({}, { port: 0, registry });
+  } catch (error) {
+    assert.ok(error instanceof FatalConfigError && /TIGER_ADMIN_URL/.test(error.message));
+  }
+  if (started !== null) {
+    await started.close(); // never leave a listener behind, even when the assertion fails
+    assert.fail('the gateway started although a module threw FatalConfigError');
+  }
+  const plain: ModuleEntry[] = [{ name: 'tiger', envPrefix: 'TIGER_', create: () => { throw new Error('x'); } }];
+  await withGateway({}, async g => assert.equal((await send(g, {})).status, 200), plain);
 });
