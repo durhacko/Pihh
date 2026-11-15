@@ -56,3 +56,48 @@ These are authoritative; never create parallel competing specifications:
 ## Next coordinator checkpoint
 
 Report only: work package → branch → owner → current SHA → tests → PR → blockers. Stop optional work if it contends with the presenter laptop or Devpost G6. After confirmed submission, decide whether to merge clean Phase 2 PRs into `phase2/development` and start Track P contract reviews in the documented dependency order. No broad architectural redrafting is needed.
+
+## Sprint 0 — readiness and clean boundaries (15 November 2026)
+
+**Purpose:** make the Phase 2 implementation queue easy to execute while G6 is still pending. This is not a new architecture or permission to alter the frozen release.
+
+| Workstream | Owner | State / exit condition |
+|---|---|---|
+| Phase 1 / submission | Human team; #8 | **P0.** Confirm the Devpost form, team invitations, prize tracks, judge access, pitch rehearsal, video upload and submission screenshot. Keep `main` and checkpoint frozen. |
+| Offline Phase 2 | Orchestrator; #199, #200–#203 | **P1.** Four worktrees and PRs based on the separate feature refs; checks, evidence and exact file ownership required. No PR to `main` pre-G6. |
+| Historical issues | #87, #64, #123 | **Deferred, not forgotten.** #87 is the genuinely missing canonical frontend spec; #64 holds minor protected-contract wording; #123 is the genuine S5 collision cost. None is a reason to reopen Phase 1 implementation. |
+| FE-E historical umbrella | #94 (closed) | UI timeline (#109), QA harness (#118), release images (#192), browser smoke (#134) delivered. Human GPU/fresh-clone/rehearsal checks transferred explicitly to #8; not claimed done. |
+
+### First development sprint — four parallel contracts-free packages
+
+1. **C1 correctness infrastructure:** #200 / P2-WP-01; invariant history checkers and replay harness. It creates the shared `runCustom` seam for later fuzzing, sweeps and bounds.
+2. **C3 authoring safety:** #201 / P2-WP-04; formation linter L1–L5 and honest calibration report. Its UI consumer P2-WP-05 waits for this library.
+3. **C2 visual explanation:** #202 / P2-WP-03; opt-in cascade layer from observed state. The production demo remains unchanged; P2-T06 and a real browser/performance/rehearsal pass gate any judged inclusion.
+4. **Gemini offline foundation:** #203 / GF-WP-01; validated SceneSpec schemas and fixtures. This is **not** a Gemini API integration.
+
+Each worker claims issue + branch + exact allowed-file set before editing. The reserved remote branches are `phase2/200-invariant-checker`, `phase2/201-score-linter`, `phase2/202-repair-cascade` and `phase2/203-gemini-scene-validation`. PR base is `phase2/development`; the lead orchestrator coordinates merges. Keep checks targeted during edits and run `bash scripts/check.sh` before review. Reject any unstated implementation change to protected contracts, `AGENTS.md`, root config, frozen evidence or the default demo. No synthetic acceptance claims.
+
+### Sponsor integration development sequence (canonical specs, not implementation)
+
+| Integration | Docs checked on `main` | Work packages / test plans | First authorised safe work | Dependency / explicit future decision |
+|---|---|---|---|---|
+| Gemini Flash-Lite formations | `docs/integrations/gemini-generated-formations.md` | **GF-WP-01…15**, `gemini-formation-evaluation.md` | GF-WP-01 #203: pure scene schemas and validation | GF-WP-02 canonical hash → geometry compiler 2D/3D → operator preview → generated recipe integration **only after D2/contract review** → optional model gateway **only after per-module D3** |
+| MongoDB Atlas show library | `docs/integrations/mongodb-atlas-show-library.md` | **MDB-WP-01…09**, `mongodb-show-library-evaluation.md` | Audit and pure SavedShowComposition validator once the common canonical-JSON and offline X-IN dependencies are resolved | Shared gateway/connection, DB schema and endpoints **only after per-module D3**; composition paths must not drive the drone tick loop |
+| Tiger Data experiment analytics | `docs/integrations/tiger-data-analytics.md` | **TIG-01…11**, `tiger-data-evaluation.md` | Repository audit, offline RunRecord validation / identity / pairing after canonical-JSON extraction | Database migrations, import, analytics API and dashboard **only after per-module D3**. Default demo and base evidence stay independent |
+
+Provider-wide shared decisions and module boundary rules are in `docs/design/OPTIONAL_INTEGRATION_BOUNDARIES.md`. These three specifications contain **open questions and sign-offs**; documentation exists in depth, but not every architecture choice or sponsor eligibility condition is approved. No sponsor network calls, accounts, secret provisioning or APIs are part of this sprint's approval. The three integrations must not create separate competing gateways: `integrations/gateway/` is the one optional gateway proposal.
+
+### Branch preservation / pruning audit (remote state at ~06:49 GMT)
+
+- **Protected:** `main`, `checkpoint/phase1-complete-2026-11-15`, `evidence/freeze-0b2f8f3` (provenance), `phase2/development`, and all `phase2/20*-*` feature branches.
+- **Fully absorbed or byte-identical candidates:** `fix/main-green-adoption-tests` (ancestor of main), `feat/23-observer-summary` (both changed files byte-identical on main), `test/g1beyond-comment-0b2f8f3` (changed file identical on main), `fix/revert-189` (both changed files identical on main). `fix/139-space-keyboard-focus` contains deliberately **reverted** keyboard behaviour; it is only a prune candidate after confirming no agent relies on it.
+- **Preserve until individually triaged:** `docs/8-submission-package` (3 ahead of main), `docs/141-devpost-media` (1 ahead, old media), `fix/123-s5-adoption-pace` (3 ahead, abandoned experimental safety change), `spike/80-transition-collisions` (2 ahead), `test/94-harness-new-shell` (1 ahead). They have unique history. Do not delete merely because their PR is absent.
+- **Deletion gate:** first `git worktree list --porcelain` and `git status` on each worktree; protect anyone's active or uncommitted work. Only then prune clearly absorbed or explicitly abandoned refs. Branch removal is not available through the connected GitHub actions used for this audit; this section is a candidate list, **not a deletion record**.
+
+### Documentation status / known gaps
+
+The Phase 2 architecture, roadmap, WPs, test matrix, candidate backlog and all three sponsors' canonical architecture/WP/evaluation sets exist on `main`. Their opening status banners date from initial proposal creation and do not reflect the newly authorised *offline* issue queue; **this execution document is the current implementation-status overlay**, not an implicit rewrite of those decisions. The GF-WP-01 kickoff approval is only offline scope.
+
+`docs/design/frontend-ui.md`, `frontend-terminal.md` and `frontend-prototype-audit.md` from historical #87 **do not exist on main**. The accepted prototype handoff `research/ui-prototype/DESIGN.md` and the working UI do exist. #87 remains backlog to reconcile the final architecture and interaction/acceptance matrix after G6; do not assert the canonical document has been completed.
+
+**Sprint completion definition:** all 4 child PRs verified and merged into `phase2/development` with tests and deterministic comparison recorded; baseline Phase 1 hash and showcase unaffected; new sponsor API usage **not claimed**; #8/G6 human actions independently confirmed. Only after those checks should the lead propose the next-wave issues and explicit D2/D3 approvals.
