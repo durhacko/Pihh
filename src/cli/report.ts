@@ -68,10 +68,11 @@ export function stats(values: readonly (number | null)[], censoredHigh = false):
 /** Metrics whose null means "censored, ranks worst" rather than "not applicable". */
 const CENSORED_HIGH = new Set(['tRec']);
 
-function fmt(x: number | null): string {
+/** A number for the table. Integers print bare unless `decimals` asks for 3 places (to match the rest of a row). */
+function fmt(x: number | null, decimals = false): string {
   if (x === null) return '—';
   if (x === Infinity) return 'censored';
-  if (Number.isInteger(x)) return String(x);
+  if (!decimals && Number.isInteger(x)) return String(x);
   if (Math.abs(x) < 0.0005) return '0.000';   // no "-0.000" from floating-point noise
   return x.toFixed(3);
 }
@@ -84,12 +85,12 @@ function nullLabel(key: string): string {
   return key === 'tRec' ? 'censored' : 'n/a';
 }
 
-function fmtStats(s: Stats, key: string): string {
+function fmtStats(s: Stats, key: string, decimals = false): string {
   // For a censored-high metric n counts the censored values too; otherwise n excludes nulls.
   const allNull = CENSORED_HIGH.has(key) ? s.n === s.nulls : s.n === 0;
   if (allNull) return s.nulls > 0 ? `${nullLabel(key)} ×${s.nulls}` : '—';
   const nulls = s.nulls > 0 ? `, ${nullLabel(key)} ×${s.nulls}` : '';
-  return `${fmt(s.median)} [${fmt(s.q1)}–${fmt(s.q3)}] (n=${s.n}${nulls})`;
+  return `${fmt(s.median, decimals)} [${fmt(s.q1, decimals)}–${fmt(s.q3, decimals)}] (n=${s.n}${nulls})`;
 }
 
 function orderedKeys(records: readonly RunRecord[]): string[] {
@@ -238,7 +239,11 @@ function renderGroup(g: Group): string[] {
     const s = stats([...g.static.values()].map((r) => value(r, key)).filter((v): v is number | null => v !== undefined), high);
     const e = stats([...g.encore.values()].map((r) => value(r, key)).filter((v): v is number | null => v !== undefined), high);
     const d = pairedDeltas(g, key);
-    out.push(`| \`${key}\` | ${fmtStats(s, key)} | ${fmtStats(e, key)} | ${d.length ? `${fmt(median(d))} (${d.length} pairs)` : '—'} |`);
+    const md = median(d);
+    // One format per row: if any shown value has a fraction, every value gets 3 decimals ("4.000 [4.000–4.000]", not "4.000 [4.000–4]").
+    const shown = [s.median, s.q1, s.q3, e.median, e.q1, e.q3, md].filter((v): v is number => v !== null && Number.isFinite(v));
+    const dec = shown.some((v) => !Number.isInteger(v));
+    out.push(`| \`${key}\` | ${fmtStats(s, key, dec)} | ${fmtStats(e, key, dec)} | ${d.length ? `${fmt(md, dec)} (${d.length} pairs)` : '—'} |`);
   }
   out.push('');
   return out;

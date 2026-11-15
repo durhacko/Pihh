@@ -59,7 +59,19 @@ describe('buildReport', () => {
     // static sorted .5 .625 .75 .875: median .6875, q1 .59375, q3 .78125
     // encore sorted .5 .625 .75 1: median .6875, q1 .59375, q3 .8125; deltas -.125 0 .125 .125: median .0625
     expect(md).toContain('| `npwcEnd` | 0.688 [0.594–0.781] (n=4) | 0.688 [0.594–0.813] (n=4) | 0.063 (4 pairs) |');
-    expect(md).toContain('| `slotChanges` | 0 [0–0] (n=4) | 27.500 [23.750–32.500] (n=4) | 27.500 (4 pairs) |');
+    // One format per row: the static zeros take 3 decimals because the Encore values have fractions.
+    expect(md).toContain('| `slotChanges` | 0.000 [0.000–0.000] (n=4) | 27.500 [23.750–32.500] (n=4) | 27.500 (4 pairs) |');
+  });
+
+  it('uses one number format per metric row, and bare integers when the whole row is integral', () => {
+    const r = buildReport([
+      rec('S3', 'static', 1, { msgsPerDroneSec: 0, collisions: 60, slotChanges: 0 }), rec('S3', 'encore', 1, { msgsPerDroneSec: 3.9999999, collisions: 61, slotChanges: 5 }),
+      rec('S3', 'static', 2, { msgsPerDroneSec: 0, collisions: 60, slotChanges: 0 }), rec('S3', 'encore', 2, { msgsPerDroneSec: 4, collisions: 63, slotChanges: 5 }),
+    ]);
+    // msgsPerDroneSec: was "4.000 [4.000–4]" before; collisions: the Encore IQR 61.5–62.5 has fractions; slotChanges: all integral.
+    expect(r).toContain('| `msgsPerDroneSec` | 0.000 [0.000–0.000] (n=2) | 4.000 [4.000–4.000] (n=2) | 4.000 (2 pairs) |');
+    expect(r).toContain('| `collisions` | 60.000 [60.000–60.000] (n=2) | 62.000 [61.500–62.500] (n=2) | 2.000 (2 pairs) |');
+    expect(r).toContain('| `slotChanges` | 0 [0–0] (n=2) | 5 [5–5] (n=2) | 5 (2 pairs) |');
   });
 
   it('counts win/tie/loss and keeps the LOSS row', () => {
@@ -72,7 +84,7 @@ describe('buildReport', () => {
   it('counts censored tRec per arm', () => {
     expect(md).toContain('tRec censored (not recovered): static 4 of 4, encore 1 of 4.');
     // encore tRec 12, censored, 18, 9 -> 9 12 18 +inf: median 15, q1 11.25, q3 lands between 18 and censored
-    expect(md).toContain('| `tRec` | censored ×4 | 15 [11.250–censored] (n=4, censored ×1) |');
+    expect(md).toContain('| `tRec` | censored ×4 | 15.000 [11.250–censored] (n=4, censored ×1) |');
   });
 
   it('ranks a censored tRec above every recovered seed instead of dropping it', () => {

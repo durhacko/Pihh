@@ -24,7 +24,8 @@ export const probeBrain: AgentBrain<ProbeState> = {
   step(state: ProbeState, input: AgentInput): AgentOutput {
     state.target ??= [input.pos[0], 3, input.pos[2]];
     state.rng = (Math.imul(state.rng, 1664525) + 1013904223) >>> 0;
-    state.heard += input.inbox.length;
+    // Hash the inbox CONTENTS in delivery order, not just its length, so a reordered or swapped inbox is observable.
+    for (const message of input.inbox) state.heard = (Math.imul(state.heard, 31) + message.from * 7 + message.seq + 1) >>> 0;
     const accel: Vec3 = [0, 2 * (state.target[1] - input.pos[1]) - 3 * input.vel[1], 0];
     return {
       accel,
