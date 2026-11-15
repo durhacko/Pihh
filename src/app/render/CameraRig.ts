@@ -6,9 +6,14 @@ const presets: Record<CameraPreset, [number, number, number]> = {
   audience: [0, 6, 95], quarter: [55, 45, 75], top: [0, 140, 0.1],
 };
 
+/** Vertical field of view (degrees) at landscape aspects. */
+const BASE_FOV = 50;
+/** Below this width/height ratio the horizontal field of view is held at this aspect's (see resize). */
+const PORTRAIT_ASPECT = 1;
+
 /** One camera can be shared by multiple WorldViews for aligned comparisons. */
 export class CameraRig {
-  readonly camera = new PerspectiveCamera(50, 1, 0.1, 1000);
+  readonly camera = new PerspectiveCamera(BASE_FOV, 1, 0.1, 1000);
   private controls: OrbitControls | null = null;
   private target = new Vector3(0, 30, 0);
 
@@ -35,7 +40,14 @@ export class CameraRig {
   }
 
   resize(width: number, height: number): void {
-    this.camera.aspect = width / Math.max(height, 1);
+    const aspect = width / Math.max(height, 1);
+    this.camera.aspect = aspect;
+    // Portrait screens (E7 audit, 390 px): with a fixed vertical FOV the horizontal view shrinks with the aspect and
+    // cropped the formation to "NCOR". Below PORTRAIT_ASPECT keep the horizontal FOV that aspect would have instead.
+    // Landscape and every desktop size keep the 50 degree vertical FOV unchanged.
+    const vertical = aspect >= PORTRAIT_ASPECT ? BASE_FOV
+      : 2 * Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) * PORTRAIT_ASPECT / aspect) * (180 / Math.PI);
+    this.camera.fov = vertical;
     this.camera.updateProjectionMatrix();
   }
 

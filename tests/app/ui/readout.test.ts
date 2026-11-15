@@ -8,7 +8,7 @@ import { composeNext, currentMovement, expandRecipe } from '../../../src/score';
 import { createSlotStatusFeed } from '../../../src/app/render/layers/GhostSlotLayer';
 import { armPhase, movementName, observedRecipe, readArmPhases, type ArmPhase } from '../../../src/app/armPhase';
 import { NOT_COMPARABLE_LABEL, readoutItems, TRANSITION_LABEL, TRANSITION_TITLE, TRANSITION_VALUE } from '../../../src/app/ui/Readout';
-import { formatPercent, HudModel } from '../../../src/app/ui/Hud';
+import { formatFraction, HudModel } from '../../../src/app/ui/Hud';
 import { ARMS, createWorlds, hudPayload, type Arm, type Pair, type Worlds } from '../../../src/app/worlds';
 import { fmt } from '../../../src/app/ui/dom';
 
@@ -81,7 +81,7 @@ describe('readout phase and transition, per arm, from the observer', () => {
     const shown = model.present();
     expect(shown.encore!.transitioning).toBe(true);
     expect(shown.static!.transitioning).toBe(false);
-    expect(shown.encore!.npwc).toBe(formatPercent(samples.encore!.npwc));   // the observer's value, unchanged
+    expect(shown.encore!.npwc).toBe(formatFraction(samples.encore!.npwc));   // the observer's value, unchanged
   }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('the pair is comparable again once both arms fly the same formation, and while they always did', () => {
