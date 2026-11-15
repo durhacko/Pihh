@@ -128,4 +128,10 @@ describe('tOracle', () => {
     expect(tOracleForRun(one, snapshot(401, [null, null, at(2), at(3), at(4), at(5)]), score, params, 600)).toBeNull();   // wrong tick
     expect(tOracleForRun(one, snap, score, params, 600)?.tOracle).toBe(bruteForce(snap, params, 600));
   });
+
+  it('is null on a run with an INJECT_SCORE: the reference score is not fixed (#286 review)', () => {
+    const snap = snapshot(400, [null, null, at(2), at(3), at(4), at(5)]);
+    const events: EnvEvent[] = [{ type: 'KILL', tick: 400, ids: [0, 1] }, { type: 'INJECT_SCORE', tick: 450, droneId: 2, score }];
+    expect(tOracleForRun(events, snap, score, params, 600)).toBeNull();
+  });
 });

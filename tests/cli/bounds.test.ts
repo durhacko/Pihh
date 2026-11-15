@@ -3,7 +3,11 @@
 // full S1/S2/S4 runs at n0 40, seeds 1–5, both arms.
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { boundsRun, boundsTable, type BoundsRow } from '../../src/cli/bounds';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { boundsRun, boundsTable, insideRepoResults, REPO_RESULTS, type BoundsRow } from '../../src/cli/bounds';
 import { runOne } from '../../src/cli/run';
 import { BRAINS } from '../../src/cli/brains';
 import { getObserverFactory } from '../../src/cli/observer';
@@ -32,6 +36,20 @@ describe('bounds (default suite: one short run)', () => {
     const r = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli/bounds.ts', '--scenario', 'S2', '--seeds', '1', '--n0', '40', '--out', 'results/phase2/bounds'], { encoding: 'utf8' });
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/must not be inside results/);
+  }, 60_000);
+
+  it('the results/ guard is anchored to the repo, not the working directory (#286 review)', () => {
+    const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    expect(REPO_RESULTS).toBe(join(repo, 'results'));
+    expect(insideRepoResults(join(repo, 'results', 'phase2', 'bounds'))).toBe(true);
+    expect(insideRepoResults(join(repo, 'results'))).toBe(true);
+    expect(insideRepoResults(join(repo, 'results-x'))).toBe(false);
+    expect(insideRepoResults(join(tmpdir(), 'bounds-out'))).toBe(false);
+    // Run from another directory with an ABSOLUTE path into the repo's results/: still refused, nothing written.
+    const r = spawnSync(join(repo, 'node_modules', '.bin', 'tsx'), [join(repo, 'src', 'cli', 'bounds.ts'), '--scenario', 'S2', '--seeds', '1', '--n0', '40', '--out', join(repo, 'results', 'phase2', 'bounds')], { cwd: tmpdir(), encoding: 'utf8' });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/must not be inside results/);
+    expect(existsSync(join(repo, 'results', 'phase2'))).toBe(false);
   }, 60_000);
 });
 

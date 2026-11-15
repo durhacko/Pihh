@@ -89,6 +89,10 @@ export function oracleRecoveryBound(snapshotAtKill: WorldSnapshot, score: Score,
         const upper = best === Infinity ? seg.to : Math.min(seg.to, best - 1);
         if (upper < seg.from) break;
         const x = live[i]!.pos;
+        // Boundary note: occupancy (measure.ts) is the squared test d² ≤ rOcc², while `need` uses hypot(d) − rOcc.
+        // They can disagree only within rounding of the boundary. A slot that the squared test calls occupied is not a
+        // candidate at all; one it calls unoccupied gets `need` ≥ 0 (clamped), which any u ≥ 1 with reach > 0 meets, so
+        // the disagreement can only make τ earlier, never later: the bound stays a lower bound on the time.
         const need = Math.max(0, Math.hypot(p[0] - x[0], p[1] - x[1], p[2] - x[2]) - params.rOcc);
         const u = firstAtLeast(reach[i]!, need, seg.from, upper);
         if (u >= 0 && u < best) best = u;
@@ -112,9 +116,15 @@ export function singleKillTick(events: readonly EnvEvent[]): number | null {
   return kills.length === 1 ? kills[0]!.tick : null;
 }
 
-/** tOracle for a run: null unless it has exactly one KILL and `snapshotAtKill` is that tick's snapshot. */
+/**
+ * tOracle for a run: null unless it has exactly one KILL and `snapshotAtKill` is that tick's snapshot.
+ * Also null when the run has any INJECT_SCORE: the oracle measures against one fixed score (`score`), but an injection
+ * changes the observer's reference score (and so the formation tFirst95 is measured against) at a time that depends on
+ * gossip, which a single-score bound cannot follow. P2-WP-08's runs (S1, S2, S4) have none.
+ */
 export function tOracleForRun(events: readonly EnvEvent[], snapshotAtKill: WorldSnapshot | null, score: Score, params: Params, horizonTicks: number): OracleResult | null {
   const k = singleKillTick(events);
   if (k === null || !snapshotAtKill || snapshotAtKill.tick !== k) return null;
+  if (events.some(e => e.type === 'INJECT_SCORE')) return null;
   return oracleRecoveryBound(snapshotAtKill, score, params, horizonTicks);
 }

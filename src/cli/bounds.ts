@@ -6,7 +6,8 @@
 //
 //   npx tsx src/cli/bounds.ts --scenario S1,S2,S4 --seeds 1-5 --arms static,encore --out <dir> [--n0 200]
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { WorldSnapshot } from '../contracts';
 import { DT, makeParams } from '../contracts';
 import { createSweptCounter, type SweptTick } from '../observer/swept';
@@ -96,6 +97,19 @@ export function boundsTable(rows: readonly BoundsRow[]): string {
   return [head, `|${'---|'.repeat(11)}`, ...lines].join('\n');
 }
 
+/** The repo's results/ folder, anchored to this module's own location (src/cli/bounds.ts), never to the working
+ *  directory: an absolute `--out <repo>/results/…` run from elsewhere is still refused. */
+export const REPO_RESULTS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'results');
+
+/** True when `out` is the repo's results/ folder or inside it (whole path segments, so results-x is outside).
+ *  results/ is locked for Phase 2 output until the lock lifts (P2-WP-08: results/phase2/bounds/ later). */
+export function insideRepoResults(out: string): boolean {
+  const rel = relative(REPO_RESULTS, resolve(out));
+  if (rel === '') return true;
+  if (rel === '..' || rel.startsWith('../') || rel.startsWith('..\\')) return false;
+  return !/^([A-Za-z]:|[\\/])/.test(rel);
+}
+
 function parseSeeds(text: string): number[] {
   const seeds: number[] = [];
   for (const part of text.split(',')) {
@@ -123,11 +137,7 @@ function main(argv: readonly string[]): number {
   const seeds = parseSeeds(opts.get('seeds') ?? '1-5');
   const n0 = Number(opts.get('n0') ?? '200');
   const out = opts.get('out');
-  if (out) {
-    // results/ is locked for Phase 2 output until the lock lifts (P2-WP-08: results/phase2/bounds/ later).
-    const rel = relative(resolve('results'), resolve(out));
-    if (rel === '' || !(rel === '..' || rel.startsWith('../') || rel.startsWith('..\\'))) throw new Error('--out must not be inside results/ (locked)');
-  }
+  if (out && insideRepoResults(out)) throw new Error('--out must not be inside results/ (locked)');
   const rows: BoundsRow[] = [];
   for (const scenario of scenarios as ScenarioId[]) for (const arm of arms as Arm[]) for (const seed of seeds) {
     rows.push(boundsRun({ scenario, arm, seed, n0 }));
