@@ -36,7 +36,9 @@ function rig(auto = true) {
   };
   const store = new Store();
   const client = createFormationClient(() => worker);
-  const source = createGeneratedSource({ params, client, store, fixtures: ['3d-sphere', '3d-two-spheres', '2d-disc', '3d-primitives'].map(fixture) });
+  // 'bad' is a committed invalid scene (V5 range), genuinely rejected by the compiler; 2D compiles since #212's 2D path.
+  const bad: FixtureEntry = { id: 'bad', file: 'invalid-range-centre.json', load: async () => JSON.parse(readFileSync('tests/fixtures/scenes/invalid-range-centre.json', 'utf8')) as SceneSpec };
+  const source = createGeneratedSource({ params, client, store, fixtures: [...['3d-sphere', '3d-two-spheres', '2d-disc', '3d-primitives'].map(fixture), bad] });
   return { store, client, source, posted, reply: (k: number) => onMessage?.({ data: handleCompileRequest(posted[k]) } as MessageEvent<CompileReply>) };
 }
 
@@ -110,13 +112,21 @@ describe('compile, preview and stale requests', () => {
     await source.select('3d-sphere');
     source.preview(true);
     expect(store.state.preview?.source).toBe('fixture');
-    await source.select('2d-disc');
+    await source.select('bad');
     expect(source.status.state).toBe('rejected');
     if (source.status.state !== 'rejected') return;
     expect(source.status.code.length).toBeGreaterThan(0);
     expect(statusText(source.status, 40)).toContain(`was rejected: ${source.status.code}.`);
     expect(store.state.preview).toBe(null);
     expect(source.preview(true)).toBe(false);                   // nothing to preview
+  });
+
+  it('a 2D fixture compiles and previews like a 3D one (#212 2D path)', async () => {
+    const { source, store } = rig();
+    await source.select('2d-disc');
+    expect(source.status.state).toBe('ready');
+    expect(source.preview(true)).toBe(true);
+    expect(store.state.preview?.source).toBe('fixture');
   });
 
   it('while previewing, a newer compile refreshes the stage to the newest fixture', async () => {
