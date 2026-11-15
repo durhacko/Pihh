@@ -28,7 +28,8 @@ Phase 1 engineering G0–G5 is complete and browser-smoke tested; G6 (Devpost su
 
 - **One issue, one branch, one worktree, one PR into `phase2/development`.** The orchestrator claims each issue and posts its allowed files before work starts. Only the orchestrator merges, and each merged branch and its worktree are retired.
 - **One writer per file.** A file belongs to exactly one open issue's allowed list. Shared modules have a named single writer, kept on #199. Nobody edits another lane's files without a written handoff on the issue.
-- **Gates:** [roadmap](PHASE2_ROADMAP.md) D1 (the Track H rule, including the P2-WP-09 two-hook exception), D2 (the `[contract]` changes, one by one) and D3 (live networked modules, decided per integration) are human decisions. Silence is not approval. Live D3 modules stay gated, and their order is recorded on #199.
+- **Gates:** [roadmap](PHASE2_ROADMAP.md) D1 (the Track H rule, including the P2-WP-09 two-hook exception), D2 (the `[contract]` changes, one by one) and D3 (live networked modules, decided per integration) are human decisions. Silence is not approval.
+- **Sponsor order (Arnav, about 08:00; this replaces "D3 sequential"):** sponsor implementation runs in parallel. Live D3 is approved separately for each provider, and none is granted yet. When merges contend, acceptance prefers Gemini → MongoDB → TigerData, but ready work that doesn't conflict merges without waiting.
 - **Evidence:** each PR quotes real test output, the `check.sh` result and its open items. Nothing claims an untested result.
 
 ## Dependency map
