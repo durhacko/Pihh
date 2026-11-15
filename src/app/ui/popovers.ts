@@ -22,14 +22,28 @@ export interface PopoverContext {
   status(): ControlStatus;
   /** The Encore world's newest snapshot (read-only), or null. */
   encore(): WorldSnapshot | null;
+  /** The operator's jam and partition as they will be next tick: the console's rule (commands.ts liveState). */
+  live(): { jam: boolean; partition: boolean };
   /** Ask for a centre in the stage, then run the region kill or jam there. */
   pick(purpose: 'killRegion' | 'jam', radius: number): void;
   camera(preset: CameraPreset): void;
   hud(): HudPresentation;
   series(): Pair<readonly MetricsSample[]>;
-  meta(): { tick: number; seed: number; roster: number; fps: number | null; speed: number; radio: { drawn: number; observed: number } | null };
+  /** `radio` is the Encore radio layer's tally, null while that layer is not drawing (X-ray off, or Encore not shown). */
+  meta(): { tick: number; seed: number; roster: number; fps: number | null; speed: number; xray: boolean; radio: { drawn: number; observed: number } | null };
 }
 export interface Popover { readonly el: HTMLElement; render(): void }
+
+// ---------- Picks and the J key (pure, so the rules are tested without a DOM) ----------
+/** Whether a stage click answers a pending pick. A pick without a radius, or an inject / select pick, names a drone,
+ *  so a click that hits no drone does not answer it; a region pick (kill, jam) takes any point. */
+export function pickAnswered(pick: { purpose: string; radius?: number }, droneId: number | null): boolean {
+  return droneId !== null || !(pick.radius === undefined || pick.purpose === 'inject' || pick.purpose === 'select');
+}
+/** What J does: lift the operator's jam if it is (or is about to be) on, else jam around the selected drone, else pick. */
+export function jamKeyAction(jamOn: boolean, hasSelection: boolean): 'lift' | 'around-selected' | 'pick' {
+  return jamOn ? 'lift' : hasSelection ? 'around-selected' : 'pick';
+}
 
 // ---------- Disrupt ----------
 export interface DisruptState { selectedId: number | null; selectedAlive: boolean; jamActive: boolean; partitioned: boolean }
@@ -55,11 +69,11 @@ export function createDisrupt(ctx: PopoverContext): Popover {
   const settings = { regionRadius: 8, jamRadius: 12 };
   let loss = 5;
   function render(): void {
-    const snap = ctx.encore();
     const status = ctx.status();
+    const live = ctx.live();
     const actions = disruptActions({
       selectedId: status.selectedId, selectedAlive: status.selectedAlive,
-      jamActive: (snap?.jams.length ?? 0) > 0, partitioned: (snap?.partitions.length ?? 0) > 0,
+      jamActive: live.jam, partitioned: live.partition,
     }, settings);
     const button = (a: DisruptAction) => h('button', {
       type: 'button', class: `action ${a.active ? 'active' : ''}`, disabled: a.disabled, 'data-action': a.id,
@@ -92,32 +106,33 @@ export function createDisrupt(ctx: PopoverContext): Popover {
 // ---------- Lenses ----------
 export function createLenses(ctx: PopoverContext): Popover {
   const el = h('div', { class: 'popover surface chrome', 'aria-label': 'Lenses' });
-  function sw(label: string, desc: string, key: string, checked: boolean, toggle: () => void, disabled = false, tag?: string) {
-    const input = h('input', { type: 'checkbox', role: 'switch', disabled }) as HTMLInputElement;
-    input.checked = checked;
-    input.addEventListener('change', toggle);
-    return h('label', { class: 'switch', style: disabled ? { opacity: '.55', cursor: 'not-allowed' } : undefined }, input,
-      h('span', { class: 'txt' }, h('b', {}, label, tag ? h('span', { class: 'tag later', style: { marginLeft: '8px' } }, tag) : null), h('small', {}, desc)), key ? h('kbd', {}, key) : null);
+  // Built once; a change updates the switches in place, so keyboard focus (and Space on a switch) is never lost.
+  const inputs: { input: HTMLInputElement; read: () => boolean }[] = [];
+  function sw(label: string, desc: string, key: string, read: () => boolean, toggle: () => void) {
+    const input = h('input', { type: 'checkbox', role: 'switch' }) as HTMLInputElement;
+    input.checked = read();
+    input.addEventListener('change', () => { toggle(); input.checked = read(); });
+    inputs.push({ input, read });
+    return h('label', { class: 'switch' }, input, h('span', { class: 'txt' }, h('b', {}, label), h('small', {}, desc)), key ? h('kbd', {}, key) : null);
   }
-  function render(): void {
-    const lenses = ctx.store.state.lenses;
-    el.replaceChildren(
-      h('div', { class: 'pop-title' }, h('span', { class: 'eyebrow' }, 'Lenses'), h('span', { class: 'hint' }, 'Visual only')),
-      h('section', {},
-        sw('Radio X-ray', 'Real messages from the radio log, jam spheres and the partition plane; dims the show', 'X', lenses.xray, () => ctx.run({ type: 'xray' })),
-        sw('Belief colours', 'Colour each drone by the score version it holds', 'C', lenses.colour === 'belief', () => ctx.run({ type: 'belief' })),
-        sw('Ghost slots', 'Observer view: vacant, in-transit, contested', 'G', lenses.ghosts, () => ctx.store.lens('ghosts', !ctx.store.state.lenses.ghosts)),
-        sw('Tethers', 'Line to where a drone believes it should be (selected drone; all with X-ray)', '', lenses.tethers, () => ctx.store.lens('tethers', !ctx.store.state.lenses.tethers))),
-      h('section', {},
-        h('div', { class: 'row' }, h('span', { class: 'eyebrow grow' }, 'Camera'),
-          ...(['audience', 'quarter', 'top'] as const).map((p, i) => h('button', { type: 'button', class: 'btn small', onclick: () => ctx.camera(p) }, p === 'quarter' ? '¾' : p === 'audience' ? 'Front' : 'Top', h('kbd', {}, String(i + 1))))),
-        h('div', { class: 'row' },
-          h('button', { type: 'button', class: 'btn small ghost', onclick: () => { if (lenses.xray) ctx.run({ type: 'xray' }); if (lenses.colour === 'belief') ctx.run({ type: 'belief' }); ctx.store.lens('ghosts', false); render(); } }, 'Reset to performance view'),
-          h('span', { class: 'grow' }),
-          h('button', { type: 'button', class: 'btn small ghost', onclick: () => { ctx.surfaces.close('lenses', false); ctx.store.set({ chromeHidden: true }); } }, 'Hide UI', h('kbd', {}, 'H')))),
-    );
-  }
-  ctx.store.subscribe((_s, changed) => { if (changed.includes('lenses') && !el.hidden) render(); });
+  const lens = () => ctx.store.state.lenses;
+  el.append(
+    h('div', { class: 'pop-title' }, h('span', { class: 'eyebrow' }, 'Lenses'), h('span', { class: 'hint' }, 'Visual only')),
+    h('section', {},
+      sw('Radio X-ray', 'Real messages from the radio log, jam spheres and the partition plane; dims the show', 'X', () => lens().xray, () => ctx.run({ type: 'xray' })),
+      sw('Belief colours', 'Colour each drone by the score version it holds', 'C', () => lens().colour === 'belief', () => ctx.run({ type: 'belief' })),
+      sw('Ghost slots', 'Observer view: vacant, in-transit, contested', 'G', () => lens().ghosts, () => ctx.store.lens('ghosts', !lens().ghosts)),
+      sw('Tethers', 'Line to where a drone believes it should be (selected drone; all with X-ray)', '', () => lens().tethers, () => ctx.store.lens('tethers', !lens().tethers))),
+    h('section', {},
+      h('div', { class: 'row' }, h('span', { class: 'eyebrow grow' }, 'Camera'),
+        ...(['audience', 'quarter', 'top'] as const).map((p, i) => h('button', { type: 'button', class: 'btn small', onclick: () => ctx.camera(p) }, p === 'quarter' ? '¾' : p === 'audience' ? 'Front' : 'Top', h('kbd', {}, String(i + 1))))),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn small ghost', onclick: () => { if (lens().xray) ctx.run({ type: 'xray' }); if (lens().colour === 'belief') ctx.run({ type: 'belief' }); ctx.store.lens('ghosts', false); render(); } }, 'Reset to performance view'),
+        h('span', { class: 'grow' }),
+        h('button', { type: 'button', class: 'btn small ghost', onclick: () => { ctx.surfaces.close('lenses', false); ctx.store.set({ chromeHidden: true }); } }, 'Hide UI', h('kbd', {}, 'H')))),
+  );
+  function render(): void { for (const { input, read } of inputs) input.checked = read(); }
+  ctx.store.subscribe((_s, changed) => { if (changed.includes('lenses')) render(); });
   return { el, render };
 }
 
@@ -186,7 +201,7 @@ export function createMetrics(ctx: PopoverContext): Popover {
         h('div', {}, 'Seed · roster', h('b', {}, `${meta.seed} · ${meta.roster}`)),
         h('div', {}, 'Render', h('b', {}, meta.fps === null ? '—' : `${meta.fps.toFixed(0)} fps`)),
         h('div', {}, 'Speed', h('b', {}, `${meta.speed}×`)),
-        h('div', {}, 'Radio drawn', h('b', {}, meta.radio ? `${meta.radio.drawn} / ${meta.radio.observed}` : 'X-ray off')),
+        h('div', {}, 'Radio drawn', h('b', {}, meta.radio ? `${meta.radio.drawn} / ${meta.radio.observed}` : meta.xray ? '— (not drawn in this view)' : '— (X-ray off)')),
         h('div', {}, 'Brains', h('b', {}, `${a.label.split(' · ')[1] ?? '?'} / ${b.label.split(' · ')[1] ?? '?'}`))),
       h('p', { class: 'hint', style: { margin: '6px 8px 2px' } }, view.status, '. Static drones ignore injected scores by design: a capability difference, not a performance result.'),
     );
@@ -214,7 +229,8 @@ export function createHelp(ctx: PopoverContext): Popover {
       h('div', { class: 'cols' }, ...keys.map(([k, d]) => h('div', { class: 'k' }, h('span', {}, d), h('kbd', {}, k)))),
       h('h3', {}, 'What is simulated'),
       h('p', {}, 'Everything. There are no physical drones. Each drone is an independent software agent with private state; it senses nearby drones anonymously and hears one-hop radio broadcasts. The program plays the air and the radio, never a controller. Collisions are measured, not prevented.'),
-      h('p', {}, 'Two worlds run from the same seed and receive the same events: Encore above, the static, pre-programmed baseline below. Every number on screen is measured by the observer.'),
+      h('p', {}, 'Two worlds run from the same seed and receive the same events: the Encore swarm and a static, pre-programmed baseline. Split view (B) shows Encore above and the baseline below.'),
+      h('p', {}, 'Measured by the observer (ground truth the drones cannot see): nPWC, alive, coverage, shape fidelity, duplicate slots, collisions, score versions held. Counted by the display, not the observer: fps, the tick, "radio drawn n / m", the deaf count, and "N live drones inside" while picking.'),
       h('h3', {}, 'Settings'),
       h('label', { class: 'switch' }, rm, h('span', { class: 'txt' }, h('b', {}, 'Reduce motion'), h('small', {}, 'No transitions or toast animations'))),
     );

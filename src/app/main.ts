@@ -20,12 +20,13 @@ import { h } from './ui/dom';
 import { HudModel } from './ui/Hud';
 import { connectComposer, Drafts } from './ui/Composer';
 import { connectConsole } from './ui/Console';
-import { brainNote, connectDemo } from './ui/DemoScript';
+import { brainNote, connectDemo, demoStartProblem, demoSubline } from './ui/DemoScript';
+import { liveState } from './ui/commands';
 import { connectInspector, createPanel as createInspectorPanel, type InspectorSource } from './ui/Inspector';
 import { observerTruth } from './ui/inspectorTruth';
 import { bindShortcuts } from './ui/keys';
 import { createLegend } from './ui/Legend';
-import { createDisrupt, createHelp, createLenses, createMetrics, type PopoverContext } from './ui/popovers';
+import { createDisrupt, createHelp, createLenses, createMetrics, jamKeyAction, pickAnswered, type PopoverContext } from './ui/popovers';
 import { armPhase, createReadout, type ArmPhase } from './ui/Readout';
 import { defaultUIState, Store, type ViewMode } from './ui/store';
 import { handleEscape, Surfaces } from './ui/surfaces';
@@ -258,13 +259,13 @@ const onPointerUp = (e: PointerEvent) => {
   if (pick) {
     // Only a real stage click answers a pick. A drone pick (inject / select) needs a drone under the pointer.
     const droneId = pickDrone(e.clientX, e.clientY);
-    if ((pick.purpose === 'inject' || pick.purpose === 'select') && droneId === null) return;
+    if (!pickAnswered(pick, droneId)) return;   // a drone pick (no radius, inject, select) needs a drone under the pointer
     const point = pointAt(e.clientX, e.clientY);
     if (point) pick.resolve({ droneId, point });
     return;
   }
   const id = pickDrone(e.clientX, e.clientY);
-  if (id !== null) controls.selectDrone(id);
+  if (id !== null) { connectInspector(inspectorSource, { arm: 'encore' }); controls.selectDrone(id); }
   else if (store.state.selected) controls.selectDrone(null);
   refreshChrome();
 };
@@ -301,11 +302,12 @@ const popCtx: PopoverContext = {
   store, surfaces, run,
   status: () => controls.status(),
   encore: () => snapshots().encore,
+  live: () => live(),
   pick: pickCentre,
   camera: preset => setCamera(preset),
   hud: () => hudModel.present(),
   series: () => worlds.series(),
-  meta: () => ({ tick: worlds.tick, seed: worlds.seed, roster: params.n0, fps: lastFps, speed: transport.speed, radio: store.state.lenses.xray ? radioTally('encore') : null }),
+  meta: () => ({ tick: worlds.tick, seed: worlds.seed, roster: params.n0, fps: lastFps, speed: transport.speed, xray: store.state.lenses.xray, radio: store.state.lenses.xray && shown.encore ? radioTally('encore') : null }),
 };
 const lenses = createLenses(popCtx);
 const disrupt = createDisrupt(popCtx);
@@ -367,6 +369,8 @@ root.classList.toggle('reduced', store.state.reducedMotion);
 
 // ---------- keyboard ----------
 function setCamera(preset: CameraPreset): void { rig.preset(preset); store.set({ camera: preset }); }
+/** The operator's jam and partition as they will be next tick, by the console's rule (commands.ts liveState). */
+function live(): { jam: boolean; partition: boolean } { return liveState(controls.status(), snapshots().encore, controls.getEventLog()); }
 function selectedLive(): number | null { const s = controls.status(); return s.selectedAlive ? s.selectedId : null; }
 const unbindKeys = bindShortcuts({
   play: () => run({ type: 'play' }, true),
@@ -377,8 +381,10 @@ const unbindKeys = bindShortcuts({
   'camera-audience': () => setCamera('audience'), 'camera-quarter': () => setCamera('quarter'), 'camera-top': () => setCamera('top'),
   'kill-region': () => { const id = selectedLive(); if (id !== null) run({ type: 'kill-region', radius: 8 }); else pickCentre('killRegion', 8); },
   jam: () => {
-    if (snapshots().encore.jams.length > 0) run({ type: 'jam' });
-    else if (selectedLive() !== null) run({ type: 'jam', radius: 12 });
+    // The console's rule (liveState: pending toggles included), not snapshot.jams, so J never disagrees with it.
+    const action = jamKeyAction(live().jam, selectedLive() !== null);
+    if (action === 'lift') run({ type: 'jam' });
+    else if (action === 'around-selected') run({ type: 'jam', radius: 12 });
     else pickCentre('jam', 12);
   },
   partition: () => run({ type: 'partition' }),
@@ -398,23 +404,36 @@ const unbindKeys = bindShortcuts({
 const caption = h('div', { class: 'caption surface chrome', hidden: true, 'aria-live': 'polite' });
 // connectDemo queries the controls while connecting, so `changed` fires before `demo` is assigned: wait for it.
 let demoReady = false;
-const demo = connectDemo(root, { camera: preset => setCamera(preset), changed: () => { if (demoReady) renderCaption(); } });
+const demo = connectDemo(root, { camera: preset => setCamera(preset), layout: view => store.set({ view }), changed: () => { if (demoReady) renderCaption(); } });
 demoReady = true;
-function toggleDemo(): void {
-  if (demo.runner.state === 'running') demo.runner.stop(); else demo.runner.start();
+/** Starts the scripted show, or says why it cannot: a roster other than DEMO_N0, or no simulation connection. */
+function startDemo(): string | null {
+  const refused = demoStartProblem(params.n0);
+  const problem = refused ?? (demo.runner.start() ? null : demo.runner.problems.at(-1) ?? 'The demo could not start.');
+  if (problem) toaster.toast(problem, 'err');
   refreshChrome();
+  return problem;
+}
+function toggleDemo(): void {
+  if (demo.runner.state === 'running') { demo.runner.stop(); refreshChrome(); } else startDemo();
 }
 let lastCaption = '';
+let problemsShown = 0;
 function renderCaption(): void {
   if (!demoReady) return;
   const runner = demo.runner;
   const running = runner.state === 'running';
+  const problems = runner.problems;
+  // Every failed or late beat is toasted once and stays in the caption, so a caption never stands alone over a failure.
+  if (problems.length < problemsShown) problemsShown = 0;   // a new run cleared them
+  for (const problem of problems.slice(problemsShown)) toaster.toast(`Demo: ${problem}`, 'err');
+  problemsShown = problems.length;
   const note = running ? brainNote(demo.status(), runner.captionBeat) : '';
-  const sub = running ? `Scripted show · ${Math.min(90, Math.floor(worlds.tick * DT))} s${note ? ` · ${note}` : ''}` : runner.caption ? 'Scripted show' : '';
+  const sub = runner.caption || problems.length ? demoSubline({ running, seconds: worlds.tick * DT, note, problems }) : '';
   const key = `${runner.caption}|${sub}`;
   if (key === lastCaption) return;
   lastCaption = key;
-  caption.hidden = !runner.caption;
+  caption.hidden = !runner.caption && problems.length === 0;
   caption.replaceChildren(runner.caption, sub ? h('small', {}, sub) : '');
   layoutBottom();
 }
@@ -428,8 +447,8 @@ const consoleTray = connectConsole({ ...compose, hooks: {
   inspect: (id, arm) => { controls.selectDrone(id); connectInspector(inspectorSource, { arm }); },
   demo: action => {
     if (action === 'stop') { demo.runner.stop(); refreshChrome(); return 'Demo stopped.'; }
-    demo.runner.start(); refreshChrome();
-    return demo.runner.state === 'running' ? 'Demo running: the scripted 90-second show.' : `The demo did not start. ${demo.runner.problems.join(' ')}`.trim();
+    const problem = startDemo();
+    return problem ? `The demo did not start: ${problem}` : 'Demo running: the scripted 90-second show.';
   },
 } });
 
@@ -437,7 +456,7 @@ const consoleTray = connectConsole({ ...compose, hooks: {
 const timeline = connectTimeline({
   getScore: () => worlds.score, getEvents: () => controls.getEventLog(), getSeries: () => worlds.series(), getTick: () => worlds.tick,
   onClose: () => surfaces.close('timeline'),
-  demo: { start: () => { demo.runner.start(); refreshChrome(); }, stop: () => { demo.runner.stop(); refreshChrome(); }, isRunning: () => demo.runner.state === 'running' },
+  demo: { start: () => { startDemo(); }, stop: () => { demo.runner.stop(); refreshChrome(); }, isRunning: () => demo.runner.state === 'running' },
 });
 surfaces.register({ id: 'timeline', kind: 'tray', el: timeline.el, onOpen: () => timeline.update() });
 

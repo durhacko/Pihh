@@ -56,7 +56,7 @@ export function createDock(on: DockHandlers): Dock {
       if (key === last) return;
       last = key;
       play.innerHTML = state.playing ? icon.pause : icon.play;
-      play.setAttribute('aria-pressed', String(!state.playing));
+      play.setAttribute('aria-pressed', String(state.playing));   // pressed = playing
       play.title = state.stopped ? 'Stopped by an error: press R to reset' : state.playing ? 'Pause (Space)' : 'Play (Space)';
       (clock.children[0] as HTMLElement).textContent = fmtTime(state.tick);
       (clock.children[1] as HTMLElement).textContent = `tick ${state.tick}`;

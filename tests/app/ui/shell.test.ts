@@ -4,9 +4,11 @@
 // the Metrics popover, the Escape order with the shell's deselect, and that the new modules load without a DOM.
 import { describe, expect, it } from 'vitest';
 import type { MetricsSample } from '../../../src/contracts';
-import { createActionController } from '../../../src/app/actions';
+import { createActionController, type ControlStatus } from '../../../src/app/actions';
+import { liveState } from '../../../src/app/ui/commands';
+import { createDemoRunner, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoStartProblem, demoSubline } from '../../../src/app/ui/DemoScript';
 import { legendItems } from '../../../src/app/ui/Legend';
-import { disruptActions, scrollByKey, type DisruptRun } from '../../../src/app/ui/popovers';
+import { disruptActions, jamKeyAction, pickAnswered, scrollByKey, type DisruptRun } from '../../../src/app/ui/popovers';
 import { readoutItems } from '../../../src/app/ui/Readout';
 import { defaultUIState, Store } from '../../../src/app/ui/store';
 import { handleEscape, Surfaces, type SurfaceEnv } from '../../../src/app/ui/surfaces';
@@ -166,5 +168,58 @@ describe('the new shell modules load headless and stay out of the panel loader',
       const mod = await import(`../../../src/app/ui/${name}.ts`);
       expect(Object.keys(mod), name).not.toContain('createPanel');
     }
+  });
+});
+
+describe('review fixes (#113)', () => {
+  it('a pick without a radius, or an inject / select pick, is answered only by a click on a drone', () => {
+    expect(pickAnswered({ purpose: 'killRegion', radius: 8 }, null)).toBe(true);    // region picks take any point
+    expect(pickAnswered({ purpose: 'jam', radius: 12 }, null)).toBe(true);
+    expect(pickAnswered({ purpose: 'killRegion' }, null)).toBe(false);              // the console's drone picks: no radius
+    expect(pickAnswered({ purpose: 'jam' }, null)).toBe(false);
+    expect(pickAnswered({ purpose: 'inject', radius: 3 }, null)).toBe(false);
+    expect(pickAnswered({ purpose: 'select' }, null)).toBe(false);
+    for (const purpose of ['killRegion', 'jam', 'inject', 'select']) expect(pickAnswered({ purpose }, 7)).toBe(true);
+  });
+
+  it('J follows the console rule: a jam that is scheduled but not yet applied is lifted, not doubled', () => {
+    const worlds = createWorlds({ seed: 4, n0: 40 });
+    for (let t = 0; t < 30; t++) worlds.stepBoth();
+    const transport = { playing: false, speed: 1 };
+    const controller = createActionController(controlContext(worlds, {
+      getSnapshots: () => worlds.latest()!, getTransport: () => ({ ...transport, seed: worlds.seed }),
+      setPlaying: p => { transport.playing = p; }, setSpeed: s => { transport.speed = s; }, reset: s => { worlds.reset(s); worlds.stepBoth(); },
+    }));
+    const live = () => liveState(controller.status(), worlds.latest()!.encore, controller.getEventLog());
+    expect(jamKeyAction(live().jam, false)).toBe('pick');
+    expect(jamKeyAction(live().jam, true)).toBe('around-selected');
+    controller.handle({ type: 'jam', radius: 5, centre: [0, 30, 0] });            // JAM_ON lands next tick
+    expect(worlds.latest()!.encore.jams).toEqual([]);                                // the old rule (snapshot.jams) said "no jam"
+    expect(jamKeyAction(live().jam, true)).toBe('lift');                            // the console rule sees it pending
+    controller.handle({ type: 'jam' });                                             // so J lifts it: JAM_OFF, not a second JAM_ON
+    expect(controller.getEventLog().map(e => e.type)).toEqual(['JAM_ON', 'JAM_OFF']);
+  });
+
+  it('the demo refuses a roster it was not written for, and a caption line always carries the problems', () => {
+    expect(demoStartProblem(DEMO_N0)).toBeNull();
+    expect(demoStartProblem(100)).toMatch(/written for 200 drones; this page runs 100/);
+    expect(demoSubline({ running: true, seconds: 61.4, note: '', problems: [] })).toBe('Scripted show · 61 s');
+    expect(demoSubline({ running: true, seconds: 62, note: '', problems: ['The select step failed: Drone id is not in this roster.', 'The inject step failed: Select a live drone first.'] }))
+      .toBe('Scripted show · 62 s · 2 problems: The inject step failed: Select a live drone first.');
+    expect(demoSubline({ running: false, seconds: 0, note: '', problems: ['x'] })).toBe('Scripted show · 1 problem: x');
+  });
+
+  it('the split beat shows split view, the demo starts in the Encore view, and no caption mentions the retired HUD', () => {
+    expect(DEMO_BEATS.find(b => b.id === 'split')!.action).toEqual({ kind: 'layout', view: 'split' });
+    expect(DEMO_BEATS.some(b => /HUD/.test(b.caption))).toBe(false);
+    let tick = 1;
+    const layouts: string[] = [];
+    const status = () => ({ available: true, playing: true, speed: 1, seed: DEMO_SEED, tick, loss: 0.05, selectedId: null, selectedAlive: false, radioFaults: true, composition: true, display: true, message: '' }) as unknown as ControlStatus;
+    const runner = createDemoRunner({ send: () => ({ ok: true, message: '' }), status, view: () => ({ xray: false, beliefColours: false }), camera: () => {}, layout: v => { layouts.push(v); }, changed: () => {} },
+      DEMO_BEATS.filter(b => b.id === 'split'));
+    expect(runner.start()).toBe(true);
+    expect(layouts).toEqual(['encore']);
+    tick = DEMO_TICKS.SPLIT; runner.poll();
+    expect(layouts).toEqual(['encore', 'split']);
   });
 });

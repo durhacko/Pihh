@@ -31,7 +31,8 @@ export function shortcutFor(event: KeyLike, typing: boolean, onButton = false): 
 export function bindShortcuts(handlers: Partial<Record<ShortcutAction, () => void>>, onEscape: () => void): () => void {
   function onKey(event: KeyboardEvent): void {
     if (event.key === 'Escape') { onEscape(); return; }
-    const onButton = event.target instanceof Element && event.target.closest('button') !== null;
+    // Space on a button or a switch / checkbox / radio activates that control natively; it is not play / pause.
+    const onButton = event.target instanceof Element && event.target.closest('button, input[type=checkbox], input[type=radio], [role=switch], [role=radio]') !== null;
     const action = shortcutFor(event, isTyping(event.target), onButton);
     const run = action ? handlers[action] : undefined;
     if (run) { event.preventDefault(); run(); }
