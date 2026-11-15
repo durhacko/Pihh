@@ -23,6 +23,22 @@ The map of the canonical documentation for **Encore**. One fact lives in one pla
 | [validation/evaluation-and-tests.md](validation/evaluation-and-tests.md) | Metrics, scenarios S0–S5, baseline fairness, test list, gate evidence | Approved; thresholds pre-registered |
 | [planning/decisions-and-risks.md](planning/decisions-and-risks.md) | ADR-001…010, decision log, risks, fallback ladder, red-team answers | Living |
 
+## Phase 2 (proposed, not implemented)
+
+Enhancements for after the base gates. **Every doc here is STATUS: PROPOSED — NOT IMPLEMENTED**; nothing in them changes the contract or the evaluation until Arnav approves it ([roadmap decisions](planning/PHASE2_ROADMAP.md)). Issue #110.
+
+| Doc | What |
+|---|---|
+| [design/PHASE2_ARCHITECTURE.md](design/PHASE2_ARCHITECTURE.md) | Start here: pipeline, module and information rules, proposed requirements and ADRs, contract-change register, traceability, review record |
+| [planning/PHASE2_ROADMAP.md](planning/PHASE2_ROADMAP.md) | Tracks, gates P2-G0–G6, minimal and stretch sets, cut order, risks, decisions for Arnav |
+| [ideation/PHASE2_CANDIDATES.md](ideation/PHASE2_CANDIDATES.md) | Candidates E01–E10 and N01–N21, scoring, prior art, accepted, deferred and rejected ideas |
+| [design/ANIMATED_CHOREOGRAPHY_RFC.md](design/ANIMATED_CHOREOGRAPHY_RFC.md) | Moving formations: motion primitives, time-dependent slots, timing, score linter |
+| [design/ADAPTIVE_RECOVERY_AND_SAFETY_RFC.md](design/ADAPTIVE_RECOVERY_AND_SAFETY_RFC.md) | Healing while formations move, local collision avoidance, degradation, score conflicts |
+| [design/OPTIONAL_INTEGRATION_BOUNDARIES.md](design/OPTIONAL_INTEGRATION_BOUNDARIES.md) | Provider-neutral extension points and the intake template for sponsor integrations |
+| [validation/PHASE2_EVALUATION.md](validation/PHASE2_EVALUATION.md) | New metrics, checked properties, animated scenarios, fuzzing, tests P2-T01–T36 |
+| [development/PHASE2_WORK_PACKAGES.md](development/PHASE2_WORK_PACKAGES.md) | Issue-ready work packages P2-WP-01–31 (not to be opened before their gate) |
+| [demo/PHASE2_JUDGING_STORYBOARD.md](demo/PHASE2_JUDGING_STORYBOARD.md) | Proposed judging beats; does not replace the demo plan |
+
 ## Context
 
 | Doc | What |
