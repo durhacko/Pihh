@@ -323,7 +323,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
   let thumbKey = '';
   let thumbFormation: ReturnType<typeof expandRecipe> | null = null;
   let targetSig = '';
-  // GF-WP-10 (#265): the opt-in "Generated" source (committed fixture scenes, preview only). Without ?p2=generated
+  // GF-WP-10 (#265, #213, G3): the opt-in "Generated" source (fixture or gateway scenes). Without ?p2=generated
   // nothing below runs and the panel is exactly as before; with it, the tab and its worker client load lazily.
   // G3: `inject` is GeneratedSource.injectAccepted bound to d1's injectGeneratedRecipe (#214), loaded with the tab;
   // Accept and the generated Inject are enabled only because that path is actually loaded (injectConnected).
@@ -340,7 +340,9 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
       const live = l && l.liveGenerationEnabled(import.meta.env.VITE_GENERATE_LIVE, typeof location !== 'undefined' ? location.search : null) ? l.createGenerateClient() : null;
       const source = g.createGeneratedSource({
         params, store, client: c.createFormationClient(c.spawnFormationWorker), live,
-        injectConnected: typeof gi.injectGeneratedRecipe === 'function', onAccept: () => renderTransmit(),
+        // Real wiring, read live: d1's inject function is present AND the controller can compose (status.composition).
+        injectConnected: () => typeof gi.injectGeneratedRecipe === 'function' && !!ctx.controller.status().composition,
+        onAccept: () => renderTransmit(),
       });
       generated = {
         source, el: g.renderGeneratedSource(source, params.n0, () => render()),
@@ -436,7 +438,7 @@ export function connectComposer(input: ComposerContext): ComposerHandle {
     fill(typeBox, h('span', { class: 'label', id: 'cmp-type-label' }, 'Formation'),
       h('div', { class: 'types', role: 'radiogroup', 'aria-labelledby': 'cmp-type-label' },
         ...kinds.map(([kind, label, glyph]) => h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': `type-${kind}`, 'aria-checked': String(draft.kind === kind && !generatedMode), onclick: () => { leaveGenerated(); drafts.update({ kind, text: kind === 'text' ? draft.text || 'ENCORE' : draft.text }); refreshPreview(); } }, h('span', { html: glyph }), label)),
-        generated ? h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': 'type-generated', 'aria-checked': String(generatedMode), title: 'Committed fixture scenes, compiled for preview only', onclick: () => { generatedMode = true; if (previewOn() && !store.state.preview?.formation) store.set({ preview: null }); render(); } }, h('span', { html: icon.compose }), 'Generated (fixture)') : null),
+        generated ? h('button', { type: 'button', class: 'type', role: 'radio', 'data-fk': 'type-generated', 'aria-checked': String(generatedMode), title: 'Committed fixture scenes (or the live gateway): preview, accept and inject into one drone', onclick: () => { generatedMode = true; if (previewOn() && !store.state.preview?.formation) store.set({ preview: null }); render(); } }, h('span', { html: icon.compose }), 'Generated (fixture)') : null),
       h('div', { class: 'future-types' }, h('span', { class: 'tag later' }, 'Later'),
         ...LATER_TYPES.map(type => h('span', { class: 'ft', title: `${type}: not in the Recipe contract yet; needs a new Recipe kind through a [contract] PR.` }, type))));
 

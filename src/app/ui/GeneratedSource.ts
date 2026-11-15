@@ -1,13 +1,13 @@
 // src/app/ui/GeneratedSource.ts
-// GF-WP-10 (#265 preview part, #213 completion): the Composer's "Generated" source.
+// GF-WP-10 (#265, #213) and G3: the Composer's "Generated" source, from scene to injection.
 // - Offline fixtures (the default): pick one of the COMMITTED fixture scenes (tests/fixtures/scenes/valid-*.json,
 //   validated by #203). Every one is labelled "offline fixture".
 // - Live generation (#213; off unless the build flag AND `?p2=generated,live`): a prompt goes to the gateway's `gemini`
-//   module through src/app/live/generate.ts. D3 is not granted, so today it answers "live Gemini unavailable (D3 not
-//   granted)". A scene from any model whose id is not a Gemini id (the gateway's `offline-fake` test provider) is
-//   labelled as not Gemini. The returned scene is untrusted: it is re-validated here (validateScene) before compiling.
+//   module through src/app/live/generate.ts; the gateway's own answer is reported (the shipped one: "live Gemini
+//   unavailable (gateway: MODULE_DISABLED)"). A scene from any model whose id is not a Gemini id (the gateway's
+//   `offline-fake` test provider) is labelled as not Gemini. The returned scene is untrusted: it is re-validated here.
 // Either way the scene compiles off the main thread in the preview worker through #259's compiler, and the stage
-// previews the slots as a target arrangement, never flown.
+// previews the slots as a target arrangement. The preview itself is never flown: only an injection is.
 //
 // G3: Accept re-checks the compiled scene (injectPreflight, #214) and builds its generated recipe (GF-WP-07, #215);
 // the Composer then injects it into ONE chosen live drone through d1's injectGeneratedRecipe, and the observer shows
@@ -109,7 +109,7 @@ export interface GeneratedSourceContext {
   /** The live generation client; absent unless the build flag and `?p2=generated,live` are both set. */
   live?: GenerateClient | null;
   /** True only when the page has loaded the inject path (d1's injectGeneratedRecipe). Accept is off otherwise. */
-  injectConnected?: boolean;
+  injectConnected?: boolean | (() => boolean);
   /** Told when a scene is accepted (the Composer re-renders Transmit). */
   onAccept?: (scene: AcceptedGeneratedScene) => void;
 }
@@ -197,6 +197,8 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
   const live = ctx.live ?? null;
   let status: GeneratedStatus = { state: 'idle' };
   let selection = 0;
+  /** Real wiring, read live: the Composer passes a function (inject path loaded AND the controller can compose). */
+  const connected = (): boolean => (typeof ctx.injectConnected === 'function' ? ctx.injectConnected() : !!ctx.injectConnected);
   /** The accepted scene (G3); any new selection or generation clears it, so Inject never sends a stale one. */
   let accepted: AcceptedGeneratedScene | null = null;
   const listeners = new Set<() => void>();
@@ -310,7 +312,7 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
     cancel,
     previewOn,
     accept() {
-      if (!ctx.injectConnected) return { ok: false, reason: NOT_CONNECTED };
+      if (!connected()) return { ok: false, reason: NOT_CONNECTED };
       if (status.state !== 'ready') return { ok: false, reason: 'Compile a scene first.' };
       const st = status;
       const source = st.origin.kind === 'fixture' ? 'fixture' : 'live';
@@ -327,7 +329,7 @@ export function createGeneratedSource(ctx: GeneratedSourceContext): GeneratedSou
       return { ok: true, handoff: accepted };
     },
     get accepted() { return accepted; },
-    get injectConnected() { return !!ctx.injectConnected; },
+    get injectConnected() { return connected(); },
     clearAccepted() { if (accepted !== null) { accepted = null; emit(); } },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     dispose() {

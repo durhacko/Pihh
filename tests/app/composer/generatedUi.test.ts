@@ -157,6 +157,23 @@ describe('provenance line (agreed with #214)', () => {
 });
 
 describe('Accept is enabled only when the inject path is connected (G3)', () => {
+  it('connection is read live: when the controller cannot compose, Accept refuses even with the inject function loaded', async () => {
+    let composition = false;
+    let onMessage: ((e: MessageEvent<CompileReply>) => void) | null = null;
+    const worker: WorkerLike = {
+      postMessage: (m) => { queueMicrotask(() => onMessage?.({ data: handleCompileRequest(m) } as MessageEvent<CompileReply>)); },
+      addEventListener: (type: 'message' | 'error' | 'messageerror', listener: never) => { if (type === 'message') onMessage = listener; },
+      terminate: () => {},
+    };
+    const source = createGeneratedSource({ params, client: createFormationClient(() => worker), store: new Store(), fixtures: [fixture('3d-sphere')], injectConnected: () => composition });
+    await source.select('3d-sphere');
+    expect(source.injectConnected).toBe(false);
+    expect(source.accept()).toEqual({ ok: false, reason: NOT_CONNECTED });
+    composition = true;                                           // the controller can compose now
+    expect(source.injectConnected).toBe(true);
+    expect(source.accept().ok).toBe(true);
+  });
+
   it('without the inject path: refuses with NOT_CONNECTED and never calls the hand-off', async () => {
     const { source, accepted } = rig();
     await source.select('3d-sphere');
