@@ -13,10 +13,13 @@ import { buildReport } from './report';
 import { paramsHash, resolveParams, runOne } from './run';
 import { isScenarioId, SCENARIO_IDS, type ScenarioId } from './scenarios';
 
+const MAX_SEED_ENTRIES = 10_000;
+const MAX_SEED = 0xffffffff;
 const USAGE = `Usage:
   npm run eval -- --scenario S0,S2 --seeds 1-5 --arms static,encore [--n0 200] [--out results/]
   npm run eval -- --report results/ [--report-out results/RESULTS.md]
-Scenarios: ${SCENARIO_IDS.join(', ')} (or "min" = S0,S1,S2,S3,S5; "all"). Seeds: "1-5", "1,3,7" or "101-105".`;
+Scenarios: ${SCENARIO_IDS.join(', ')} (or "min" = S0,S1,S2,S3,S5; "all"). Seeds: "1-5", "1,3,7" or "101-105".
+Seeds must be integers in 0..${MAX_SEED}; at most ${MAX_SEED_ENTRIES} expanded entries per invocation, before deduplication.`;
 
 export interface CliArgs {
   scenarios: ScenarioId[]; seeds: number[]; arms: Arm[]; n0: number; out: string;
@@ -34,7 +37,15 @@ export function parseSeeds(text: string): number[] {
     if (!m) fail(`Bad seed list '${text}'`);
     const lo = Number(m[1]);
     const hi = m[2] === undefined ? lo : Number(m[2]);
+    if (![lo, hi].every(seed => Number.isSafeInteger(seed) && seed >= 0 && seed <= MAX_SEED)) {
+      fail(`Seed endpoints in '${part}' must be safe uint32 integers (0..${MAX_SEED})`);
+    }
     if (hi < lo) fail(`Bad seed range '${part}'`);
+    // Check inclusive work before entering the loop: even valid uint32 ranges can contain billions of seeds.
+    // Count repeated/overlapping entries too, so deduplication cannot conceal unbounded expansion work.
+    if (hi - lo + 1 > MAX_SEED_ENTRIES - seeds.length) {
+      fail(`Seed list exceeds ${MAX_SEED_ENTRIES} expanded entries before deduplication`);
+    }
     for (let s = lo; s <= hi; s++) seeds.push(s);
   }
   if (seeds.length === 0) fail('No seeds given');

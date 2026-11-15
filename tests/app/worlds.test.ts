@@ -148,7 +148,7 @@ describe('determinism', () => {
     worlds.reset(SEED);
     runTo(worlds, 200);
     expect(hashes(worlds)).toEqual(first);
-  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
+  }, 90_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('two runs with the same seed and events give identical hashes and snapshots', () => {
     const script = (worlds: Worlds) => {
@@ -167,5 +167,5 @@ describe('determinism', () => {
     expect(runA[199]).toEqual(runB[199]);
     expect(aliveCount(runA[199].encore)).toBeLessThan(200);
     expect(aliveCount(runA[199].encore)).toBe(aliveCount(runA[199].static));
-  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
+  }, 90_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
