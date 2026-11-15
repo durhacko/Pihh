@@ -1,10 +1,29 @@
 # `tiger` gateway module (Tiger Data analytics)
 
-Status: **TIG-03, offline part only.** This folder holds the migration files, the connection settings and the schema-name helper. There is no database driver (`pg`), no connection, no migration runner and no route yet:
+Status: **offline parts of TIG-03, TIG-04 and TIG-06.** This folder holds the migration files, the connection settings, the schema-name helper, the repository seam (TIG-04, durhack-41) and the two read routes `GET /api/runs` and `GET /api/runs/:runId/metrics` (TIG-06). There is still no database driver (`pg`), connection or migration runner:
 
 - the live part of TIG-03 (`db.ts`, `migrate.ts`, live tests, the `pg` dependency) waits for decision D3 and a dependency sign-off;
-- the importer is TIG-04;
-- the read-only routes are TIG-06.
+- the comparison routes of TIG-06 wait for TIG-07.
+
+## Read routes and the OFFLINE FIXTURE (never live)
+
+- Both routes are always registered. They have no Tiger source in this build, so they answer 503 `DATABASE_UNAVAILABLE` with reason `MODULE_DISABLED`, and health is `{ enabled: false, db: 'disabled' }`.
+- **`TIGER_OFFLINE_FIXTURE=1` is for offline demos and tests only.** It serves the routes from an in-memory read source the caller supplies: the TIG-04 fake repository, fed by the importer from the committed `results/`. While it is on:
+  - every run in every response carries `provenance.source: 'fixture'`, `verified: false` and `verification: null`, and never `'tiger'`;
+  - health reports `{ enabled: true, db: 'disabled', source: 'fixture' }`;
+  - nothing is ever labelled live, and nothing claims to come from Tiger.
+- Without a supplied source the flag changes nothing. Any value other than `1` is refused. Leave it unset in every real deployment.
+- **Implemented:**
+  - validation of every parameter in the analytics RFC §3.4 and §3.5 tables, with unknown parameters refused;
+  - list ordering (scenario, n0, seed, arm, runId) with an opaque cursor;
+  - metrics paging (`afterTick`, `toTick`, `limit`);
+  - counter totals and per-interval deltas, completeness, event markers, summary cells, recovery state and integrity checks;
+  - 400 `INVALID_QUERY`, `INVALID_ID` and `INVALID_CURSOR`; 404 `RUN_NOT_FOUND`;
+  - an XI-11 `requestId` (as a query parameter) echoed in errors.
+- **Not implemented yet:**
+  - the per-route rate limits (§3.1);
+  - `includeConflicts`' `conflicts` array;
+  - the per-read digest recomputation on the metrics route (§2.1). Fixture runs report `verification: null`.
 
 Specifications:
 - work package: [TIG-03](../../../../docs/planning/tiger-data-integration-work-packages.md#tig-03-sql-migrations-and-tiger-connection);
@@ -20,7 +39,10 @@ Specifications:
 | `migrations/006_roles.sql` | Grants only (RFC §13). Roles are created by the owner's run-once script, never by a migration |
 | `config.ts` | `loadTigerReaderConfig`, `loadTigerImporterConfig`, `loadTigerAdminConfig`, `tlsModeLine` |
 | `schemaName.ts` | `checkSchemaName`, the one way a schema name enters SQL, and `schemaStatements` |
-| `module.ts` | The registry entry: always disabled in this build; `moduleDisabled()` for TIG-06's routes |
+| `module.ts` | The registry entry: the two read routes; disabled without a source; the offline fixture flag |
+| `routes/index.ts` | `GET /api/runs` and `GET /api/runs/:runId/metrics` handlers |
+| `services/` | `runs.ts` (list, `RunMeta`, `Provenance`), `metrics.ts` (`RunMetricsResponse`), `source.ts` (the read port over `TigerReader`), `bridge.ts` (the only `src/` imports), `disabled.ts` |
+| `.env.example` | The HTTP server's variable names |
 
 `test/tiger/migrations.test.ts` checks each migration file below its header against the RFC block, byte for byte, plus every delta TIG-03 lists. `test/tiger/config.test.ts` covers the loaders, the TLS rules, the schema-name helper and the module.
 
