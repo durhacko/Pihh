@@ -55,7 +55,7 @@ describe('provenance from a compile', () => {
     const live = provenanceFromCompile(c.scene, compileGeneratedScene(c.scene, params, 40), params, 'live', 'ignored');
     expect(live?.source).toBe('live');
     expect(live && 'fixture' in live).toBe(false);
-  });
+  }, 60_000);   // compiles every fixture at n0 40: the heavy-test budget (#165)
 });
 
 describe('replay re-derives the same formation from provenance alone', () => {
@@ -80,7 +80,7 @@ describe('replay re-derives the same formation from provenance alone', () => {
     const fresh = await import('../../src/cli/generated');
     const again = fresh.replayFromProvenance(clone(c.scene), clone(c.result.provenance));
     expect(again.ok && again.provenance.slotsDigest).toBe(c.result.provenance.slotsDigest);
-  });
+  }, 60_000);   // a fresh module graph plus compiles: the heavy-test budget (#165)
 });
 
 describe('replay refuses anything that is not the recorded scene', () => {
