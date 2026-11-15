@@ -127,11 +127,38 @@ describe('GF-T16: exactly n0 slots in farthest-point order', () => {
     }
   });
 
-  it('pins the 3D warnings (code, partId, order) to what #259 shipped: the 2D refactor must not change them', () => {
-    // Captured from the merged #259 head (01372ad) before the shared finish() refactor.
+  it('pins the 3D warnings (code, partId, order): #259\'s, plus the V10 thin-feature warnings that 3D V10 adds first', () => {
+    // #259's warnings were captured at 01372ad before the shared finish() refactor. 3D V10 (spec §6.5, ruling 3 on #212)
+    // adds thin-feature for the elephant's tusk and tail end radii (0.0141 normalised, under 2·0.01), and nothing else.
     const pin = (f: string, n0: number) => ok(compiled(f, n0)).warnings.map((w) => [w.code, w.partId ?? null]);
-    expect(pin('valid-3d-elephant.json', 200)).toEqual([['feature-starved', 'tusk~m'], ['dark-light-may-vanish', 'eyes']]);
+    expect(pin('valid-3d-elephant.json', 200)).toEqual([
+      ['thin-feature', 'tusk'], ['thin-feature', 'tail'], ['feature-starved', 'tusk~m'], ['dark-light-may-vanish', 'eyes']]);
     expect(pin('valid-3d-sphere.json', 40)).toEqual([['reserved-colour', 'white']]);
+  });
+
+  it('3D V10: a radius under 0.01 normalised is thickened and recorded; under 0.02 warns; a pointed cone is left alone', () => {
+    const scene = (r: number, top = 0): SceneSpec => ({
+      version: 1, mode: 'scene3d', title: 'Thin', referenceView: 'front', materials: [{ id: 'm', rgb: [0.9, 0.6, 0.2] }],
+      parts: [
+        { id: 'body', shape: { type: 'ellipsoid', center: [0, 0, 0], radii: [0.8, 0.8, 0.8] }, materialId: 'm', importance: 3 },
+        { id: 'whisker', shape: { type: 'taperedTube', points: [[0.7, 0, 0], [1, 0, 0], [1.25, 0, 0], [1.5, 0, 0]], startRadius: r, endRadius: r }, materialId: 'm', importance: 3 },
+        { id: 'spike', shape: { type: 'cone', center: [0, 0.9, 0], baseRadius: 0.2, topRadius: top, height: 0.3 }, materialId: 'm', importance: 3 },
+      ],
+    });
+    // The review's repro: radius 0.005 is 0.0037 normalised here (the union box spans x -0.8…1.5).
+    const thin = ok(compileGeneratedScene(scene(0.005), makeParams(200), 200));
+    expect(thin.warnings.filter((w) => w.code === 'thickened').map((w) => w.partId)).toEqual(['whisker', 'whisker']);
+    expect(thin.stats.simplifications).toContain('thicken');
+    expect(thin.stats.perPart.whisker).toBeGreaterThan(0);
+    const near = ok(compileGeneratedScene(scene(0.012), makeParams(200), 200));      // 0.0115 normalised: warn, keep
+    expect(codes(near)).toContain('thin-feature');
+    expect(codes(near)).not.toContain('thickened');
+    expect(near.stats.simplifications).not.toContain('thicken');
+    expect(near.sceneHash).toBe(sceneHash(scene(0.012)));                              // the hash names the input scene
+    const pointed = ok(compileGeneratedScene(scene(0.1, 0), makeParams(40), 40));
+    expect(pointed.warnings.filter((w) => w.partId === 'spike')).toEqual([]);           // topRadius 0: a pointed cone
+    // Thickening is deterministic: same scene, same digest.
+    expect(compileGeneratedScene(scene(0.005), makeParams(200), 200)).toEqual(thin);
   });
 
   it('3D fixtures: farthestPointOrder over the placed slots is exactly the identity (no lattice ties)', () => {

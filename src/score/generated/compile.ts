@@ -22,8 +22,8 @@ import { seededStream } from './prng';
 import { foregroundRGB, sample2d, type Sample2DResult } from './sample2d';
 import { sample3d } from './sample3d';
 import { K_MIN, selectSlots, type SelectionCandidate, type SelectionOutcome, type SelectionPart, type SelectionPhase } from './selection';
-import { buildRegion2D, checkConnectivity, rasterise, type Region2D } from './shapes2d';
-import { buildSolids, type Warning3D } from './shapes3d';
+import { buildRegion2D, checkConnectivity, MIN_RADIUS, NORMALISED_HALF_EXTENT, rasterise, type Region2D } from './shapes2d';
+import { buildSolids, type Solid3D, type Warning3D } from './shapes3d';
 import type { SceneSpec, SceneSpec2D, SceneSpec3D, Vec3 } from './types';
 import { validateScene } from './validation';
 
@@ -125,9 +125,55 @@ export function compileGeneratedScene(scene: SceneSpec, params: CompileParams, n
 
 type Reject = (code: RejectCode, detail: string) => CompileResult;
 
+/** The normalise scale sample3d applies (spec §7.2 step 2): the solids' union box's longer side spans 2·1.1. */
+function normaliseScale3D(solids: readonly Solid3D[]): number {
+  const min: Vec3 = [Infinity, Infinity, Infinity];
+  const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const s of solids) for (let a = 0; a < 3; a++) { min[a] = Math.min(min[a], s.box.min[a]); max[a] = Math.max(max[a], s.box.max[a]); }
+  const side = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  return side > 0 && Number.isFinite(side) ? (2 * NORMALISED_HALF_EXTENT) / side : 1;
+}
+
+/**
+ * V10 in 3D (spec §6.5; ruling 3 on #212: absolute normalised units in both modes, the frame where the longer side
+ * spans [-1.1, 1.1]): every radius below MIN_RADIUS = 0.01 normalised is raised to it (`thickened`, permitted
+ * simplification 2 of §7.11), and one below 2·MIN_RADIUS warns `thin-feature`, as shapes2d.ts does for 2D. Radii are
+ * ellipsoid radii, capsule and cylinder radius, cone base and top radius (a top radius of 0 is a pointed cone, left
+ * alone) and tube start and end radius. Returns the input scene itself when nothing was thickened.
+ */
+export function thicken3D(scene: SceneSpec3D, scale: number): { scene: SceneSpec3D; warnings: CompileWarning[]; thickened: boolean } {
+  const min = MIN_RADIUS / scale;                      // scene units
+  const warnings: CompileWarning[] = [];
+  let thickened = false;
+  const out = structuredClone(scene) as SceneSpec3D;
+  const fmt = (v: number) => Math.round(v * 1e4) / 1e4;
+  const check = (id: string, what: string, v: number): number => {
+    if (!(v > 0)) return v;                            // a pointed cone's top radius 0
+    if (v < min) {
+      thickened = true;
+      warnings.push({ code: 'thickened', partId: id, detail: `${what} ${fmt(v * scale)} is below the V10 minimum ${MIN_RADIUS} (normalised) and was raised to it` });
+      return min;
+    }
+    if (v < 2 * min) warnings.push({ code: 'thin-feature', partId: id, detail: `${what} ${fmt(v * scale)} is below twice the V10 minimum ${MIN_RADIUS} (normalised)` });
+    return v;
+  };
+  for (const part of out.parts) {
+    const g = part.shape as Record<string, unknown>;
+    if (Array.isArray(g.radii)) g.radii = (g.radii as number[]).map((r, i) => check(part.id, `radii[${i}]`, r));
+    for (const key of ['radius', 'baseRadius', 'topRadius', 'startRadius', 'endRadius']) {
+      if (typeof g[key] === 'number') g[key] = check(part.id, key, g[key] as number);
+    }
+  }
+  return { scene: thickened ? out : scene, warnings, thickened };
+}
+
 function compile3D(
-  scene: SceneSpec3D, hash: string, n0: number, spacing: number, params: CompileParams, warnings: CompileWarning[], reject: Reject,
+  canonical: SceneSpec3D, hash: string, n0: number, spacing: number, params: CompileParams, warnings: CompileWarning[], reject: Reject,
 ): CompileResult {
+  // V10 first, on the scale sample3d will use; the solids are rebuilt only if a radius was raised.
+  const v10 = thicken3D(canonical, normaliseScale3D(buildSolids(canonical)));
+  warnings.push(...v10.warnings);
+  const scene = v10.scene;
   const stage: Warning3D[] = [];
   const solids = buildSolids(scene, stage);
   const sampled = sample3d(scene, solids, { n0, referenceView: scene.referenceView, stream: (label) => seededStream(hash, label) });
@@ -290,14 +336,14 @@ export function denseCoverage(slots: readonly Vec3[], dense: readonly Vec3[]): {
 }
 
 /**
- * §7.11: the permitted simplifications that ran, in order, each also as a warning. Steps 1–2 (drop specks, thicken)
- * and step 4 (boundary quota) exist only in 2D: shapes2d.ts emits speck-dropped and thickened, and only 2D has a
- * boundary quota, so the 3D path can record step 3 alone. The 2D branches serve the 2D path (GF-WP-04 plug-in).
+ * §7.11: the permitted simplifications that ran, in order, each also as a warning. Step 1 (drop specks) and step 4
+ * (boundary quota) exist only in 2D (shapes2d.ts emits speck-dropped; only 2D has a boundary quota). Step 2
+ * (thicken) runs in both modes: shapes2d.ts for strokes and radii, thicken3D for 3D radii.
  */
 function simplificationsOf(mode: SceneSpec['mode'], phase: SelectionPhase, warnings: CompileWarning[]): string[] {
   const out: string[] = [];
   if (mode === 'silhouette2d' && warnings.some((w) => w.code === 'speck-dropped')) out.push('drop-specks');
-  if (mode === 'silhouette2d' && warnings.some((w) => w.code === 'thickened')) out.push('thicken');
+  if (warnings.some((w) => w.code === 'thickened')) out.push('thicken');
   if (phase !== 'full') {
     out.push('relax-reservations');
     warnings.push({ code: 'reservations-relaxed', detail: 'no spacing reached n0 with full reservations; protected reservations were relaxed to one slot each (§7.11 step 3)' });
