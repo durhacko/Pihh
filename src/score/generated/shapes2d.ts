@@ -8,8 +8,11 @@
 // no randomness. The mask is internal only: it is never written as an image or shown to anyone.
 //
 // The scene's union box is normalised first (spec §7.2 step 2): it is scaled uniformly about its centre
-// so its longer side spans [-1.1, 1.1]. Everything this module returns (parts, outlines, mask) is in
-// that normalised space, so thresholds are relative and a half-size copy of a scene gives the same mask.
+// so its longer side spans [-1.1, 1.1]. V10 thickening runs after that, in normalised units, and is not
+// followed by a second normalisation: a thickened stroke or radius can push the returned union box up to
+// 0.01 (half the minimum stroke width, or the minimum radius) beyond [-1.1, 1.1], still inside the
+// [-1.2, 1.2] mask. Everything this module returns (parts, outlines, mask) is in that normalised space,
+// so thresholds are relative and a half-size copy of a scene gives the same mask.
 //
 // Only `buildRegion2D` touches the scene types of GF-WP-01 (#203). Everything else works on the local
 // input types below, so the module does not depend on the scene types' exact names.
@@ -58,7 +61,11 @@ export interface Region2D {
   parts: Part2D[];
   /** Normalised-space point test: parts apply in array order (union sets, subtract clears). */
   contains(p: Pt2): boolean;
-  /** Box of the union parts in normalised space; its longer side spans [-1.1, 1.1]. */
+  /**
+   * Box of the union parts in normalised space, after V10 thickening. The scene was normalised so its
+   * longer side spans [-1.1, 1.1] before thickening, which is not re-normalised, so a thickened part can
+   * reach up to 0.01 beyond that range on any side.
+   */
   bbox: Box2;
   /** normalised = (scene − centre) · scale (`stats.normalise` of spec §7.1 is `scale`). */
   normalise: { scale: number; centre: Pt2 };
@@ -554,15 +561,30 @@ const CHUNK_MARGIN = 1e-9;
 
 /**
  * Fill a stroke's cells: each cell in the part's range is tested once, so the cost never grows with
- * how much segment boxes overlap (a short, wide stroke used to cost segments × cells). A chunk of
- * segments is skipped only when the cell is provably farther than r + margin from every point of it
- * (its bounding circle), so the bits are exactly `containsXY`'s: any segment with segDist2 <= r².
+ * how much segment boxes overlap (a short, wide stroke used to cost segments × cells). Two culls, both
+ * conservative by r + margin, so the bits are exactly `containsXY`'s (any segment with segDist2 <= r²):
+ * - a chunk of segments is skipped when the cell is farther than r + margin from its bounding circle;
+ * - inside a kept chunk, a segment is skipped when the cell lies outside the segment's own box grown by
+ *   r + margin. A point outside that box is more than r + margin from every point of the segment.
+ *   The chunk circle alone kept every segment of a long, wide-swinging stroke whose chunks overlap
+ *   most of the mask, which cost about 12–21M segDist2 calls per stroke (#238 review, estimated).
  */
 function rasteriseStroke(
   line: readonly Pt2[], r: number, v: number, bits: Uint8Array, size: number,
   i0: number, i1: number, j0: number, j1: number, cx: (i: number) => number, cy: (j: number) => number,
 ): void {
   const r2 = r * r;
+  // Per-segment boxes, grown by r + margin: [minX, minY, maxX, maxY] for segment e at 4e.
+  const grow = r + CHUNK_MARGIN;
+  const segBox = new Float64Array(4 * Math.max(0, line.length - 1));
+  for (let e = 0; e + 1 < line.length; e++) {
+    const a = line[e];
+    const b = line[e + 1];
+    segBox[4 * e] = Math.min(a[0], b[0]) - grow;
+    segBox[4 * e + 1] = Math.min(a[1], b[1]) - grow;
+    segBox[4 * e + 2] = Math.max(a[0], b[0]) + grow;
+    segBox[4 * e + 3] = Math.max(a[1], b[1]) + grow;
+  }
   const chunks: { first: number; last: number; x: number; y: number; reach2: number }[] = [];
   for (let s = 0; s + 1 < line.length; s += STROKE_CHUNK) {
     const last = Math.min(line.length - 1, s + STROKE_CHUNK);
@@ -588,6 +610,8 @@ function rasteriseStroke(
         const dy = y - c.y;
         if (dx * dx + dy * dy > c.reach2) continue;
         for (let e = c.first; e < c.last; e++) {
+          const o = 4 * e;
+          if (x < segBox[o] || y < segBox[o + 1] || x > segBox[o + 2] || y > segBox[o + 3]) continue;
           if (segDist2(x, y, line[e], line[e + 1]) <= r2) { inside = true; break; }
         }
         if (inside) break;

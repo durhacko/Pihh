@@ -4,23 +4,29 @@
 // main.ts refreshes it. These tests check scheduling, determinism and stop/restart, plus one measured timing: the
 // repair caption lands between the Encore arm's first claim and its first slot commit. Other repair, adoption and
 // radio behaviour (see BRAIN_DEPENDENT_BEATS) is not asserted here.
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Group, PerspectiveCamera, Scene } from 'three';
 import { makeParams, OPERATOR } from '../../src/contracts';
 import type { EnvEvent, MetricsSample, WorldSnapshot } from '../../src/contracts';
 import { currentMovement, expandRecipe } from '../../src/score';
 import { createWorld, idsInSphere } from '../../src/sim';
 import { bindControls } from '../../src/app/actions';
-import { readViewMode, resetViewMode } from '../../src/app/render/colourModes/viewMode';
+import { readViewMode, resetViewMode, setViewMode } from '../../src/app/render/colourModes/viewMode';
+import { createCascadeLayer } from '../../src/app/render/layers/CascadeLayer';
 import { controlContext, createWorlds, DEFAULT_N0, viewModeDisplay, type Pair, type ShellHooks, type Worlds } from '../../src/app/worlds';
 import { createSelectionArm } from '../../src/app/ui/popovers';
 import { armPhase } from '../../src/app/armPhase';
 import { readoutItems, type ArmPhase, type ReadoutItem } from '../../src/app/ui/Readout';
 import {
-  BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoViewAt, dispatchTick,
+  activeDemoBeats, BRAIN_DEPENDENT_BEATS, brainNote, connectDemo, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoBeatsFor, demoViewAt, dispatchTick,
+  REPAIR_TRAIL_CAPTION, TRAIL_OFF,
   INJECT_DRONE, INJECT_RECIPE, JAM_CENTRE, JAM_RADIUS, KILL_CENTRE, KILL_RADIUS, LEAD_TICKS, type DemoBeat,
 } from '../../src/app/ui/DemoScript';
 
-afterEach(() => resetViewMode());
+afterEach(() => { resetViewMode(); vi.unstubAllGlobals(); });
+/** JSON of DEMO_BEATS at phase2/development 6b6bfba (before #232): the script without ?p2=cascade must not change. */
+const BEATS_SHA256_6B6BFBA = 'f4dd8fe1a98f0678c710c0f62048bd7948e198b1a46a8211f46d8ad2ff34d4c4';
 
 /** The app's wiring minus WebGL: same binder, context and display adapter; the demo talks to it by events only. */
 function rig(seed = 7, beats: readonly DemoBeat[] = DEMO_BEATS, shell: Partial<ShellHooks> = {}) {
@@ -100,6 +106,43 @@ describe('scripted demo constants', () => {
     // The stop and restart tests below read X-ray on at KILL - 30 and KILL + 20: both before the repair beat.
     expect(DEMO_TICKS.REPAIR).toBeGreaterThan(DEMO_TICKS.KILL + 20);
   });
+
+  it('without ?p2=cascade the script is unchanged, byte for byte: the same beats array, captions and schedule (#232)', () => {
+    expect(demoBeatsFor({ cascade: false })).toBe(DEMO_BEATS);
+    expect(activeDemoBeats()).toBe(DEMO_BEATS);                    // node: no location
+    // A forced quality above 0 hides the trail layer, so the flag must not keep X-ray on for arrows it cannot draw.
+    for (const search of ['', '?seed=101', '?p2=inv', '?p2=cascades', '?cascade=1', '?q=low&p2=cascade', '?q=1&p2=cascade', '?p2=cascade&q=4']) {
+      vi.stubGlobal('location', { search });
+      expect(activeDemoBeats(), search).toBe(DEMO_BEATS);
+    }
+    // The beat list as it was at phase2/development 6b6bfba, before #232 (sha256 of its JSON).
+    expect(createHash('sha256').update(JSON.stringify(DEMO_BEATS)).digest('hex')).toBe(BEATS_SHA256_6B6BFBA);
+  });
+
+  it('with ?p2=cascade only the repair view and caption change and one view beat is added: no world event moves (#232)', () => {
+    vi.stubGlobal('location', { search: '?p2=inv,cascade' });
+    const beats = activeDemoBeats();
+    expect(beats).toEqual(demoBeatsFor({ cascade: true }));
+    for (const search of ['?q=high&p2=cascade', '?q=0&p2=cascade', '?p2=cascade&seed=7']) {
+      vi.stubGlobal('location', { search });
+      expect(activeDemoBeats(), search).toEqual(beats);
+    }
+    const added = beats.filter(beat => !DEMO_BEATS.some(old => old.id === beat.id));
+    expect(added).toEqual([{ id: 'trail-off', tick: TRAIL_OFF, action: { kind: 'view', xray: false, beliefColours: false }, caption: '' }]);
+    expect(beats.filter(beat => beat.id !== 'trail-off' && beat.id !== 'repair')).toEqual(DEMO_BEATS.filter(beat => beat.id !== 'repair'));
+    expect(beats.find(beat => beat.id === 'repair')).toEqual({ id: 'repair', tick: DEMO_TICKS.REPAIR, action: { kind: 'view', xray: true, beliefColours: false }, caption: REPAIR_TRAIL_CAPTION });
+    // Only overlays differ, and overlays never reach a world: every control, camera and layout beat is unchanged.
+    const world = (list: readonly typeof DEMO_BEATS[number][]) => list.filter(beat => beat.action?.kind !== 'view').map(beat => [beat.id, dispatchTick(beat), beat.action]);
+    expect(world(beats)).toEqual(world(DEMO_BEATS));
+    for (let i = 1; i < beats.length; i++) expect(dispatchTick(beats[i])).toBeGreaterThanOrEqual(dispatchTick(beats[i - 1]));
+    // X-ray: on from the X-ray beat through the repair until TRAIL_OFF, off until the jam, then as before.
+    expect(demoViewAt(DEMO_TICKS.REPAIR, beats)).toEqual({ xray: true, beliefColours: false });
+    expect(demoViewAt(TRAIL_OFF - 1, beats)).toEqual({ xray: true, beliefColours: false });
+    for (const tick of [TRAIL_OFF, DEMO_TICKS.FORMATION, DEMO_TICKS.JAM_ON - 1]) expect(demoViewAt(tick, beats)).toEqual({ xray: false, beliefColours: false });
+    for (const tick of [DEMO_TICKS.JAM_ON, DEMO_TICKS.FINAL, DEMO_TICKS.END]) expect(demoViewAt(tick, beats)).toEqual(demoViewAt(tick));
+    expect(TRAIL_OFF).toBeGreaterThan(DEMO_TICKS.REPAIR);
+    expect(TRAIL_OFF).toBeLessThan(DEMO_TICKS.FORMATION);
+  });
 });
 
 describe('scripted demo run', () => {
@@ -118,13 +161,37 @@ describe('scripted demo run', () => {
   const selectedAt: Record<string, number | null> = {};
   let finalPhases: Pair<ArmPhase | null> | null = null;
   let finalReadout: ReadoutItem[] = [];
+  // #232: the opt-in cascade trail layer (#204) fed this run's Encore snapshots. Each tick it is drawn three times,
+  // with the overlays of the ?p2=cascade schedule, of the default schedule, and with X-ray forced on (every arrow the
+  // trail would draw). The real view mode is restored at once, so the run itself is untouched.
+  const cascadeBeats = demoBeatsFor({ cascade: true });
+  const arrows = { flag: [] as number[], plain: [] as number[], all: [] as number[] };   // ticks with >= 1 arrow drawn
+  let trailChanges = 0;
+  /** The trail's commit and pop counts as the repair beat lands and at TRAIL_OFF (the caption names green commits). */
+  const trailCounts: Record<'repair' | 'off', { commits: number; pops: number } | null> = { repair: null, off: null };
   const watched = [DEMO_TICKS.KILL - 1, DEMO_TICKS.KILL, DEMO_TICKS.JAM_ON, DEMO_TICKS.INJECT, DEMO_TICKS.JAM_OFF - 1, DEMO_TICKS.JAM_OFF];
   beforeAll(() => {
     r = rig();
     expect(r.runner.start()).toBe(true);
     let xray = readViewMode().xray;
+    const trail = createCascadeLayer({ optIn: true });
+    const trailScene = new Scene();
+    trail.init({ scene: trailScene, camera: new PerspectiveCamera(), params: r.worlds.params });
+    const trailGroup = trailScene.children[0] as Group;
     play(r, DEMO_TICKS.END, 1, snapshots => {
       const tick = snapshots.encore.tick;
+      trail.ingest!(snapshots.encore);
+      const real = readViewMode();
+      for (const [key, view] of [['flag', demoViewAt(tick, cascadeBeats)], ['plain', demoViewAt(tick)], ['all', { xray: true, beliefColours: false }]] as const) {
+        setViewMode(view);
+        trail.update({ prev: previous?.encore ?? snapshots.encore, curr: snapshots.encore, alpha: 0, dtReal: 0 });
+        if (trailGroup.userData.cascade.drawn > 0) arrows[key].push(tick);
+      }
+      setViewMode(real);
+      trailChanges = trailGroup.userData.cascade.changes;
+      const counts = { commits: trailGroup.userData.cascade.commits, pops: trailGroup.userData.cascade.pops };
+      if (tick === DEMO_TICKS.REPAIR) trailCounts.repair = counts;
+      if (tick === TRAIL_OFF) trailCounts.off = counts;
       if (watched.includes(tick)) seen[tick] = structuredClone(snapshots);
       // play() refreshes status after this callback, so a view beat sent on tick t shows here on tick t + 1.
       if (readViewMode().xray !== xray) { xray = !xray; xrayChanges.push([tick - 1, xray]); }
@@ -229,6 +296,28 @@ describe('scripted demo run', () => {
     const captioned = DEMO_BEATS.filter(beat => beat.caption);
     expect(r.captions.map(entry => entry.caption)).toEqual(captioned.map(beat => beat.caption));
     expect(r.captions.map(entry => entry.tick)).toEqual(captioned.map(beat => beat.tick));
+  });
+
+  it('?p2=cascade shows the real repair arrows; without it the same run shows none (#232, measured on this run)', () => {
+    const span = (ticks: number[]) => (ticks.length ? `${ticks[0]}-${ticks.at(-1)}` : 'none');
+    const repair = arrows.all.filter(tick => tick >= DEMO_TICKS.REPAIR && tick < DEMO_TICKS.JAM_ON);
+    console.log(`#232 demo seed ${DEMO_SEED}, Encore arm, cascade layer opted in: ${trailChanges} observed slot changes (observer: ${r.worlds.observers.encore.summary().slotChanges}); ` +
+      `ticks with >= 1 arrow drawn: X-ray forced on ${arrows.all.length} (${span(arrows.all)}; repair window ${repair.length}, ${span(repair)}), ` +
+      `?p2=cascade schedule ${arrows.flag.length} (${span(arrows.flag)}), default schedule ${arrows.plain.length} (${span(arrows.plain)}); ` +
+      `trail commits / pops at the repair beat ${JSON.stringify(trailCounts.repair)}, at TRAIL_OFF ${JSON.stringify(trailCounts.off)}`);
+    // The flag caption says "each green arrow is one observed slot change": the window shows commits (green), no pops (violet).
+    expect(trailCounts.off!.commits).toBeGreaterThan(trailCounts.repair!.commits);
+    expect(trailCounts.off!.pops).toBe(trailCounts.repair!.pops);
+    expect(trailChanges).toBe(r.worlds.observers.encore.summary().slotChanges);   // every arrow is an observed belief change
+    expect(repair.length).toBeGreaterThan(0);
+    expect(arrows.plain.filter(tick => tick >= DEMO_TICKS.REPAIR && tick < DEMO_TICKS.JAM_ON)).toEqual([]);   // #204's limitation
+    expect(arrows.flag.length).toBeGreaterThan(0);
+    // With the flag, every repair-window arrow frame is on screen: TRAIL_OFF comes after the last one has faded.
+    expect(arrows.flag.filter(tick => tick >= DEMO_TICKS.REPAIR && tick < DEMO_TICKS.JAM_ON)).toEqual(repair);
+    expect(repair.at(-1)!).toBeLessThan(TRAIL_OFF);
+    // Outside the repair window the flag changes nothing: the same frames as the default schedule.
+    const outside = (ticks: number[]) => ticks.filter(tick => tick < DEMO_TICKS.REPAIR || tick >= DEMO_TICKS.JAM_ON);
+    expect(outside(arrows.flag)).toEqual(outside(arrows.plain));
   });
 
   it('X-ray is off from the repair caption until the jam, through the real display intents (#134)', () => {

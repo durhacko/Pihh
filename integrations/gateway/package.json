@@ -1,0 +1,13 @@
+{
+  "name": "encore-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Optional local gateway for Encore integrations (X-RUN/live). Offline skeleton: no provider, no SDK, no outbound network code.",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "start": "node --experimental-strip-types --disable-warning=ExperimentalWarning --import ./loader/register.mjs src/server.ts",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --import ./loader/register.mjs --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}
