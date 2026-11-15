@@ -18,12 +18,33 @@ Phase 1 engineering G0–G5 is complete and browser-smoke tested; G6 (Devpost su
 
 ## Active implementation queue
 
-| Work package | Issue | Files / owner boundary | Dependency | Status |
-|---|---|---|---|---|
-| P2-WP-01 / C1 | [#200](https://github.com/durhacko/Pihh/issues/200) | `src/observer/invariants.ts`, `src/cli/harness.ts`, new tests | Base only; no protected contracts | Ready to claim |
-| P2-WP-04 / C3 | [#201](https://github.com/durhacko/Pihh/issues/201) | `src/cli/lint.ts`, `src/cli/lintReport.ts`, new tests | Base only; separate files from #200 | Ready to claim |
-| P2-WP-03 / C2 | [#202](https://github.com/durhacko/Pihh/issues/202) | New cascade render layer, pure trail and new tests | Base; only an opt-in renderer | Ready to claim |
-| GF-WP-01 | [#203](https://github.com/durhacko/Pihh/issues/203) | `src/score/generated/**`, new tests and schema fixtures | No SDK / gateway dependency | Ready to claim |
+**Arnav's instruction (about 07:40–07:55 GMT, relayed in the [#199 checkpoint at 07:42](https://github.com/durhacko/Pihh/issues/199#issuecomment-6891191211)):** "maximise parallel lanes; D1, D2, D3 queued; D3 sequential Gemini → MongoDB → TigerData".
+
+Lanes and file locks, as posted on #199 at 07:42 (one owner per file; nothing outside the lock). PR heads were checked when this table was written.
+
+| Issue | Work package | Owner | Branch | Locked files | Depends on | State / PR |
+|---|---|---|---|---|---|---|
+| [#200](https://github.com/durhacko/Pihh/issues/200) | P2-WP-01 invariant checker | durhack-5b | `phase2/200-invariant-checker` | `src/observer/invariants.ts`, `src/cli/harness.ts`, tests | Base | PR [#222](https://github.com/durhacko/Pihh/pull/222) open (`55bd195`) |
+| [#201](https://github.com/durhacko/Pihh/issues/201) | P2-WP-04 score linter | durhack-77 | `phase2/201-score-linter` | `src/cli/lint.ts`, `src/cli/lintReport.ts`, tests | Base | In review: PR [#210](https://github.com/durhacko/Pihh/pull/210) (`489ea27`) |
+| [#202](https://github.com/durhacko/Pihh/issues/202) | P2-WP-03 repair-cascade trail | durhack-18 | `phase2/202-repair-cascade` | `render/layers/CascadeLayer.ts`, `render/colourModes/cascadeTrail.ts`, tests | Base | Review says merge after a small tweak: PR [#204](https://github.com/durhacko/Pihh/pull/204) (`cd1b4b9`) |
+| [#203](https://github.com/durhacko/Pihh/issues/203) | GF-WP-01 SceneSpec validation (no API) | durhack-48 | `phase2/203-gemini-scene-validation` | `src/score/generated/` schema and validation files, fixtures | Base | Building |
+| [#221](https://github.com/durhacko/Pihh/issues/221) | XI-7 canonicalJson extraction | durhack-0c | `phase2/xi7-canonical-json` | `src/score/canonical.ts`, `src/cli/run.ts` (import only), test | Base | Building |
+| [#206](https://github.com/durhacko/Pihh/issues/206) | GF-WP-03 2D shapes and mask | durhack-01 | `phase2/gf-03-shapes2d` | `src/score/generated/shapes2d.ts`, test | #203 (adapter) | Building (draft; adapter after #203) |
+| [#208](https://github.com/durhacko/Pihh/issues/208) | P2-WP-05 Composer lint warnings | durhack-d1 | `phase2/p2-05-composer-lint` (stacked on #210) | `src/app/ui/Composer.ts`, `draftLint.ts`, test | #201 | Building (draft) |
+| [#217](https://github.com/durhacko/Pihh/issues/217) | P2-WP-09 inspector peer diff (D1 exception) | durhack-77 | `phase2/p2-09-peer-diff` | `src/app/ui/peerDiff.ts`, `Inspector.ts` hook, `inspectorTruth.ts` hook, test | D1 | Building |
+| [#211](https://github.com/durhacko/Pihh/issues/211) | GF-WP-05 3D shapes | durhack-18 | `phase2/gf-05-shapes3d` | §GF-WP-05 files only | #204 tweak | Next for this owner |
+| [#209](https://github.com/durhacko/Pihh/issues/209) | P2-WP-06 live invariant legend | durhack-98 (684fea) | `phase2/p2-06-invariants-legend` | `render/layers/InvariantsLayer.ts`, test | #200 (P2-T02 clean) | Waiting |
+| [#205](https://github.com/durhacko/Pihh/issues/205) | GF-WP-02 hashing and seeded PRNG | durhack-0c | `phase2/gf-02-hashing` | `src/score/generated/hashing.ts`, `prng.ts`, test | #203, #221 | Waiting |
+| [#207](https://github.com/durhacko/Pihh/issues/207) | GF-WP-04 2D sampling | durhack-01 | `phase2/gf-04-sample2d` | `src/score/generated/sample2d.ts`, test | #205, #206 | Waiting |
+| Workstream E | Register and per-PR handoff checks | durhack-fe | — | This queue table only | — | Per-PR checks |
+
+**Queued, gated in dependency order:**
+- [#212](https://github.com/durhacko/Pihh/issues/212) GF-WP-06 compiler → [#213](https://github.com/durhacko/Pihh/issues/213) GF-WP-10 Composer generated tab → [#214](https://github.com/durhacko/Pihh/issues/214) GF-WP-11 injection and provenance.
+- D2: [#215](https://github.com/durhacko/Pihh/issues/215) [contract] GF-WP-07 generated recipe integration.
+- D3, **strictly sequential**: [#218](https://github.com/durhacko/Pihh/issues/218) #1 Gemini live → [#219](https://github.com/durhacko/Pihh/issues/219) #2 MongoDB Atlas → [#220](https://github.com/durhacko/Pihh/issues/220) #3 TigerData.
+- [#216](https://github.com/durhacko/Pihh/issues/216) Track P animated choreography (D2, after G6).
+
+The merge order follows the dependencies, only the orchestrator merges, and each merged branch and its worktree are retired.
 
 **No owners are assigned by this document.** The lead orchestrator must claim each issue and reserve the exact allowed-file set before an agent begins. Each agent works from an independent branch/worktree based on `phase2/development`, makes one small PR targeting that branch, and reports measured checks. Do not let agents merge their own PRs without coordinator review.
 
