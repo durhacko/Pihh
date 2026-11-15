@@ -1,6 +1,7 @@
 // P2-WP-05 (#208): score linter findings as composer warnings before injection. Warnings never block (P2-T09).
+// "Transition not linted" is a muted note, never a warning; the caches are keyed by content, so resets are safe.
 // Headless: real worlds, real controller (the pattern of inject.test.ts); no DOM, no WebGL.
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeParams, type EnvEvent, type Params, type Recipe, type Score } from '../../../src/contracts';
 import { composeNext, currentMovement, makeScore } from '../../../src/score';
 import * as realLint from '../../../src/cli/lint';
@@ -8,7 +9,7 @@ import { createActionController } from '../../../src/app/actions';
 import { resetViewMode } from '../../../src/app/render/colourModes/viewMode';
 import { Drafts, injectFromComposer, validateDraft, type Draft } from '../../../src/app/ui/Composer';
 import { createConsoleEngine, type ConsoleContext, type ConsoleLine } from '../../../src/app/ui/Console';
-import { lintWarnings, newMovementTransition, TRANSITION_NOT_LINTED } from '../../../src/app/ui/draftLint';
+import { lintDraft, newMovementTransition, resetDraftLintCache, TRANSITION_NOT_LINTED } from '../../../src/app/ui/draftLint';
 import { Store } from '../../../src/app/ui/store';
 import { controlContext, createWorlds, viewModeDisplay } from '../../../src/app/worlds';
 
@@ -31,6 +32,7 @@ vi.mock('../../../src/cli/lint', async importOriginal => {
   };
 });
 
+beforeEach(() => { resetDraftLintCache(); });   // content-keyed caches persist across tests otherwise
 afterEach(() => { resetViewMode(); vi.restoreAllMocks(); lintSwitch.throws = false; lintSwitch.formationCalls = 0; lintSwitch.transitionCalls = 0; });
 
 function setup(seed = 11, n0 = 40) {
@@ -84,6 +86,7 @@ describe('P2-T09: lint never blocks', () => {
     expect(lintSwitch.formationCalls).toBeGreaterThan(0);                // the linter really ran, and threw
     expect(v).toMatchObject({ ok: true, errors: [], recipe: { kind: 'text', text: 'DURHACK' } });
     expect(lintLines(v.warnings)).toEqual([]);
+    expect(v.notes).toEqual([]);
     const outcome = await injectFromComposer(fx.ctx, 'd1', 5);
     expect(outcome.status).toBe('done');
     expect(injects(fx.controller.getEventLog())).toHaveLength(1);
@@ -96,8 +99,24 @@ describe('P2-T09: lint never blocks', () => {
       const plain = validateDraft(d, params);
       const linted = validateDraft(d, params, { score, tick: 5 });
       expect({ ok: linted.ok, errors: linted.errors, recipe: linted.recipe }).toEqual({ ok: plain.ok, errors: plain.errors, recipe: plain.recipe });
-      if (!plain.ok) expect(lintLines(linted.warnings)).toEqual([]);     // the linter only sees structurally valid drafts
+      if (!plain.ok) expect([lintLines(linted.warnings), linted.notes]).toEqual([[], []]);   // the linter only sees valid drafts
     }
+  });
+});
+
+describe('"Transition not linted" is a muted note, never a warning (#208 follow-up)', () => {
+  it('no draft, with or without a score, ever has a "Transition not linted" warning', () => {
+    const params = makeParams(40);
+    const score = evalLike(40, params);
+    let notes = 0;
+    for (const d of [draft('DURHACK'), draft('ENCORE'), draft('A B'), draft('', 'sphere'), draft('', 'helix')]) {
+      for (const lint of [undefined, { score, tick: 5 }, { score, tick: 1000 }, { score, tick: 1700 }]) {
+        const v = validateDraft(d, params, lint);
+        expect(v.warnings.filter(w => /not linted/i.test(w)), `${d.text || d.kind} ${lint?.tick}`).toEqual([]);
+        notes += (v.notes ?? []).length;
+      }
+    }
+    expect(notes).toBeGreaterThan(5);   // the notes exist: 5 drafts without a score, plus the unpaced ENCORE → ENCORE and sphere → sphere
   });
 });
 
@@ -114,13 +133,14 @@ describe('transition linting matches the CLI report', () => {
           expect(ours.transition).toEqual(cli.transition);
           const cliTransition = cli.findings.filter(f => f.check === 'L1' || f.check === 'L5');
           if (cli.transition.paced) expect(ours.findings).toEqual(cliTransition);
-          const lines = lintWarnings(recipe, params, { score, tick });
+          const { warnings, notes } = lintDraft(recipe, params, { score, tick });
           const l1 = cliTransition.find(f => f.check === 'L1')!;
           const l5 = cliTransition.find(f => f.check === 'L5')!;
-          if (!cli.transition.paced) expect(lines).toContain(`Transition not linted: ${cli.transition.reason}.`);
+          if (!cli.transition.paced) expect(notes).toEqual([`Transition not linted: ${cli.transition.reason}.`]);
           else {
-            expect(lines.some(w => w.startsWith(`Lint L1 · ${l1.count} ${realLint.L1_LABEL}`))).toBe(l1.count > 0);
-            expect(lines.some(w => w.startsWith(`Lint L5 · ${l5.count} slot`))).toBe(l5.count > 0);
+            expect(notes).toEqual([]);
+            expect(warnings.some(w => w.startsWith(`Lint L1 · ${l1.count} ${realLint.L1_LABEL}`))).toBe(l1.count > 0);
+            expect(warnings.some(w => w.startsWith(`Lint L5 · ${l5.count} slot`))).toBe(l5.count > 0);
           }
         }
       }
@@ -129,7 +149,7 @@ describe('transition linting matches the CLI report', () => {
 
   it('L1 is worded only as predicted conflicts under ideal paced flight (no avoidance), never a collision forecast', () => {
     const params = makeParams(200);
-    const lines = lintWarnings({ kind: 'text', text: 'DURHACK' }, params, { score: evalLike(200, params), tick: 5 });
+    const lines = lintDraft({ kind: 'text', text: 'DURHACK' }, params, { score: evalLike(200, params), tick: 5 }).warnings;
     const l1 = lines.filter(w => w.startsWith('Lint L1'));
     expect(l1).toHaveLength(1);
     expect(l1[0]).toContain('predicted conflicts under ideal paced flight (no avoidance) — not a collision forecast');
@@ -153,38 +173,58 @@ describe('transition linting matches the CLI report', () => {
 });
 
 describe('formation-only path and caching', () => {
-  it('without a score: formation checks only, and it says the transition was not linted', () => {
+  it('without a score: formation checks only, and a muted note says the transition was not linted', () => {
     const params = makeParams(200);
-    const lines = lintWarnings({ kind: 'text', text: 'A B' }, params);
-    expect(lines.at(-1)).toBe(TRANSITION_NOT_LINTED);
-    expect(lines.some(w => w.startsWith('Lint L2 · 2 separate radio groups'))).toBe(true);   // a real formation finding
-    expect(lines.some(w => w.startsWith('Lint L1') || w.startsWith('Lint L5'))).toBe(false);
+    const { warnings, notes } = lintDraft({ kind: 'text', text: 'A B' }, params);
+    expect(notes).toEqual([TRANSITION_NOT_LINTED]);
+    expect(warnings.some(w => w.startsWith('Lint L2 · 2 separate radio groups'))).toBe(true);   // a real formation finding
+    expect(warnings.some(w => w.startsWith('Lint L1') || w.startsWith('Lint L5'))).toBe(false);
     expect(lintSwitch.transitionCalls).toBe(0);
-    const linted = lintWarnings({ kind: 'text', text: 'A B' }, params, { score: evalLike(200, params), tick: 5 });
-    expect(linted).not.toContain(TRANSITION_NOT_LINTED);
+    expect(lintDraft({ kind: 'text', text: 'A B' }, params, { score: evalLike(200, params), tick: 5 }).notes).toEqual([]);
   });
 
-  it('a mounted composer without ctx.score (today’s shell) gets the formation-only lines through validateDraft', () => {
+  it('a mounted composer without ctx.score (today’s shell) gets the note through validateDraft, not a warning', () => {
     const fx = setup();
     delete fx.ctx.score;
-    expect(validateDraft(fx.ctx.drafts.current, fx.ctx.params).warnings.at(-1)).toBe(TRANSITION_NOT_LINTED);
+    const v = validateDraft(fx.ctx.drafts.current, fx.ctx.params);
+    expect(v.notes).toEqual([TRANSITION_NOT_LINTED]);
+    expect(v.warnings).not.toContain(TRANSITION_NOT_LINTED);
   });
 
-  it('caches per recipe, score version and current movement: no relint for another tick in the same movement', () => {
+  it('caches per recipe, score content and current movement: no relint for another tick in the same movement', () => {
     const params = makeParams(40);
     const score = evalLike(40, params);
     const recipe: Recipe = { kind: 'text', text: 'DURHACK' };
-    const first = lintWarnings(recipe, params, { score, tick: 5 });
+    const first = lintDraft(recipe, params, { score, tick: 5 });
     expect([lintSwitch.formationCalls, lintSwitch.transitionCalls]).toEqual([1, 1]);
-    expect(lintWarnings(recipe, params, { score, tick: 200 })).toEqual(first);               // same movement
-    expect(lintWarnings(recipe, params)).toEqual([...first.filter(w => !w.startsWith('Lint L1') && !w.startsWith('Lint L5')), TRANSITION_NOT_LINTED]);
+    expect(lintDraft(recipe, params, { score, tick: 200 })).toEqual(first);                  // same movement
+    expect(lintDraft(recipe, params)).toEqual({ warnings: first.warnings.filter(w => !w.startsWith('Lint L1') && !w.startsWith('Lint L5')), notes: [TRANSITION_NOT_LINTED] });
     expect([lintSwitch.formationCalls, lintSwitch.transitionCalls]).toEqual([1, 1]);
-    lintWarnings(recipe, params, { score, tick: 1000 });                                     // movement 1: relint the transition only
+    lintDraft(recipe, params, { score, tick: 1000 });                                        // movement 1: relint the transition only
     expect([lintSwitch.formationCalls, lintSwitch.transitionCalls]).toEqual([1, 2]);
-    lintWarnings(recipe, params, { score: { ...score, version: { issuedTick: 7, origin: 3 } }, tick: 1000 });   // another score
+    lintDraft(recipe, params, { score: { ...score, version: { issuedTick: 7, origin: 3 } }, tick: 1000 });   // another score
     expect([lintSwitch.formationCalls, lintSwitch.transitionCalls]).toEqual([1, 3]);
-    lintWarnings({ kind: 'text', text: 'DURHAM' }, params, { score, tick: 5 });            // another recipe
+    lintDraft({ kind: 'text', text: 'DURHAM' }, params, { score, tick: 5 });               // another recipe
     expect([lintSwitch.formationCalls, lintSwitch.transitionCalls]).toEqual([2, 4]);
+  });
+
+  it('is reset-safe: keyed by content, so a new score that reuses a version is relinted, and equal content is not', () => {
+    const params = makeParams(40);
+    const score = evalLike(40, params);
+    const recipe: Recipe = { kind: 'text', text: 'DURHACK' };
+    const before = lintDraft(recipe, params, { score, tick: 5 });
+    // After a reset, an authored score can carry the same version with other movements (here: other recipes).
+    const other: Score = { version: { ...score.version }, movements: makeScore([{ kind: 'helix' }, { kind: 'sphere' }], 40, params).movements };
+    expect(other.version).toEqual(score.version);
+    const after = lintDraft(recipe, params, { score: other, tick: 5 });
+    expect(lintSwitch.transitionCalls).toBe(2);                                              // not served from the cache
+    expect(after.warnings).not.toEqual(before.warnings);                                     // and really different
+    const fresh = newMovementTransition(composeNext(other, 5, recipe, 0, 40, params), params).findings.find(f => f.check === 'L1')!;
+    expect(after.warnings.some(w => w.startsWith(`Lint L1 · ${fresh.count} `))).toBe(fresh.count > 0);
+    // Equal content in new objects (a structured clone, a re-made params) is a cache hit: no further lint calls.
+    const calls = [lintSwitch.formationCalls, lintSwitch.transitionCalls];   // `fresh` above called lintTransition itself
+    expect(lintDraft(recipe, makeParams(40), { score: structuredClone(score), tick: 5 })).toEqual(before);
+    expect([lintSwitch.formationCalls, lintSwitch.transitionCalls]).toEqual(calls);
   });
 });
 
@@ -192,14 +232,19 @@ describe.runIf(process.env.P2_PERF === '1')('P2_PERF: uncached validation at n0 
   it('prints the uncached validateDraft time with lint, per draft', () => {
     const texts = ['DURHACK', 'ENCORE', 'HELLO WORLD', 'A', 'A B', 'SWARM 2026', 'XYZ', 'PIHH', 'OK GO'];
     const times: number[] = [];
+    const cachedTimes: number[] = [];
     for (const [i, text] of texts.entries()) {
-      const params = makeParams(200);   // a fresh Params object: an empty cache
+      const params = makeParams(200);
       const score = evalLike(200, params);
+      resetDraftLintCache();            // uncached: the caches are keyed by content, so a fresh Params object is not enough
       const t0 = performance.now();
       validateDraft({ ...draft(text), id: `p${i}` }, params, { score, tick: 5 });
       times.push(performance.now() - t0);
+      const t1 = performance.now();
+      for (let k = 0; k < 100; k++) validateDraft({ ...draft(text), id: `p${i}` }, params, { score, tick: 5 });   // cached: the 4 Hz render path
+      cachedTimes.push((performance.now() - t1) / 100);
     }
     const sorted = [...times].sort((a, b) => a - b);
-    console.log(`uncached validateDraft + lint, n0 200: ${texts.map((t, i) => `${t} ${times[i]!.toFixed(1)}`).join(', ')} ms; median ${sorted[Math.floor(sorted.length / 2)]!.toFixed(1)}, max ${sorted.at(-1)!.toFixed(1)} ms`);
+    console.log(`uncached validateDraft + lint, n0 200: ${texts.map((t, i) => `${t} ${times[i]!.toFixed(1)}`).join(', ')} ms; median ${sorted[Math.floor(sorted.length / 2)]!.toFixed(1)}, max ${sorted.at(-1)!.toFixed(1)} ms; cached max ${Math.max(...cachedTimes).toFixed(3)} ms`);
   });
 });
