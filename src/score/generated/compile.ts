@@ -170,12 +170,17 @@ export function thicken3D(scene: SceneSpec3D, scale: number): { scene: SceneSpec
 function compile3D(
   canonical: SceneSpec3D, hash: string, n0: number, spacing: number, params: CompileParams, warnings: CompileWarning[], reject: Reject,
 ): CompileResult {
-  // V10 first, on the scale sample3d will use; the solids are rebuilt only if a radius was raised.
-  const v10 = thicken3D(canonical, normaliseScale3D(buildSolids(canonical)));
+  // V10 first, on the scale sample3d will use. The solids are built once and rebuilt only if a radius was raised
+  // (then their build warnings are the rebuilt solids' own).
+  let stage: Warning3D[] = [];
+  let solids = buildSolids(canonical, stage);
+  const v10 = thicken3D(canonical, normaliseScale3D(solids));
   warnings.push(...v10.warnings);
   const scene = v10.scene;
-  const stage: Warning3D[] = [];
-  const solids = buildSolids(scene, stage);
+  if (v10.thickened) {
+    stage = [];
+    solids = buildSolids(scene, stage);
+  }
   const sampled = sample3d(scene, solids, { n0, referenceView: scene.referenceView, stream: (label) => seededStream(hash, label) });
   warnings.push(...stage, ...sampled.warnings);
   const cands = sampled.candidates;
