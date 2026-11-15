@@ -4,11 +4,12 @@
 // the Metrics popover, the Escape order with the shell's deselect, and that the new modules load without a DOM.
 import { describe, expect, it } from 'vitest';
 import type { MetricsSample } from '../../../src/contracts';
-import { createActionController, type ControlStatus } from '../../../src/app/actions';
+import { createActionController, STATIC_SELECTION_REFUSAL, type ControlStatus } from '../../../src/app/actions';
 import { liveState } from '../../../src/app/ui/commands';
 import { createDemoRunner, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoStartProblem, demoSubline } from '../../../src/app/ui/DemoScript';
 import { legendItems } from '../../../src/app/ui/Legend';
-import { disruptActions, jamKeyAction, pickAnswered, scrollByKey, type DisruptRun } from '../../../src/app/ui/popovers';
+import { connectInspector, inspectorArm, type InspectorSource } from '../../../src/app/ui/Inspector';
+import { createSelectionArm, disruptActions, jamKeyAction, pickAnswered, scrollByKey, stageClick, type DisruptRun } from '../../../src/app/ui/popovers';
 import { readoutItems } from '../../../src/app/ui/Readout';
 import { defaultUIState, Store } from '../../../src/app/ui/store';
 import { handleEscape, Surfaces, type SurfaceEnv } from '../../../src/app/ui/surfaces';
@@ -221,5 +222,87 @@ describe('review fixes (#113)', () => {
     expect(layouts).toEqual(['encore']);
     tick = DEMO_TICKS.SPLIT; runner.poll();
     expect(layouts).toEqual(['encore', 'split']);
+  });
+});
+
+describe('stage clicks follow the pane they are made in', () => {
+  it('selects the drone in the clicked pane (Encore or static); picks are answered only in the Encore pane', () => {
+    expect(stageClick({ pick: null, arm: 'static', droneId: 42 })).toEqual({ kind: 'select', id: 42, arm: 'static' });
+    expect(stageClick({ pick: null, arm: 'encore', droneId: 42 })).toEqual({ kind: 'select', id: 42, arm: 'encore' });
+    expect(stageClick({ pick: null, arm: 'static', droneId: null })).toEqual({ kind: 'deselect' });
+    expect(stageClick({ pick: { purpose: 'killRegion' }, arm: 'static', droneId: 42 })).toEqual({ kind: 'pick-in-encore' });
+    expect(stageClick({ pick: { purpose: 'killRegion' }, arm: 'encore', droneId: null })).toEqual({ kind: 'ignore' });
+    expect(stageClick({ pick: { purpose: 'killRegion' }, arm: 'encore', droneId: 42 })).toEqual({ kind: 'answer-pick', droneId: 42 });
+    expect(stageClick({ pick: { purpose: 'jam', radius: 12 }, arm: 'encore', droneId: null })).toEqual({ kind: 'answer-pick', droneId: null });
+  });
+});
+
+describe('static-pane selections (#113 re-review)', () => {
+  const noop = () => {};
+  /** The shell's wiring: every selection sets the store's arm and the inspector's world from createSelectionArm. */
+  function rig() {
+    const worlds = createWorlds({ seed: 4, n0: 60 });
+    for (let t = 0; t < 20; t++) worlds.stepBoth();
+    const arm = createSelectionArm();
+    let selected: { id: number; arm: 'encore' | 'static' } | null = null;
+    const source = { agent: () => null, truth: () => null, select: noop } as unknown as InspectorSource;
+    const transport = { playing: false, speed: 1 };
+    const controller = createActionController(controlContext(worlds, {
+      getSnapshots: () => worlds.latest()!, getTransport: () => ({ ...transport, seed: worlds.seed }),
+      setPlaying: p => { transport.playing = p; }, setSpeed: s => { transport.speed = s; }, reset: s => { worlds.reset(s); worlds.stepBoth(); },
+      selectionWorld: () => selected?.arm ?? 'encore',
+      display: {
+        setSelected: id => { const a = arm.current(id); selected = id === null ? null : { id, arm: a }; connectInspector(source, { arm: a }); },
+        toggleXray: noop, toggleBelief: noop,
+      },
+    }));
+    return { worlds, arm, controller, selected: () => selected };
+  }
+
+  it('a static click, then a controller (demo / console) select: store and inspector both say Encore', () => {
+    const r = rig();
+    r.arm.within('static', () => r.controller.selectDrone(10));
+    expect(r.selected()).toEqual({ id: 10, arm: 'static' });
+    expect(inspectorArm()).toBe('static');
+    r.controller.selectDrone(30);                                  // the demo's select beat, console --drone, inject --pick
+    expect(r.selected()).toEqual({ id: 30, arm: 'encore' });
+    expect(inspectorArm()).toBe('encore');
+    // A refused static selection does not leak its arm into the next selection.
+    expect(r.arm.within('static', () => r.controller.selectDrone(999)).ok).toBe(false);
+    r.controller.selectDrone(31);
+    expect(inspectorArm()).toBe('encore');
+    r.arm.within('static', () => r.controller.selectDrone(null));
+    expect(r.selected()).toBeNull();
+    expect(inspectorArm()).toBe('encore');
+    connectInspector(null);
+  });
+
+  it('K, J and inject centred on a static selection refuse; the same drone selected in Encore works', () => {
+    const r = rig();
+    r.arm.within('static', () => r.controller.selectDrone(12));
+    const log = r.controller.getEventLog().length;
+    for (const intent of [{ type: 'kill-region', radius: 8 }, { type: 'jam', radius: 12 }, { type: 'inject', recipe: { kind: 'text', text: 'HI' } }] as const) {
+      expect(r.controller.handle(intent)).toEqual({ ok: false, message: STATIC_SELECTION_REFUSAL });
+    }
+    expect(r.controller.getEventLog().length).toBe(log);
+    // An explicit centre (a pick answered in the Encore pane) is not the selection, so it still works.
+    expect(r.controller.handle({ type: 'kill-region', radius: 8, centre: [0, 30, 0] }).ok).toBe(true);
+    r.controller.selectDrone(12);
+    expect(r.controller.handle({ type: 'jam', radius: 12 }).event).toMatchObject({ type: 'JAM_ON', centre: r.worlds.latest()!.encore.drones[12].pos });
+    // Lifting the jam needs no centre, so a static selection may lift it.
+    r.arm.within('static', () => r.controller.selectDrone(13));
+    expect(r.controller.handle({ type: 'jam' }).event).toMatchObject({ type: 'JAM_OFF' });
+    connectInspector(null);
+  });
+
+  it('the legend names the arm it counts in split view; the demo final view is split', () => {
+    const off = { xray: true, belief: true, versions: { '0:-1': 60 }, radio: null, deaf: 2, partitions: 0, ghosts: { vacant: 1, inTransit: 0, contested: 0, inHold: true } };
+    const titles = legendItems({ ...off, arm: 'Encore' }).filter(i => i.kind === 'title').map(i => i.text);
+    expect(titles).toEqual(['Encore · Radio · real log', 'Encore · Score version held', 'Encore · Slots · observer truth']);
+    expect(legendItems({ ...off, arm: 'Encore' })).toContainEqual(expect.objectContaining({ text: 'Encore · Deaf: heard no radio for 2 s' }));
+    expect(legendItems(off).filter(i => i.kind === 'title').map(i => i.text)).toEqual(['Radio · real log', 'Score version held', 'Slots · observer truth']);
+    const final = DEMO_BEATS.filter(b => b.tick === DEMO_TICKS.FINAL);
+    expect(final[0]).toMatchObject({ id: 'final-layout', action: { kind: 'layout', view: 'split' } });
+    expect(final.find(b => b.id === 'final-view')!.caption).toMatch(/still split/);
   });
 });

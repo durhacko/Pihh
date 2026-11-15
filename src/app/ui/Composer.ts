@@ -48,6 +48,8 @@ export class Drafts {
     return found;
   }
   get(id: string): Draft | undefined { return this.items.find(draft => draft.id === id); }
+  /** The draft `id`, or the current one for null; undefined (never a throw) when the store has none. */
+  find(id: string | null): Draft | undefined { return id === null ? this.items.find(draft => draft.id === this.currentId) : this.get(id); }
   /** Adds a draft and makes it current. */
   add(input: DraftInput, notify = true): Draft {
     const draft: Draft = { ...structuredClone(input), id: `d${++this.seq}`, sent: [] };
@@ -122,7 +124,7 @@ export interface ComposeContext {
   snapshots(): Pair<WorldSnapshot>;
   /** Newest observer MetricsSample per world (worlds.samples()). The adoption bar reads only this. */
   samples(): Pair<MetricsSample | null>;
-  /** Where bindControls emits 'encore:control-status' (the app root). A stage click that selects a drone answers a pick. */
+  /** Where bindControls emits 'encore:control-status' (the app root). The Composer listens there to follow the selection. */
   events?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
 }
 
@@ -132,35 +134,26 @@ export function parseContext(ctx: ComposeContext): ParseContext {
 }
 
 /**
- * Asks the user to click a drone. Resolves with its id, or null when cancelled (Escape via handleEscape, or another
- * pick). Answered by whichever comes first: the stage resolving store.pick (the shell, #92), a change of store.selected,
- * or the controller reporting a newly selected drone (today's click-to-select in main.ts). Clicking the drone that is
- * already selected changes nothing, so it does not answer.
+ * Asks the user to click a drone. Resolves with its id, or null when cancelled (Escape via handleEscape, another pick,
+ * or a new command). Answered ONLY by the stage resolving store.pick from a real click on a drone (the shell, #113).
+ * A selection change (a Select button, `inspect`, the controls) never answers it: otherwise a waiting
+ * `fault kill-region --pick` would kill around whatever drone was selected next.
  */
-export function requestPick(ctx: ComposeContext, purpose: PickRequest['purpose'], prompt: string): Promise<number | null> {
+export function requestPick(ctx: Pick<ComposeContext, 'store'>, purpose: PickRequest['purpose'], prompt: string): Promise<number | null> {
   ctx.store.state.pick?.resolve(null);
-  const before = ctx.controller.status().selectedId;
   return new Promise(resolve => {
     let done = false;
     let unsubscribe = () => {};
     const finish = (id: number | null) => {
       if (done) return;
       done = true;
-      ctx.events?.removeEventListener('encore:control-status', onStatus);
       unsubscribe();
       if (ctx.store.state.pick === request) ctx.store.set({ pick: null, pickPoint: null });
       resolve(id);
     };
-    const onStatus = (event: Event) => {
-      const id = (event as CustomEvent<Partial<ControlStatus>>).detail?.selectedId;
-      if (typeof id === 'number' && id !== before) finish(id);
-    };
     const request: PickRequest = { purpose, prompt, resolve: result => finish(result?.droneId ?? null) };
-    unsubscribe = ctx.store.subscribe((state, changed) => {
-      if (changed.includes('pick') && state.pick !== request) finish(null);
-      else if (changed.includes('selected') && state.selected?.arm === 'encore' && state.selected.id !== before) finish(state.selected.id);
-    });
-    ctx.events?.addEventListener('encore:control-status', onStatus);
+    // Something replaced or cleared the request without resolving it (e.g. handleEscape clears, then resolves): cancel.
+    unsubscribe = ctx.store.subscribe((state, changed) => { if (changed.includes('pick') && state.pick !== request) finish(null); });
     ctx.store.set({ pick: request, pickPoint: null });
   });
 }
@@ -215,16 +208,20 @@ export type InjectOutcome = PlanOutcome & { sent?: SentRecord };
 
 /** The inject path shared by the console and the Composer button. An invalid draft never reaches the controller. */
 export async function dispatchInject(ctx: ComposeContext, plan: InjectPlan): Promise<InjectOutcome> {
-  const draft = plan.draftId === null ? ctx.drafts.current : ctx.drafts.get(plan.draftId);
-  if (!draft) return { status: 'failed', message: `No draft "${plan.draftId}". Type drafts.`, results: [] };
+  const draft = ctx.drafts.find(plan.draftId);
+  if (!draft) return { status: 'failed', message: plan.draftId === null ? 'There is no draft. Create one with form text "WORD" (or form sphere).' : `No draft "${plan.draftId}". Type drafts.`, results: [] };
   const validation = validateDraft(draft, ctx.params);
   if (!validation.ok || !validation.recipe) return { status: 'failed', message: `Draft “${draft.name}” is not valid: ${validation.errors[0]}`, results: [] };
+  // Captured together with the recipe, before any pick: what is reported as sent is the draft as it was when the
+  // command was given, even if the user edits or renames it while the stage waits for a click.
+  const name = draft.name;
+  const draftId = draft.id;
   const outcome = await runControlPlan(ctx, withRecipe(plan, validation.recipe));
   if (outcome.status !== 'done') return outcome;
   const event = outcome.events.find((e): e is Extract<EnvEvent, { type: 'INJECT_SCORE' }> => e.type === 'INJECT_SCORE');
   if (!event) return outcome;
-  const sent: SentRecord = { key: versionKey(event.score.version), name: draft.name, draftId: draft.id, droneId: event.droneId, tick: event.tick };
-  ctx.drafts.markSent(draft.id, sent.key);
+  const sent: SentRecord = { key: versionKey(event.score.version), name, draftId, droneId: event.droneId, tick: event.tick };
+  ctx.drafts.markSent(draftId, sent.key);
   ctx.store.set({ preview: null });
   return { ...outcome, sent };
 }
@@ -242,7 +239,11 @@ export async function injectFromComposer(ctx: ComposeContext, draftId: string, d
 
 /** "Preview in stage": local only. It sets store.preview (drawn by PreviewLayer) and never touches the controller. */
 export function setPreview(ctx: Pick<ComposeContext, 'store' | 'drafts' | 'params'>, on: boolean): Validation {
-  const draft = ctx.drafts.current;
+  const draft = ctx.drafts.find(null);
+  if (!draft) {
+    ctx.store.set({ preview: null });
+    return { ok: false, errors: ['There is no draft to preview.'], warnings: [], recipe: null };
+  }
   const validation = validateDraft(draft, ctx.params);
   ctx.store.set({ preview: on && validation.ok && validation.recipe ? { recipe: validation.recipe, label: draft.name } : null });
   return validation;
@@ -287,6 +288,8 @@ export interface ComposerHandle { el: HTMLElement; open(): void; render(): void;
 export function connectComposer(input: ComposerContext): ComposerHandle {
   const ctx: ComposerContext = { ...input, events: input.events ?? input.host };
   const { drafts, store, params } = ctx;
+  // The panel always edits a current draft: an empty store (e.g. new Drafts([])) gets the default first draft.
+  if (!drafts.find(null)) drafts.add(DEFAULT_DRAFTS[0]);
   const disconnectPreview = connectPreview(store);
 
   // Per-panel state

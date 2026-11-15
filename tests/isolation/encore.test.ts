@@ -49,11 +49,15 @@ describe('real Encore isolation', () => {
       if (tick % 100 === 0) {
         expect(repeated).toEqual(original);
         expect(replay.stateHash()).toBe(first.stateHash());
+        // Compare the state WITHOUT the brain's own seeded PRNG word: `rng` differs between seeds by construction, so
+        // comparing it would pass even if nothing the drone did depended on the seed.
+        const withoutRng = (state: unknown) => { const { rng, ...rest } = state as { rng: number }; void rng; return rest; };
         const initialState = first.inspect(0)?.state;
         const changedState = otherSeed.inspect(0)?.state;
         expect(initialState).toBeDefined();
         expect(changedState).toBeDefined();
-        changedActualState ||= JSON.stringify(initialState) !== JSON.stringify(changedState);
+        expect(initialState).toHaveProperty('rng');   // the field being excluded really exists
+        changedActualState ||= JSON.stringify(withoutRng(initialState)) !== JSON.stringify(withoutRng(changedState));
       }
     }
     expect(changedActualState, 'a changed hash seed field alone does not validate seeded real-agent state').toBe(true);

@@ -36,7 +36,13 @@ export interface ControlContext {
   scheduleBoth?(event: EnvEvent): void;
   /** Why the show cannot run right now (e.g. a failed tick), or null. Play and step say so instead. */
   blockedReason?(): string | null;
+  /** The world the current selection was made in. Faults and injections are centred in the Encore world, so a
+   *  selection made in the static pane cannot centre one (the same drone id can be metres away there). Absent: Encore. */
+  selectionWorld?(): 'encore' | 'static';
 }
+
+/** Why a fault or injection centred on the selection refuses while that selection was made in the static pane. */
+export const STATIC_SELECTION_REFUSAL = 'Faults are centred in the Encore world: select in the Encore pane.';
 
 export interface ControlStatus {
   available: boolean; playing: boolean; speed: number; seed: number; loss: number;
@@ -94,6 +100,11 @@ export function createActionController(context: ControlContext) {
     const drone = snapshot.drones.find(drone => drone.id === selectedId && drone.alive);
     if (!drone) throw new Error('Select a live drone first.');
     return drone;
+  }
+  /** The selected drone as a fault or injection centre: only a selection made in the Encore world can be one. */
+  function centreDrone(snapshot: WorldSnapshot) {
+    if (context.selectionWorld?.() === 'static') throw new Error(STATIC_SELECTION_REFUSAL);
+    return selected(snapshot);
   }
   function schedule(event: EnvEvent): ControlResult {
     if (context.scheduleBoth) context.scheduleBoth(structuredClone(event));
@@ -153,7 +164,7 @@ export function createActionController(context: ControlContext) {
       if (at !== undefined && (!Number.isSafeInteger(at) || at <= snapshots.encore.tick)) throw new Error('A timed action must land after the current tick.');
       const tick = at ?? snapshots.encore.tick + 1;
       let event: EnvEvent;
-      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, centre(intent.centre, () => selected(snapshots.encore).pos), killRadius(intent.radius ?? context.params.rClaim)) };
+      if (intent.type === 'kill-region') event = { type: 'KILL', tick, ids: idsInSphere(snapshots.encore, centre(intent.centre, () => centreDrone(snapshots.encore).pos), killRadius(intent.radius ?? context.params.rClaim)) };
       else if (intent.type === 'kill-selected') event = { type: 'KILL', tick, ids: [selected(snapshots.encore).id] };
       else if (intent.type === 'kill-ids') {
         // Explicit ids (console, scripts): validated against the roster, sorted and de-duplicated once.
@@ -169,7 +180,7 @@ export function createActionController(context: ControlContext) {
         if (!context.radioFaults) throw new Error('Radio fault controls are not connected yet.');
         if (intent.type === 'jam') {
           const on = toggleOnAt(log, 'jam', jamId, snapshots.encore.tick, tick, snapshots.encore.jams.some(jam => jam.id === jamId));
-          event = on ? { type: 'JAM_OFF', tick, id: jamId } : { type: 'JAM_ON', tick, id: jamId, centre: centre(intent.centre, () => selected(snapshots.encore).pos), radius: intent.radius ?? context.params.rRadio };
+          event = on ? { type: 'JAM_OFF', tick, id: jamId } : { type: 'JAM_ON', tick, id: jamId, centre: centre(intent.centre, () => centreDrone(snapshots.encore).pos), radius: intent.radius ?? context.params.rRadio };
           if (event.type === 'JAM_ON' && (!Number.isFinite(event.radius) || event.radius <= 0)) throw new Error('Radius must be positive.');
         } else if (intent.type === 'partition') {
           const on = toggleOnAt(log, 'partition', partitionId, snapshots.encore.tick, tick, snapshots.encore.partitions.some(partition => partition.id === partitionId));
@@ -180,7 +191,7 @@ export function createActionController(context: ControlContext) {
         } else {
           if (!context.composeScore) throw new Error('Score composer is not connected yet.');
           if (log.some(event => event.type === 'INJECT_SCORE' && event.tick === tick)) throw new Error('A composition is already scheduled for this tick. Advance the show before injecting another.');
-          const id = selected(snapshots.encore).id;
+          const id = centreDrone(snapshots.encore).id;
           if (intent.recipe.kind === 'text' && (!intent.recipe.text.trim() || !/^[A-Z0-9 ]{1,20}$/i.test(intent.recipe.text))) throw new Error('Use 1–20 letters, digits or spaces.');
           const recipe = intent.recipe.kind === 'text' ? { ...intent.recipe, text: intent.recipe.text.toUpperCase() } : intent.recipe;
           event = { type: 'INJECT_SCORE', tick, droneId: id, score: context.composeScore(authoredScore, tick, recipe, id, context.params.n0, context.params) };

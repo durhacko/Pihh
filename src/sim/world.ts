@@ -3,6 +3,7 @@ import type { AgentInput, AgentOutput, EnvEvent, Message, RadioEvent, Vec3, Worl
 import { SpatialGrid } from './grid';
 import { clampLength, distanceSquared, launchPosition, subtract } from './math';
 import { createRandom, hashSeed, hashText } from './random';
+import { senseFrom } from './sensing';
 
 interface Body {
   id: number; alive: boolean; diedTick: number | null;
@@ -16,7 +17,15 @@ type TestOptions = { reverseStepOrder?: boolean; freezeInputs?: boolean };
 /** Contracts contain only plain JSON data. Avoid structuredClone's per-call overhead
  * on the thousands of small sensing/radio vectors produced by a tick. */
 function clone<T>(value: T): T {
-  if (Array.isArray(value)) return value.map(entry => clone(entry)) as T;
+  if (Array.isArray(value)) {
+    // A loop rather than map(): same copy, without a closure per element (vectors are most of what is cloned).
+    const copy: unknown[] = [];
+    for (let i = 0; i < value.length; i++) {
+      const entry: unknown = value[i];
+      copy.push(entry !== null && typeof entry === 'object' ? clone(entry) : entry);
+    }
+    return copy as T;
+  }
   if (value !== null && typeof value === 'object') {
     const copy: Record<string, unknown> = {};
     for (const key of Object.keys(value)) copy[key] = clone((value as Record<string, unknown>)[key]);
@@ -25,12 +34,16 @@ function clone<T>(value: T): T {
   return value;
 }
 /** What a brain was given, recorded before its step. Sensed vectors are packed six per peer
- * (rel xyz, vel xyz): one allocation per drone, not three per neighbour. Inbox packets are
- * deep-frozen and shared, so only the inbox array is copied. */
-interface Given { tick: number; pos: Vec3; vel: Vec3; inbox: readonly Message[]; sensed: Float64Array }
+ * (rel xyz, vel xyz) into one plain array: one allocation per drone, not three per neighbour.
+ * (A plain array, not a Float64Array: the same doubles, but much cheaper to create every tick.)
+ * Inbox packets are deep-frozen and shared, so only the inbox array is copied. */
+interface Given { tick: number; pos: Vec3; vel: Vec3; inbox: readonly Message[]; sensed: number[] }
 function record(input: AgentInput): Given {
-  const sensed = new Float64Array(input.sensed.length * 6);
-  for (let i = 0; i < input.sensed.length; i++) { sensed.set(input.sensed[i].rel, i * 6); sensed.set(input.sensed[i].vel, i * 6 + 3); }
+  const sensed: number[] = [];
+  for (let i = 0; i < input.sensed.length; i++) {
+    const { rel, vel } = input.sensed[i];
+    sensed.push(rel[0], rel[1], rel[2], vel[0], vel[1], vel[2]);
+  }
   return { tick: input.tick, pos: [...input.pos], vel: [...input.vel], inbox: input.inbox.slice(), sensed };
 }
 function replay(given: Given): AgentInput {
@@ -71,8 +84,8 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
   const partitions = new Map<string, Partition>();
   let loss = params.loss;
   let operatorSeq = 0;
-  let collisionPairs = new Set<string>();
-  let nearPairs = new Set<string>();
+  let collisionPairs = new Set<number>();
+  let nearPairs = new Set<number>();
 
   function schedule(event: EnvEvent) {
     if (!Number.isInteger(event.tick) || event.tick <= tick) throw new Error('Events must be scheduled after the current tick');
@@ -120,16 +133,18 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     pending.delete(tick);
     for (const inbox of inboxes) inbox.sort((a, b) => a.sentTick - b.sentTick || a.from - b.from || a.seq - b.seq);
     // 3. Build all inputs before deciding or integrating any body.
-    const grid = new SpatialGrid(bodies.map(b => b.pos), live, Math.max(params.rSense, params.rRadio));
+    // One grid per query radius (sensing, radio): within() returns the same ids whatever the cell size, and cells
+    // sized to the radius keep each query to a few small cells.
+    const positions = bodies.map(b => b.pos);
+    const senseGrid = new SpatialGrid(positions, live, params.rSense);
+    const radioGrid = new SpatialGrid(positions, live, params.rRadio);
     const inputs = new Map<number, AgentInput>();
     for (const id of live) {
       const body = bodies[id];
-      const input: AgentInput = {
-        tick, pos: clone(body.pos), vel: clone(body.vel), inbox: inboxes[id],
-        sensed: grid.within(body.pos, params.rSense).filter(peer => peer !== id).map(peer => ({
-          rel: subtract(bodies[peer].pos, body.pos), vel: subtract(bodies[peer].vel, body.vel),
-        })),
-      };
+      const peers: Body[] = [];
+      for (const peer of senseGrid.within(body.pos, params.rSense)) if (peer !== id) peers.push(bodies[peer]);
+      // Geometric order, never id order: the order of anonymous entries must not identify a drone (#64).
+      const input: AgentInput = { tick, pos: clone(body.pos), vel: clone(body.vel), inbox: inboxes[id], sensed: senseFrom(body, peers) };
       inputs.set(id, test.freezeInputs ? freeze(input) : input);
     }
     // 4. Brains only get their private state and detached, local input.
@@ -148,21 +163,31 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
     const activeJams = [...jams.values()];
     const activePartitions = [...partitions.values()];
     const isJammed = bodies.map(body => activeJams.some(j => distanceSquared(body.pos, j.centre) <= j.radius ** 2));
+    // The delivery queue for tick + latency, looked up once per latency per tick instead of once per delivery.
+    // The pending map gets the same entries, created at the same first delivery, holding the same packets in order.
+    const queueAt: (Pending[] | undefined)[] = [];
+    const queueFor = (latency: number): Pending[] => {
+      let queue = queueAt[latency];
+      if (queue === undefined) {
+        queue = pending.get(tick + latency) ?? [];
+        pending.set(tick + latency, queue);
+        queueAt[latency] = queue;
+      }
+      return queue;
+    };
     for (const id of live) for (const message of outputs.get(id)!.outbox) {
       if (message.from !== id || message.sentTick !== tick) throw new Error('Brain broadcast must identify its actual sender and current tick');
       const log: RadioEvent = { tick, from: id, type: message.type, claimSlot: message.type === 'HB' ? message.claim?.slot ?? null : null, delivered: [], lost: 0, jammed: 0, partitioned: 0 };
       // One immutable packet per broadcast; recipients cannot change each other's
       // inbox content. Delivery lists/brain inbox arrays remain private.
       const packet = freeze(clone(message));
-      for (const receiver of grid.within(bodies[id].pos, params.rRadio)) {
+      for (const receiver of radioGrid.within(bodies[id].pos, params.rRadio)) {
         if (receiver === id) continue;
         if (isJammed[id] || isJammed[receiver]) { log.jammed++; continue; }
         if (activePartitions.some(partition => partition.groups[id] !== partition.groups[receiver])) { log.partitioned++; continue; }
         if (rng() < loss) { log.lost++; continue; }
         const latency = params.latencyMin + Math.floor(rng() * (params.latencyMax - params.latencyMin + 1));
-        const queue = pending.get(tick + latency) ?? [];
-        queue.push({ receiver, message: packet });
-        pending.set(tick + latency, queue);
+        queueFor(latency).push({ receiver, message: packet });
         log.delivered.push(receiver);
       }
       radio.push(log);
@@ -177,14 +202,16 @@ export function createWorld(source: WorldConfig, test: TestOptions = {}): World 
       body.colour = clone(outputs.get(id)!.colour);
     }
     // 7. Entry events, not one event per tick spent in contact. Endpoint sampling.
-    const afterGrid = new SpatialGrid(bodies.map(b => b.pos), live, Math.max(params.rSense, params.dCollide, params.dNear));
+    // Cells sized to the contact radius (within() gives the same ids at any cell size); pairs keyed by number.
+    const contactRadius = Math.max(params.dCollide, params.dNear);
+    const afterGrid = new SpatialGrid(bodies.map(b => b.pos), live, contactRadius);
     const collisions: [number, number][] = [];
     const nearMisses: [number, number][] = [];
-    const nowCollision = new Set<string>();
-    const nowNear = new Set<string>();
-    for (const id of live) for (const peer of afterGrid.within(bodies[id].pos, Math.max(params.dCollide, params.dNear))) {
+    const nowCollision = new Set<number>();
+    const nowNear = new Set<number>();
+    for (const id of live) for (const peer of afterGrid.within(bodies[id].pos, contactRadius)) {
       if (peer <= id) continue;
-      const key = `${id},${peer}`;
+      const key = id * params.n0 + peer;
       const d2 = distanceSquared(bodies[id].pos, bodies[peer].pos);
       if (d2 < params.dCollide ** 2) { nowCollision.add(key); if (!collisionPairs.has(key)) collisions.push([id, peer]); }
       if (d2 < params.dNear ** 2) { nowNear.add(key); if (!nearPairs.has(key)) nearMisses.push([id, peer]); }
