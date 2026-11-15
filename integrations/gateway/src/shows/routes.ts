@@ -46,16 +46,27 @@ export function summaryBody(summary: ShowSummary): ShowSummaryBody {
 export interface RoutesDeps {
   repository: ShowsRepository;
   now?: () => Date;
-  /** Every repository call is bounded by this; a hit is 503 (POST: OUTCOME_UNKNOWN). Default 5 s (spec section 10.6). */
+  /**
+   * The handler deadline (spec section 10.6: 5 s, below the client's 8 s abort). ONE absolute deadline is fixed when a
+   * request enters its handler; every repository call in that request (a save's insert and its read-back) gets only
+   * the budget that remains. A hit is 503 (POST: OUTCOME_UNKNOWN).
+   */
   deadlineMs?: number;
+  /** Monotonic milliseconds for the deadline. Default performance.now. */
+  clock?: () => number;
 }
 
 type Timed<T> = { ok: true; value: T } | { ok: false; why: 'deadline' | 'error' };
 
-/** A repository call under the handler deadline. Never rejects; a sync throw is an 'error'. */
-async function within<T>(ms: number, call: () => Promise<T>): Promise<Timed<T>> {
+/**
+ * A repository call bounded by the request's absolute deadline `endAt` (clock ms). With no budget left the call is not
+ * started. Never rejects; a sync throw is an 'error'.
+ */
+async function within<T>(endAt: number, clock: () => number, call: () => Promise<T>): Promise<Timed<T>> {
+  const remaining = endAt - clock();
+  if (!(remaining > 0)) return { ok: false, why: 'deadline' };
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<Timed<T>>(resolve => { timer = setTimeout(() => resolve({ ok: false, why: 'deadline' }), ms); });
+  const late = new Promise<Timed<T>>(resolve => { timer = setTimeout(() => resolve({ ok: false, why: 'deadline' }), remaining); });
   try {
     const work = Promise.resolve().then(call).then(value => ({ ok: true, value }) as Timed<T>, () => ({ ok: false, why: 'error' }) as Timed<T>);
     return await Promise.race([work, late]);
@@ -87,10 +98,11 @@ export function createShowsRoutes(deps: RoutesDeps): ModuleRoute[] {
   const repo = deps.repository;
   const now = deps.now ?? (() => new Date());
   const deadline = deps.deadlineMs ?? SHOWS_TIMEOUTS.handlerDeadlineMs;
+  const clock = deps.clock ?? (() => performance.now());
 
-  /** The stored show with this id, validated on read; or the error to answer. */
-  async function loadShow(id: string, onUnavailable: ShowsError): Promise<{ ok: true; show: SavedShow } | { ok: false; error: ShowsError }> {
-    const got = await within(deadline, () => repo.get(id));
+  /** The stored show with this id, validated on read; or the error to answer. Bounded by the request's `endAt`. */
+  async function loadShow(id: string, endAt: number, onUnavailable: ShowsError): Promise<{ ok: true; show: SavedShow } | { ok: false; error: ShowsError }> {
+    const got = await within(endAt, clock, () => repo.get(id));
     if (!got.ok) return { ok: false, error: onUnavailable };
     if (got.value === null || got.value === undefined) return { ok: false, error: notFound() };
     const read = readStoredShow(got.value);
@@ -99,6 +111,7 @@ export function createShowsRoutes(deps: RoutesDeps): ModuleRoute[] {
   }
 
   async function save(request: RouteRequest): Promise<RouteResponse<unknown>> {
+    const endAt = clock() + deadline;   // one budget for the whole request: insert and read-back share it
     const body = readJsonBody(request.rawBody);
     if (!body.ok) return body.status === 413 ? payloadTooLarge() : badRequest('INVALID_JSON');
     const value = body.value;
@@ -115,18 +128,19 @@ export function createShowsRoutes(deps: RoutesDeps): ModuleRoute[] {
       source: r.source, ...(r.generator !== undefined ? { generator: r.generator } : {}),
       preview: compositionPreview(r.composition), operationId,
     };
-    const inserted = await within(deadline, () => repo.insert(doc, now()));
+    const inserted = await within(endAt, clock, () => repo.insert(doc, now()));
     if (!inserted.ok) return inserted.why === 'deadline' ? unavailable('OUTCOME_UNKNOWN') : unavailable();
     const outcome = inserted.value;
     if (outcome.kind === 'outcome-unknown') return unavailable('OUTCOME_UNKNOWN');
     if (outcome.kind === 'duplicate' && outcome.requestHash !== fingerprint) return conflict();
-    const stored = await loadShow(outcome.id, unavailable('OUTCOME_UNKNOWN'));
+    const stored = await loadShow(outcome.id, endAt, unavailable('OUTCOME_UNKNOWN'));
     if (!stored.ok) return stored.error.status === 404 ? unavailable('OUTCOME_UNKNOWN') : stored.error;
     const replay = outcome.kind === 'duplicate';
     return { status: replay ? 200 : 201, body: { show: stored.show, idempotentReplay: replay } };
   }
 
   async function list(request: RouteRequest): Promise<RouteResponse<unknown>> {
+    const endAt = clock() + deadline;
     const keys = Object.keys(request.query);
     if (keys.some(k => k !== 'limit' && k !== 'cursor')) return badRequest('INVALID_QUERY');
     let limit = LIST_LIMITS.default;
@@ -140,15 +154,16 @@ export function createShowsRoutes(deps: RoutesDeps): ModuleRoute[] {
       after = decodeCursor(request.query.cursor);
       if (after === null) return badRequest('INVALID_CURSOR', 'cursor');
     }
-    const page = await within(deadline, () => repo.list({ limit, ...(after ? { after } : {}) }));
+    const page = await within(endAt, clock, () => repo.list({ limit, ...(after ? { after } : {}) }));
     if (!page.ok) return unavailable();
     return { status: 200, body: { items: page.value.items.map(summaryBody), nextCursor: page.value.next ? encodeCursor(page.value.next) : null } };
   }
 
   async function get(request: RouteRequest): Promise<RouteResponse<unknown>> {
+    const endAt = clock() + deadline;
     const id = request.params.id ?? '';
     if (!SHOW_ID_PATTERN.test(id)) return badRequest('INVALID_ID', 'id');
-    const stored = await loadShow(id, unavailable());
+    const stored = await loadShow(id, endAt, unavailable());
     return stored.ok ? { status: 200, body: { show: stored.show } } : stored.error;
   }
 

@@ -31,6 +31,29 @@ test('Save -> List -> Get round trip: 201 with the normalised show, listed as me
   assert.deepEqual(got.body, { show });
 });
 
+test("the app client's exact request shape (#270: schemaVersion, title, source, composition, operationId) saves and reads back", async () => {
+  const t = api();
+  const clientBody = {
+    schemaVersion: 1,
+    title: 'Client save',
+    source: 'manual',
+    composition: { v: 1, movements: [{ recipe: { kind: 'text', text: 'HI' }, holdTicks: 600 }, { recipe: { kind: 'helix' }, holdTicks: 300 }] },
+    operationId: KEY,
+  };
+  assert.deepEqual(Object.keys(clientBody).sort(), ['composition', 'operationId', 'schemaVersion', 'source', 'title']);
+  const saved = await t.call('POST', SHOWS_PATH, { raw: JSON.stringify(clientBody) });
+  assert.equal(saved.status, 201);
+  assert.deepEqual(Object.keys(saved.body).sort(), ['idempotentReplay', 'show']);
+  assert.deepEqual(Object.keys(saved.body.show).sort(), ['composition', 'contentHash', 'createdAt', 'id', 'kinds', 'loadable', 'movementCount', 'schemaVersion', 'source', 'title', 'updatedAt']);
+  const replay = await t.call('POST', SHOWS_PATH, { raw: JSON.stringify(clientBody) });
+  assert.deepEqual([replay.status, replay.body.idempotentReplay, replay.body.show.id], [200, true, saved.body.show.id]);
+  // The shape that caused the #273 blocker: the key only in a header (not visible to routes), none in the body.
+  const { operationId: _key, ...headerOnly } = clientBody;
+  assert.equal(_key, KEY);
+  const refused = await t.call('POST', SHOWS_PATH, { raw: JSON.stringify(headerOnly) });
+  assert.deepEqual([refused.status, reasons(refused.body)], [400, ['operationId INVALID_IDEMPOTENCY_KEY']]);
+});
+
 test('the document is built field by field: stray keys, client hashes and timestamps never reach the store', async () => {
   const t = api();
   const saved = await t.save({ ...SHOW, operationId: KEY, contentHash: 'f'.repeat(64) });

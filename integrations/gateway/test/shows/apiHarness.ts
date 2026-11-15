@@ -22,7 +22,7 @@ export const SHOW = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Json = Record<string, any>;
 
-export function api(repository: MemoryShowsRepository = createMemoryRepository(), opts: { now?: () => Date; deadlineMs?: number } = {}) {
+export function api(repository: MemoryShowsRepository = createMemoryRepository(), opts: { now?: () => Date; deadlineMs?: number; clock?: () => number } = {}) {
   const routes: ModuleRoute[] = createShowsRoutes({ repository, ...opts });
   const call = (method: 'GET' | 'POST', path: string, init: { body?: unknown; raw?: string; query?: Record<string, string> } = {}) => {
     const id = path.startsWith(`${SHOWS_PATH}/`) ? path.slice(SHOWS_PATH.length + 1) : undefined;
