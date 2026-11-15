@@ -112,21 +112,30 @@ export function disruptActions(state: DisruptState, radii: { killRadius: number;
   ];
 }
 
-export function createDisrupt(ctx: PopoverContext): Popover {
+export function createDisrupt(ctx: PopoverContext): Popover & { refresh(): void } {
   const el = h('div', { class: 'popover surface chrome', 'aria-label': 'Disrupt: failures and radio' });
   let loss = 5;
+  let shownLive: ReturnType<PopoverContext['live']> | null = null;
+  const stateNow = (): DisruptState => {
+    const status = ctx.status();
+    const live = ctx.live();
+    return { selectedId: status.selectedId, selectedAlive: status.selectedAlive, jamActive: live.jam, partitioned: live.partition };
+  };
   function render(): void {
     const status = ctx.status();
     const live = ctx.live();
+    shownLive = { ...live };
     const state: DisruptState = { selectedId: status.selectedId, selectedAlive: status.selectedAlive, jamActive: live.jam, partitioned: live.partition };
     // The radii live in the store (K and J read them too): read them again whenever they are used, never once per render.
-    const now = (id: string) => disruptActions(state, ctx.store.state).find(x => x.id === id);
+    const now = (id: string) => disruptActions(stateNow(), ctx.store.state).find(x => x.id === id);
     const actions = disruptActions(state, ctx.store.state);
     const descs = new Map<string, HTMLElement>();
+    const buttons = new Map<string, HTMLElement>();
+    const focused = el.contains(document.activeElement) ? document.activeElement?.getAttribute('data-action') : null;
     const button = (a: DisruptAction) => {
       const desc = h('small', {}, a.desc);
       descs.set(a.id, desc);
-      return h('button', {
+      const control = h('button', {
         type: 'button', class: `action ${a.active ? 'active' : ''}`, disabled: a.disabled, 'data-action': a.id,
         onclick: () => {
           const run = (now(a.id) ?? a).run;   // a slider moved since render() is the radius that is used
@@ -135,6 +144,8 @@ export function createDisrupt(ctx: PopoverContext): Popover {
         },
       }, h('span', { class: 'ic', html: a.id === 'kill-region' ? icon.region : a.id === 'kill-random' ? icon.dice : a.id === 'jam' ? icon.jam : a.id === 'partition' ? icon.split : icon.kill }),
       h('span', { class: 'txt' }, h('b', {}, a.title), desc), a.key ? h('kbd', {}, a.key) : null);
+      buttons.set(a.id, control);
+      return control;
     };
     const slider = (label: string, min: number, max: number, step: number, value: number, unit: string, set: (v: number) => void) => {
       const out = h('span', { class: 'mono hint' }, `${value}${unit}`);
@@ -159,8 +170,14 @@ export function createDisrupt(ctx: PopoverContext): Popover {
         ...slider('Packet loss', 0, 100, 5, loss, '%', v => { loss = v; }),
         h('div', { class: 'row' }, h('span', { class: 'grow' }), h('button', { type: 'button', class: 'btn small', 'data-action': 'loss', onclick: () => { ctx.surfaces.close('disrupt', false); ctx.run({ type: 'loss', loss: loss / 100 }); } }, 'Apply loss'))),
     );
+    if (focused) buttons.get(focused)?.focus();
   }
-  return { el, render };
+  // Rebuild only after a live toggle; periodic chrome refreshes must not interrupt a slider drag.
+  function refresh(): void {
+    const live = ctx.live();
+    if (shownLive?.jam !== live.jam || shownLive?.partition !== live.partition) render();
+  }
+  return { el, render, refresh };
 }
 
 // ---------- Lenses ----------
