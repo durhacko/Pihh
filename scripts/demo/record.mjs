@@ -243,7 +243,10 @@ async function main() {
     for (const error of pageErrors) problems.push(`Page error: ${error}`);
     if (started && endCaption && final.tick < END_TICK) problems.push(`End caption shown at tick ${final.tick}, before tick ${END_TICK}.`);
 
-    // Timeline: capture times are Chrome's paint times, so the video plays at the speed the show ran.
+    // Timeline: capture times are Chrome's paint times, so the video plays at the speed the show ran. Chrome can
+    // deliver screencast frames a few ms out of paint order; put them back in paint order (the order they were shown).
+    const outOfOrder = frames.filter((f, i) => i > 0 && f.timestamp < frames[i - 1].timestamp).length;
+    frames.sort((a, b) => a.timestamp - b.timestamp);
     const firstFrame = frames[0]?.timestamp ?? pressAt;
     const intervals = frames.slice(1).map((f, i) => (f.timestamp - frames[i].timestamp) * 1000);
     const showSamples = rec.samples.filter(s => s.showPressed);
@@ -261,7 +264,7 @@ async function main() {
         note: 'Wall time includes the script\'s 0.5x section (ticks 1280-1340), so it is about 3 s longer than 90 s of sim time.' },
       renderFps: { wholeRecording: intervalStats(rec.deltas), perSecond: perSecond(rec.deltas),
         appReadout: (() => { const v = showSamples.map(s => s.appFps).filter(x => x !== null); return v.length ? { min: Math.min(...v), mean: round(v.reduce((a, b) => a + b, 0) / v.length, 1), max: Math.max(...v) } : null; })() },
-      captureFps: { frames: frames.length, ...intervalStats(intervals), perSecond: perSecond(intervals) },
+      captureFps: { frames: frames.length, deliveredOutOfPaintOrder: outOfOrder, ...intervalStats(intervals), perSecond: perSecond(intervals) },
       simulation: (() => {
         if (showSamples.length < 2) return null;
         const a = showSamples[0], b = showSamples.at(-1);

@@ -64,5 +64,7 @@ The script only reads the page: the DOM, `window.encore.tick()` and the readout'
 
 - **Capture is less smooth than the app.** On the Intel Arc 140T laptop, the app rendered at 108 fps mean while recording. The screencast delivered 57 fps mean, with 23 gaps over 100 ms (the longest 250 ms) and a worst second of 19 frames. Those gaps are visible as brief stutters. They are a limit of the capture, not of the simulation, which kept its 20 Hz clock. The sidecar reports them for every run.
 - Recording costs frame rate. The same laptop renders 180+ fps without a screencast.
+- **Other load on the machine shows up in the video.** A later run on main (90f6d97) was made while other work held the CPU at about 86%. Render fell to 72.6 fps mean, and capture to 34.8 fps mean with 106 gaps over 100 ms. In 5% of seconds only 3 to 5 frames were captured, which shows as visible freezes. The simulation still kept its clock. Record on a quiet machine, and check `captureFps.perSecond` before using a file.
+- Chrome can deliver screencast frames a few ms out of paint order (444 of 3393 in that run). The script puts them back in paint order and counts them in `captureFps.deliveredOutOfPaintOrder`.
 - Windows only: cdp.mjs's `launch()` can read `DevToolsActivePort` while Chrome still holds it locked (EBUSY), and `close()` can fail to delete the profile (EPERM). `record.mjs` retries that read itself and treats the cleanup failure as a warning. The proper fix belongs in `scripts/perf/cdp.mjs`.
 - No audio track.
