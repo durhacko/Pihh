@@ -1,7 +1,8 @@
 // src/app/ui/Legend.ts
-// The legend (DESIGN.md §4): appears only while something on the stage needs a key: the radio X-ray (with the
-// honest "radio drawn n / m" counter), belief colours (version counts from the observer), deaf rings, and the
-// partition. Every count comes from a snapshot, the radio layer's own tally or an observer MetricsSample.
+// The legend (DESIGN.md §4): appears only while something on the stage needs a key: tethers (belief, never radio:
+// shown exactly while the tether layer drew any), the radio X-ray (with the honest "radio drawn n / m" counter),
+// belief colours (version counts from the observer), deaf rings, and the partition. Every count comes from a
+// snapshot, the radio or tether layer's own tally or an observer MetricsSample.
 // It replaces the X-ray layers' own floating counter and belief legend, which it hides (one key, not three).
 // Shared module: no createPanel export, so the panel loader skips it.
 import type { RGB } from '../../contracts';
@@ -19,6 +20,8 @@ export interface LegendInput {
   partitions: number;
   /** Ghost-slot counts from the observer's slot status (Observer.slotStatus), or null while the lens is off. */
   ghosts: { vacant: number; inTransit: number; contested: number; inHold: boolean } | null;
+  /** Tether lines the shown panes drew last frame (TetherLayer's own tally, via drawnTethers); absent = none. */
+  tethers?: number;
   /** The arm the counts are from, named on every title when both arms are on stage (split view). */
   arm?: string;
 }
@@ -30,9 +33,14 @@ export type LegendItem =
 
 const css = (c: RGB): string => `rgb(${c.map(v => Math.round(v * 255)).join(',')})`;
 
+/** The tether legend row: amber like the lines (TETHER_COLOUR 0xffb547 = --transit), and named as belief, not radio. */
+export const TETHER_ROW: LegendItem = { kind: 'line', text: 'Tether · drone → the target it believes (belief, not radio)', colour: 'var(--transit)' };
+
 export function legendItems(input: LegendInput): LegendItem[] {
   const items: LegendItem[] = [];
   const of = (text: string) => (input.arm ? `${input.arm} · ${text}` : text);
+  // First and outside every titled block, so it never reads as part of "Radio · real log" (or of the slots key).
+  if ((input.tethers ?? 0) > 0) items.push(TETHER_ROW);
   if (input.xray) {
     items.push({ kind: 'title', text: of('Radio · real log') },
       { kind: 'line', text: 'Heartbeat (sampled)', colour: 'var(--hb)' },
@@ -59,6 +67,17 @@ export function legendItems(input: LegendInput): LegendItem[] {
   if (input.deaf > 0) items.push({ kind: 'ring', text: of('Deaf: heard no radio for 2 s'), colour: '#ffffff', count: input.deaf });
   if (input.partitions > 0 && input.xray) items.push({ kind: 'line', text: 'Partition active (groups fixed at split)', colour: 'var(--partition)' });
   return items;
+}
+
+/**
+ * How many tether lines are on screen in one pane, from the tether layer's own tally (TetherLayer sets
+ * userData.tethers and lines.visible each frame; setVisible(false) hides them at once). Pure, three-free: pass
+ * `view.scene.children`.
+ */
+export function drawnTethers(objects: readonly { visible: boolean; userData: Record<string, unknown> }[]): number {
+  let n = 0;
+  for (const o of objects) if (o.visible && typeof o.userData.tethers === 'number') n += o.userData.tethers;
+  return n;
 }
 
 export interface Legend { readonly el: HTMLElement; update(input: LegendInput): void; dispose(): void }

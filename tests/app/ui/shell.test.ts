@@ -6,12 +6,13 @@ import { describe, expect, it } from 'vitest';
 import type { MetricsSample } from '../../../src/contracts';
 import { createActionController, STATIC_SELECTION_REFUSAL, type ControlStatus } from '../../../src/app/actions';
 import { liveState } from '../../../src/app/ui/commands';
-import { createDemoRunner, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoStartProblem, demoSubline } from '../../../src/app/ui/DemoScript';
-import { legendItems } from '../../../src/app/ui/Legend';
+import { DEFAULT_PARAMS } from '../../../src/contracts';
+import { createDemoRunner, DEMO_BEATS, DEMO_N0, DEMO_SEED, DEMO_TICKS, demoStartProblem, demoSubline, KILL_RADIUS } from '../../../src/app/ui/DemoScript';
+import { legendItems, TETHER_ROW } from '../../../src/app/ui/Legend';
 import { connectInspector, inspectorArm, type InspectorSource } from '../../../src/app/ui/Inspector';
-import { createSelectionArm, disruptActions, jamKeyAction, pickAnswered, scrollByKey, stageClick, type DisruptRun } from '../../../src/app/ui/popovers';
+import { createSelectionArm, disruptActions, jamKeyAction, jamKeyRun, killKeyRun, pickAnswered, scrollByKey, stageClick, type DisruptRun } from '../../../src/app/ui/popovers';
 import { readoutItems } from '../../../src/app/ui/Readout';
-import { defaultUIState, Store } from '../../../src/app/ui/store';
+import { DEFAULT_JAM_RADIUS, DEFAULT_KILL_RADIUS, defaultUIState, paneLabels, Store } from '../../../src/app/ui/store';
 import { handleEscape, Surfaces, type SurfaceEnv } from '../../../src/app/ui/surfaces';
 import { ARMS, controlContext, createWorlds } from '../../../src/app/worlds';
 
@@ -68,7 +69,7 @@ describe('legend', () => {
 });
 
 describe('disrupt popover', () => {
-  const settings = { regionRadius: 8, jamRadius: 12 };
+  const settings = { killRadius: 8, jamRadius: 12 };
   const idle = { selectedId: null, selectedAlive: false, jamActive: false, partitioned: false };
   it('offers region kill and jam as picks, the rest as intents; kill-selected needs a live selection', () => {
     const a = disruptActions(idle, settings);
@@ -261,17 +262,17 @@ describe('static-pane selections (#113 re-review)', () => {
 
   it('a static click, then a controller (demo / console) select: store and inspector both say Encore', () => {
     const r = rig();
-    r.arm.within('static', () => r.controller.selectDrone(10));
+    r.arm.within('static', 10, () => r.controller.selectDrone(10));
     expect(r.selected()).toEqual({ id: 10, arm: 'static' });
     expect(inspectorArm()).toBe('static');
     r.controller.selectDrone(30);                                  // the demo's select beat, console --drone, inject --pick
     expect(r.selected()).toEqual({ id: 30, arm: 'encore' });
     expect(inspectorArm()).toBe('encore');
     // A refused static selection does not leak its arm into the next selection.
-    expect(r.arm.within('static', () => r.controller.selectDrone(999)).ok).toBe(false);
+    expect(r.arm.within('static', 999, () => r.controller.selectDrone(999)).ok).toBe(false);
     r.controller.selectDrone(31);
     expect(inspectorArm()).toBe('encore');
-    r.arm.within('static', () => r.controller.selectDrone(null));
+    r.arm.within('static', null, () => r.controller.selectDrone(null));
     expect(r.selected()).toBeNull();
     expect(inspectorArm()).toBe('encore');
     connectInspector(null);
@@ -279,7 +280,7 @@ describe('static-pane selections (#113 re-review)', () => {
 
   it('K, J and inject centred on a static selection refuse; the same drone selected in Encore works', () => {
     const r = rig();
-    r.arm.within('static', () => r.controller.selectDrone(12));
+    r.arm.within('static', 12, () => r.controller.selectDrone(12));
     const log = r.controller.getEventLog().length;
     for (const intent of [{ type: 'kill-region', radius: 8 }, { type: 'jam', radius: 12 }, { type: 'inject', recipe: { kind: 'text', text: 'HI' } }] as const) {
       expect(r.controller.handle(intent)).toEqual({ ok: false, message: STATIC_SELECTION_REFUSAL });
@@ -290,7 +291,7 @@ describe('static-pane selections (#113 re-review)', () => {
     r.controller.selectDrone(12);
     expect(r.controller.handle({ type: 'jam', radius: 12 }).event).toMatchObject({ type: 'JAM_ON', centre: r.worlds.latest()!.encore.drones[12].pos });
     // Lifting the jam needs no centre, so a static selection may lift it.
-    r.arm.within('static', () => r.controller.selectDrone(13));
+    r.arm.within('static', 13, () => r.controller.selectDrone(13));
     expect(r.controller.handle({ type: 'jam' }).event).toMatchObject({ type: 'JAM_OFF' });
     connectInspector(null);
   });
@@ -304,5 +305,102 @@ describe('static-pane selections (#113 re-review)', () => {
     const final = DEMO_BEATS.filter(b => b.tick === DEMO_TICKS.FINAL);
     expect(final[0]).toMatchObject({ id: 'final-layout', action: { kind: 'layout', view: 'split' } });
     expect(final.find(b => b.id === 'final-view')!.caption).toMatch(/still split/);
+  });
+});
+
+describe('selection arm is tied to the id (#134 follow-up to #161)', () => {
+  it('only the selection of the within() id takes the arm, once; a refused selection cannot leak it to a nested one', () => {
+    const arm = createSelectionArm();
+    arm.within('static', 10, () => {
+      expect(arm.current(151)).toBe('encore');   // a demo beat run from this selection's status, before or after it
+      expect(arm.current(10)).toBe('static');
+      expect(arm.current(10)).toBe('encore');    // one-shot
+    });
+    // `inspect 999 --static`: refused, so current(999) never runs; the demo's select of 151 in the same emit is Encore.
+    arm.within('static', 999, () => { expect(arm.current(151)).toBe('encore'); });
+    expect(arm.current(10)).toBe('encore');      // nothing outlives within()
+    arm.within('static', null, () => { expect(arm.current(null)).toBe('encore'); });
+  });
+});
+
+describe('tether legend (#134 P0)', () => {
+  const off = { xray: false, belief: false, versions: null, radio: null, deaf: 0, partitions: 0, ghosts: null };
+  it('keys tethers as belief, not radio, exactly while any are drawn, outside the radio block', () => {
+    expect(TETHER_ROW).toEqual({ kind: 'line', text: 'Tether · drone → the target it believes (belief, not radio)', colour: 'var(--transit)' });
+    expect(legendItems(off)).toEqual([]);
+    expect(legendItems({ ...off, tethers: 0 })).toEqual([]);
+    expect(legendItems({ ...off, tethers: 1 })).toEqual([TETHER_ROW]);   // e.g. the selected drone's tether alone
+    const xray = legendItems({ ...off, xray: true, tethers: 180 });
+    expect(xray[0]).toEqual(TETHER_ROW);                                  // before, so never under, 'Radio · real log'
+    expect(xray[1]).toEqual({ kind: 'title', text: 'Radio · real log' });
+    expect(legendItems({ ...off, xray: true })).not.toContainEqual(TETHER_ROW);   // X-ray with the lens off draws none
+    expect(legendItems({ ...off, xray: true, tethers: 3, arm: 'Encore' })[0]).toEqual(TETHER_ROW);   // covers both panes: no arm prefix
+  });
+  it('tethers start off', () => {
+    expect(defaultUIState().lenses.tethers).toBe(false);
+  });
+});
+
+describe('one region-kill radius (#134 P1)', () => {
+  const idle = { selectedId: null, selectedAlive: false, jamActive: false, partitioned: false };
+  it('defaults to 6 m: the demo kill and the console default (params.rClaim) agree with K and Disrupt', () => {
+    expect(DEFAULT_KILL_RADIUS).toBe(6);
+    expect(DEFAULT_KILL_RADIUS).toBe(KILL_RADIUS);
+    expect(DEFAULT_KILL_RADIUS).toBe(DEFAULT_PARAMS.rClaim);   // `fault kill-region` without --radius
+    expect(DEFAULT_JAM_RADIUS).toBe(12);
+    const s = defaultUIState();
+    expect(s.killRadius).toBe(DEFAULT_KILL_RADIUS);
+    expect(killKeyRun(null, s.killRadius)).toEqual({ kind: 'pick', purpose: 'killRegion', radius: 6 });
+    expect(killKeyRun(7, s.killRadius)).toEqual({ kind: 'intent', intent: { type: 'kill-region', radius: 6 } });
+    const row = disruptActions(idle, s).find(a => a.id === 'kill-region')!;
+    expect(row.run).toEqual(killKeyRun(null, s.killRadius));   // K without a selection and the Disrupt row are the same action
+    expect(row.desc).toContain('within 6 m');
+  });
+  it('a slider change in the store is what K, J and the Disrupt rows use next', () => {
+    const store = new Store(defaultUIState());
+    store.set({ killRadius: 10, jamRadius: 20 });
+    expect(disruptActions(idle, store.state).find(a => a.id === 'kill-region')).toMatchObject({ desc: expect.stringContaining('within 10 m'), run: { radius: 10 } });
+    expect(disruptActions(idle, store.state).find(a => a.id === 'jam')).toMatchObject({ desc: expect.stringContaining('within 20 m'), run: { radius: 20 } });
+    expect(killKeyRun(3, store.state.killRadius)).toEqual({ kind: 'intent', intent: { type: 'kill-region', radius: 10 } });
+    expect(jamKeyRun(false, true, store.state.jamRadius)).toEqual({ kind: 'intent', intent: { type: 'jam', radius: 20 } });
+    expect(jamKeyRun(false, false, store.state.jamRadius)).toEqual({ kind: 'pick', purpose: 'jam', radius: 20 });
+    expect(jamKeyRun(true, true, store.state.jamRadius)).toEqual({ kind: 'intent', intent: { type: 'jam' } });
+  });
+  it('K around a selected drone kills exactly the console default set', () => {
+    const worlds = createWorlds({ seed: 4, n0: 60 });
+    for (let t = 0; t < 40; t++) worlds.stepBoth();
+    const transport = { playing: false, speed: 1 };
+    const controller = createActionController(controlContext(worlds, {
+      getSnapshots: () => worlds.latest()!, getTransport: () => ({ ...transport, seed: worlds.seed }),
+      setPlaying: p => { transport.playing = p; }, setSpeed: s => { transport.speed = s; }, reset: s => { worlds.reset(s); worlds.stepBoth(); },
+    }));
+    controller.handle({ type: 'select', id: 10 });
+    const k = killKeyRun(10, defaultUIState().killRadius);
+    if (k.kind !== 'intent') throw new Error('expected an intent');
+    const viaK = controller.handle(k.intent).event;
+    const viaConsole = controller.handle({ type: 'kill-region' }).event;   // what `fault kill-region` sends (commands.ts)
+    expect(viaK).toMatchObject({ type: 'KILL' });
+    expect(viaConsole).toMatchObject({ type: 'KILL', ids: (viaK as { ids: number[] }).ids });
+  });
+});
+
+describe('pane labels (#134 P1)', () => {
+  const ENCORE_DESC = 'decentralised, self-healing';
+  const STATIC_DESC = 'pre-programmed baseline · sends no radio';
+  it('names the shown arm in every view: single Encore, single static, and both panes in split', () => {
+    expect(paneLabels('encore')).toEqual({ top: { arm: 'encore', name: 'ENCORE', desc: ENCORE_DESC }, bottom: null });
+    expect(paneLabels('static')).toEqual({ top: { arm: 'static', name: 'STATIC', desc: STATIC_DESC }, bottom: null });
+    expect(paneLabels('split')).toEqual({
+      top: { arm: 'encore', name: '▲ ENCORE', desc: ENCORE_DESC },
+      bottom: { arm: 'static', name: '▼ STATIC', desc: STATIC_DESC },
+    });
+  });
+  it('a single view words its arm exactly as that arm\'s split pane does, minus the arrow', () => {
+    const split = paneLabels('split');
+    for (const [single, pane] of [[paneLabels('encore').top, split.top], [paneLabels('static').top, split.bottom!]] as const) {
+      expect(single.arm).toBe(pane.arm);
+      expect(single.desc).toBe(pane.desc);
+      expect(pane.name.replace(/^[▲▼] /, '')).toBe(single.name);
+    }
   });
 });

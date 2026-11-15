@@ -17,12 +17,17 @@ export const DEMO_N0 = 200;
 const SECOND = Math.round(1 / DT);
 /**
  * When each beat lands. FORMATION is the default score's movement 1 start; NEW_MOVEMENT is INJECT + scoreLead.
+ * REPAIR is measured (seed 101, Encore brain, this script's events): the first claim heartbeat goes out at tick 455,
+ * the first slot commit is at 475, and the observer sees the first vacated slot occupied at 495 (7 of 20 by 505).
+ * nPWC dips to 0.921 at 490 while the claimers leave their own slots, then 0.958 at 505 and 0.972 from 675; the
+ * static arm stays at 0.931. So the caption lands at 23 s, just after the first claim, and the repair beat turns
+ * X-ray off (it dims the show to 25%) so the hole and its refill show; the jam beat turns it back on.
  * With paced steering targets (#96) the swarm arrives on the sphere about 60 ticks before its hold: every live drone
  * is within rOcc of its own target from tick 1216 (measured, seed 101, either brain). The jam therefore starts at
  * 61 s, on the formed sphere, so it covers a cap of it rather than whoever is passing through mid-flight.
  */
 export const DEMO_TICKS = Object.freeze({
-  LAUNCH: 1, XRAY: 12 * SECOND, SPLIT: 16 * SECOND, KILL: 20 * SECOND, REPAIR: 21 * SECOND, FORMATION: 963,
+  LAUNCH: 1, XRAY: 12 * SECOND, SPLIT: 16 * SECOND, KILL: 20 * SECOND, REPAIR: 23 * SECOND, FORMATION: 963,
   JAM_ON: 61 * SECOND, INJECT: 64 * SECOND, NEW_MOVEMENT: 64 * SECOND + 60, JAM_OFF: 73 * SECOND,
   FINAL: 82 * SECOND, END: 90 * SECOND,
 });
@@ -56,7 +61,7 @@ export const DEMO_BEATS: readonly DemoBeat[] = [
   { id: 'xray', tick: T.XRAY, action: { kind: 'view', xray: true, beliefColours: false }, caption: 'X-ray on. Each line is a real heartbeat from the radio log, sampled. The static baseline sends none.' },
   { id: 'split', tick: T.SPLIT, action: { kind: 'layout', view: 'split' }, caption: 'In split view, the static baseline flies below: same seed, same physics, same failures, no radio.' },
   { id: 'kill', tick: T.KILL, action: control({ type: 'kill-region', centre: KILL_CENTRE, radius: KILL_RADIUS, at: T.KILL }), caption: 'Knock out part of one letter in both worlds: about 10% of the swarm, the same drones on the same tick.' },
-  { id: 'repair', tick: T.REPAIR, action: null, caption: 'Encore arm: neighbours sense the gap and claim its most important slots by heartbeat, so part of the hole refills from its rim. Static baseline: the hole stays.' },
+  { id: 'repair', tick: T.REPAIR, action: { kind: 'view', xray: false, beliefColours: false }, caption: 'Encore arm: neighbours sense the gap and claim its most important slots by heartbeat, so part of the hole refills from its rim. Static baseline: the hole stays.' },
   { id: 'formation', tick: T.FORMATION, action: null, caption: 'Next movement: the survivors re-form as a sphere by the shared clock; no message is needed to do it.' },
   { id: 'jam', tick: T.JAM_ON, action: control({ type: 'jam', centre: JAM_CENTRE, radius: JAM_RADIUS, at: T.JAM_ON }), caption: 'Jam the radio over the top of the formation: nothing in or out. Encore arm: drones inside turn deaf and keep flying their score.' },
   { id: 'belief', tick: T.JAM_ON, action: { kind: 'view', xray: true, beliefColours: true }, caption: '' },
@@ -91,6 +96,13 @@ export function brainNote(status: Pick<ControlStatus, 'brains'> | undefined, cap
 export function dispatchTick(beat: DemoBeat): number {
   const timed = beat.action?.kind === 'control' && 'at' in beat.action.intent && beat.action.intent.at !== undefined;
   return timed ? beat.tick - LEAD_TICKS : beat.tick;
+}
+
+/** The overlays the script has set by `tick`: its clean show starts with both off, then each view beat due by then. */
+export function demoViewAt(tick: number, beats: readonly DemoBeat[] = DEMO_BEATS): { xray: boolean; beliefColours: boolean } {
+  let view = { xray: false, beliefColours: false };
+  for (const beat of beats) if (beat.action?.kind === 'view' && dispatchTick(beat) <= tick) view = { xray: beat.action.xray, beliefColours: beat.action.beliefColours };
+  return view;
 }
 
 export interface DemoHost {
