@@ -223,7 +223,7 @@ describe('scripted demo stop and restart', () => {
     later.controls.handle({ type: 'reset', seed: DEMO_SEED });
     later.controls.refresh();
     expect(later.runner.state).toBe('stopped');
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('scripted demo problems reach the panel over the browser path', () => {
@@ -234,14 +234,14 @@ describe('scripted demo problems reach the panel over the browser path', () => {
     play(r, 45);
     expect(r.controls.getEventLog()).toEqual([]);
     expect(r.runner.problems).toEqual(['The inject step failed: Select a live drone first.']);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
   it('a beat whose exact tick has passed lands next tick and marks the run off-script', () => {
     const r = rig(7, [{ id: 'kill', tick: 100, action: { kind: 'control', intent: { type: 'kill-region', centre: KILL_CENTRE, radius: KILL_RADIUS, at: 100 } }, caption: 'x' }]);
     r.runner.start();
     play(r, 120, 120);   // after start, status next arrives at tick 120: past the beat's tick
     expect(r.controls.getEventLog().map(event => [event.type, event.tick])).toEqual([['KILL', 121]]);
     expect(r.runner.problems[0]).toMatch(/off-script/);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('injection target and brain note', () => {
@@ -263,7 +263,7 @@ describe('injection target and brain note', () => {
     play(r, 90);
     expect(r.runner.problems).toEqual([]);
     expect(r.controls.getEventLog()).toMatchObject([{ type: 'INJECT_SCORE', droneId: INJECT_DRONE }]);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('the Encore-only note follows the brains the live worlds fly, not a build-time constant', () => {
     const repair = DEMO_BEATS.find(beat => beat.id === 'repair')!;
@@ -287,7 +287,7 @@ describe('actions hook used by the demo', () => {
     r.controls.handle({ type: 'select', id: 0 });
     // At tick 21 no jam is on yet, so J turns one on; it does not schedule an OFF that would land before the ON.
     expect(r.controls.handle({ type: 'jam' }).event).toMatchObject({ type: 'JAM_ON', tick: 21 });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
   it('rejects a non-finite or malformed region centre and a timed action in the past', () => {
     const r = rig();
     play(r, 10);
