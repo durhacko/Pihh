@@ -1,6 +1,6 @@
 // integrations/gateway/src/gemini/mapResponse.ts
 // Maps one provider call's raw result to exactly one `ProviderOutcome` (GF-WP-12 step 5, spec §10.1 and §10.3). The
-// live adapter (later, under D3) copies the few SDK fields below into `RawProviderResponse` and calls this; it never
+// live adapter (geminiProvider.ts) copies the few response fields below into `RawProviderResponse` and calls this; it never
 // interprets finish reasons itself, so the mapping is tested offline here. SDK-free: plain data in, plain data out.
 //
 // Rules: a non-200 status is an upstream error; a `promptFeedback.blockReason` blocks; only a `STOP` finish is parsed;

@@ -1,5 +1,6 @@
 // TIG-03 (offline): the three credential loaders, the TLS rules (T35), credential separation (T31), the schema-name
 // helper (T33) and the module's disabled state. No database, no network.
+import '../no-network.mjs'; // the network tripwire, FIRST: it must be in force before any module captures fetch
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { inspect } from 'node:util';
@@ -10,6 +11,8 @@ import {
 } from '../../src/tiger/config.ts';
 import { createModule, moduleDisabled } from '../../src/tiger/module.ts';
 import { checkSchemaName, schemaStatements, SchemaNameError } from '../../src/tiger/schemaName.ts';
+
+assert.equal(fetch.name, 'guardedFetch', 'the network tripwire (test/no-network.mjs) is not in force');
 
 const HOST = 'svc-abc123.tsdb.cloud.example';
 const PASSWORD = 'pw-not-real-Zx9';

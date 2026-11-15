@@ -1,12 +1,15 @@
 // integrations/gateway/src/gemini/provider.ts
 // The provider side of the `gemini` module (GF-WP-12, spec §10.3): the per-attempt timeout and the retry policy,
-// wrapped around any `GeminiProvider`. The live adapter (later, under D3) only turns one SDK call into one
-// `ProviderOutcome` (see mapResponse.ts); it never retries on its own (spec §10.3: disable the SDK's retries, whose
-// default list also retries 408 and 5xx).
+// wrapped around any `GeminiProvider`, and the per-process call cap. The live adapter (geminiProvider.ts, wired under
+// D3 by module.ts) turns one HTTP call into one `ProviderOutcome` (see mapResponse.ts); it never retries on its own.
 //
 // Policy (spec §10.3, GF-T33 (2)–(3)): retry **only** an upstream 429 or 503; at most 2 retries; exponential backoff
 // with jitter; never past the whole-request deadline (the caller's `signal`). Every other outcome, a timeout included,
 // is final. No network code here: the wrapped provider does the calling.
+//
+// Call cap (D3, free quota only): `withCallCap` sits UNDER the retry policy, so every upstream attempt counts. A slot
+// is taken before the call starts, so concurrent requests cannot overshoot; once the cap is reached the outcome is
+// `call-cap` (429 RATE_LIMITED / CALL_CAP_REACHED), nothing is sent, and only a restart resets it.
 import type { GeminiProvider, ProviderOutcome, ProviderRequest } from './types.ts';
 
 export const RETRY_POLICY = Object.freeze({
@@ -74,6 +77,26 @@ async function attempt(provider: GeminiProvider, request: ProviderRequest, signa
     clearTimeout(timer);
     signal.removeEventListener('abort', forward);
   }
+}
+
+/** A provider limited to `max` calls for its lifetime, and how many it has used (for health). */
+export interface CappedProvider extends GeminiProvider {
+  readonly calls: () => { readonly used: number; readonly max: number };
+}
+
+/** Wraps a provider so that at most `max` calls ever reach it (see the header). `max` below 1 allows none. */
+export function withCallCap(provider: GeminiProvider, max: number): CappedProvider {
+  const limit = Number.isInteger(max) && max > 0 ? max : 0;
+  let used = 0;
+  return {
+    model: provider.model,
+    calls: () => ({ used, max: limit }),
+    async generate(request: ProviderRequest, signal: AbortSignal): Promise<ProviderOutcome> {
+      if (used >= limit) return { kind: 'call-cap' };
+      used += 1;
+      return provider.generate(request, signal);
+    },
+  };
 }
 
 /** Wraps a provider with the per-attempt timeout and the 429/503 retry policy. `model` passes through. */

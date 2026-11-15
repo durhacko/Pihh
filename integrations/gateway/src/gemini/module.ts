@@ -5,15 +5,17 @@
 // GEMINI_API_KEY are set (config.ts, which reads the key as a `Secret` and never logs it); otherwise it has no provider
 // and `POST /api/generate-formation` answers 503 PROVIDER_UNAVAILABLE / MODULE_DISABLED, exactly as before. When live,
 // the provider is geminiProvider.ts (plain HTTP to generateContent, model GEMINI_MODEL) with the platform fetch as its
-// transport, wrapped by `geminiModule` in the 429/503 retry policy. The guard, limits, timeouts, redaction and error
-// mapping are unchanged: they live in the handler and the skeleton.
+// transport, capped at GEMINI_MAX_CALLS upstream calls per process (default 50, every attempt counts; then 429
+// RATE_LIMITED / CALL_CAP_REACHED), and wrapped by `geminiModule` in the 429/503 retry policy. GEMINI_RESPONSE_SCHEMA
+// picks what the request carries for the scene shape (ResponseSchemaMode, below). The guard, limits, timeouts,
+// redaction and error mapping live in the handler and the skeleton.
 import { readFileSync } from 'node:fs';
 import type { Env } from '../config.ts';
 import type { GatewayModule, ModuleFactory } from '../module.ts';
 import { readGeminiConfig, type GeminiConfig } from './config.ts';
 import { createGeminiProvider, PLACEHOLDER_PROMPTS, type Transport, type UpstreamErrorClass } from './geminiProvider.ts';
 import { geminiAvailable, handleGenerateFormation, type GeminiDeps } from './handler.ts';
-import { abortableSleep, withRetries, type RetryDeps } from './provider.ts';
+import { abortableSleep, withCallCap, withRetries, type RetryDeps } from './provider.ts';
 import type { FormationMode } from './types.ts';
 import { createSceneValidator, TRIAL_COMPILE_AVAILABLE } from './validate.ts';
 
@@ -120,10 +122,14 @@ export function rangesPrompts(): Readonly<Record<FormationMode, string>> {
   return Object.freeze({ silhouette2d: line('silhouette2d'), scene3d: line('scene3d') });
 }
 
-/** The last upstream call as health may show it (sanitised: no key, prompt, model text or error body). */
+/** The last upstream call as health may show it. Never the key, the prompt, the model's text, or any message or free
+ *  text from Google: only the HTTP status (0 when nothing was answered: refused, aborted or unreachable), the outcome
+ *  kind, an identifier-shaped finish reason, the latency and the time. */
 export interface LastUpstream {
   readonly httpStatus: number; readonly outcome: string; readonly finishReason?: string; readonly latencyMs: number; readonly at: string;
-  /** For a 4xx/5xx: Google's error.status, details[].reason and fieldViolations[].field, sanitised (no message). */
+  /** For a 4xx/5xx: a classification read from the error body (bounded): Google's error.status, details[].reason,
+   *  fieldViolations[].field, and quoted names and paths, each kept only if identifier-shaped. The body and its
+   *  messages themselves are never kept. */
   readonly error?: UpstreamErrorClass;
 }
 
@@ -132,22 +138,23 @@ export function defaultGeminiDeps(config: GeminiConfig): GeminiDeps {
   return { config, provider: null, validator: createSceneValidator() };
 }
 
-/** The module as this build runs it: live when the config is enabled (flag and key), offline otherwise. `onUpstream`
- *  receives each call's sanitised outcome (status, outcome kind, sanitised finish reason, latency). */
+/** The module as this build runs it: live when the config is enabled (flag and key), offline otherwise. The live
+ *  provider is capped at `config.maxCalls` upstream calls (withCallCap, under the retry policy so each attempt counts).
+ *  `onUpstream` receives each call's sanitised outcome (status, outcome kind, sanitised finish reason, latency). */
 export function liveGeminiDeps(config: GeminiConfig, transport: Transport = PLATFORM_TRANSPORT, onUpstream?: (last: LastUpstream) => void, schemaMode: ResponseSchemaMode = 'full'): GeminiDeps {
   if (!config.enabled) return defaultGeminiDeps(config);
   const schemas = schemaMode === 'full' ? loadSceneSchemas()
     : schemaMode === 'slim' || schemaMode === 'ranges' ? loadSlimSceneSchemas()
       : schemaMode === 'bounded' ? loadSlimSceneSchemas(BOUNDED_DROPPED_KEYWORDS) : null;
   const prompts = schemaMode === 'text' ? schemaAsTextPrompts() : schemaMode === 'ranges' ? rangesPrompts() : null;
-  const provider = createGeminiProvider(config, {
+  const provider = withCallCap(createGeminiProvider(config, {
     transport, schemas, ...(prompts ? { prompts } : {}), now: () => performance.now(),
     observe: o => onUpstream?.({
       httpStatus: o.httpStatus, outcome: o.outcome, latencyMs: Math.round(o.latencyMs),
       ...(o.finishReason ? { finishReason: o.finishReason } : {}), ...(o.error ? { error: o.error } : {}), at: new Date().toISOString(),
     }),
-  });
-  return { config, provider, validator: createSceneValidator() };
+  }), config.maxCalls);
+  return { config, provider, validator: createSceneValidator(), liveCalls: provider.calls };
 }
 
 /** Builds the module from explicit deps (tests, and the live path). A provider is always wrapped in the retry policy.
@@ -159,7 +166,11 @@ export function geminiModule(deps: GeminiDeps, retry: RetryDeps = DEFAULT_RETRY_
     routes: [{ ...GENERATE_FORMATION_ROUTE, handle: request => handleGenerateFormation(request.rawBody, wired) }],
     health: () => {
       const last = lastUpstream?.() ?? null;
-      return { enabled: geminiAvailable(wired), trialCompile: TRIAL_COMPILE_AVAILABLE, ...(last ? { lastUpstream: last } : {}) };
+      const calls = deps.liveCalls?.() ?? null;
+      return {
+        enabled: geminiAvailable(wired), trialCompile: TRIAL_COMPILE_AVAILABLE,
+        ...(calls ? { liveCalls: { used: calls.used, max: calls.max } } : {}), ...(last ? { lastUpstream: last } : {}),
+      };
     },
   };
 }

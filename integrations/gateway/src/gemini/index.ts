@@ -1,5 +1,5 @@
 // integrations/gateway/src/gemini/index.ts
-// The `gemini` module's public surface (for tests and the later live adapter). The skeleton imports only
+// The `gemini` module's public surface (for tests). The skeleton imports only
 // `./module.ts`.
 export { createModule, defaultGeminiDeps, DEFAULT_RETRY_DEPS, geminiModule, GENERATE_FORMATION_ROUTE } from './module.ts';
 export { readGeminiConfig, GEMINI_DEFAULTS, type GeminiConfig } from './config.ts';

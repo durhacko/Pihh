@@ -1,6 +1,7 @@
 // MDB-WP-03 (#241): the shows module entry. Disabled in this build whatever the environment holds (no driver);
 // MONGODB_* only; health per spec section 10.4 (never a URI, user or reason); the route answer while disabled is
 // 503 DATABASE_UNAVAILABLE / MODULE_DISABLED (section 10.6, MDB-T18); the cached health ping (TTL, deadline, failures).
+import '../no-network.mjs'; // the network tripwire, FIRST: it must be in force before any module captures fetch
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { inspect } from 'node:util';
@@ -12,6 +13,8 @@ import {
   createModule, DEFAULT_DB_NAME, HEALTH_TTL_MS, moduleDisabledResponse, readShowsConfig, showsModule,
 } from '../../src/shows/module.ts';
 import type { ShowsRepository } from '../../src/shows/repository.ts';
+
+assert.equal(fetch.name, 'guardedFetch', 'the network tripwire (test/no-network.mjs) is not in force');
 
 const URI = 'mongodb+srv://runtime-user:not-a-real-password-123@cluster0.example.mongodb.net/?retryWrites=true';
 const DISABLED = { enabled: false, db: 'disabled', writable: false };

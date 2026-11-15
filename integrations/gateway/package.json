@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Optional local gateway for Encore integrations (X-RUN/live). Offline skeleton: no provider, no SDK, no outbound network code.",
+  "description": "Optional local gateway for Encore integrations (X-RUN/live). No dependencies, no SDK. Offline by default; the gemini module makes real calls to Google when GEMINI_ENABLED and GEMINI_API_KEY are both set (D3, free quota only, capped by GEMINI_MAX_CALLS). Tests load a network tripwire.",
   "engines": { "node": ">=22.12.0" },
   "scripts": {
     "start": "node --experimental-strip-types --disable-warning=ExperimentalWarning --import ./loader/register.mjs src/server.ts",

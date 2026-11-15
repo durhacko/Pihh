@@ -1,7 +1,7 @@
 // integrations/gateway/src/gemini/types.ts
 // The typed interface of `POST /api/generate-formation` (gemini spec §10.1, GF-WP-12): the request, the success body,
-// the scene-validator port and the provider port. No network code lives in this module; the live provider adapter is
-// a later PR, after GF-D1 and the credentials, and only implements `GeminiProvider`.
+// the scene-validator port and the provider port. Types only, no network code: the live adapter (geminiProvider.ts,
+// wired under D3 by module.ts) implements `GeminiProvider`.
 
 export const FORMATION_MODES = ['silhouette2d', 'scene3d'] as const;
 export type FormationMode = (typeof FORMATION_MODES)[number];
@@ -62,10 +62,12 @@ export interface ProviderRequest { prompt: string; mode: FormationMode; attemptT
  * - `other-finish`: any other finish reason; never parsed.
  * - `upstream-error`: the final HTTP status from the provider.
  * - `timeout`: an attempt ran past `attemptTimeoutMs` (504 TIMEOUT, §10.1).
+ * - `call-cap`: this process has used its GEMINI_MAX_CALLS allowance; nothing was sent (429 RATE_LIMITED).
  */
 export type ProviderOutcome =
   | { kind: 'output'; text: string; latencyMs: number }
   | { kind: 'timeout' }
+  | { kind: 'call-cap' }
   | { kind: 'truncated' }
   | { kind: 'blocked' }
   | { kind: 'other-finish'; finishReason: string }

@@ -1,7 +1,8 @@
 // Offline guarantees for this skeleton (#218): no outbound network API, no third-party import, no environment access
 // outside the entry point, no committed value, and nothing in the app or core imports the gateway (so it is never
 // bundled). The one inbound server is `src/server.ts`, which may import only `createServer` (and types) from
-// `node:http`. The live PRs relax these rules on purpose, in the one provider file each adds.
+// `node:http`. Live PRs relax these rules on purpose and narrowly: for Gemini (D3, #218) the one outbound transport is
+// the allow-listed `fetch` line in src/gemini/module.ts (GEMINI_TRANSPORT_LINE below).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -306,6 +307,7 @@ function envNamesRead(text: string, prefix: string): Set<string> {
 const ENV_PAIRS: [string, string, string, boolean][] = [
   ['src/config.ts', '.env.example', 'GATEWAY_', true],
   ['src/gemini/config.ts', 'src/gemini/.env.example', 'GEMINI_', true],
+  ['src/gemini/module.ts', 'src/gemini/.env.example', 'GEMINI_', true],   // GEMINI_RESPONSE_SCHEMA
   ['src/shows/module.ts', 'src/shows/.env.example', 'MONGODB_', false],
   ['src/tiger/module.ts', 'src/tiger/.env.example', 'TIGER_', false],
 ];

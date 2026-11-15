@@ -1,9 +1,12 @@
+import '../no-network.mjs'; // the network tripwire, FIRST: it must be in force before any module captures fetch
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readGeminiConfig, type GeminiConfig } from '../../src/gemini/config.ts';
 import { defaultGeminiDeps, handleGenerateFormation, type GeminiDeps, type ProviderOutcome, type SceneSpec } from '../../src/gemini/index.ts';
 import { isErrorEnvelope } from '../../src/errors.ts';
 import { acceptingValidator, fakeProvider, fakeValidator } from './fakes.ts';
+
+assert.equal(fetch.name, 'guardedFetch', 'the network tripwire (test/no-network.mjs) is not in force');
 
 const KEY = 'test-key-not-real-0123456789';
 const BODY = JSON.stringify({ prompt: '  a grey elephant ', mode: 'scene3d', requestId: 'r-000042' });
@@ -32,7 +35,7 @@ test('offline default: no key gives 503 PROVIDER_UNAVAILABLE / MODULE_DISABLED, 
   assert.deepEqual([e.status, e.code, e.reasons, e.requestId], [503, 'PROVIDER_UNAVAILABLE', ['MODULE_DISABLED'], 'r-000042']);
 });
 
-test('this build stays unavailable even with a key: no provider and no validator are shipped', async () => {
+test('defaultGeminiDeps (no provider) stays unavailable even with a key', async () => {
   const e = await errorOf(defaultGeminiDeps(enabled()));
   assert.deepEqual([e.status, e.reasons], [503, ['MODULE_DISABLED']]);
   assert.ok(!e.text.includes(KEY));

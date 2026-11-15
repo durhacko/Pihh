@@ -1,3 +1,4 @@
+import '../no-network.mjs'; // the network tripwire, FIRST: it must be in force before any module captures fetch
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readGeminiConfig } from '../../src/gemini/config.ts';
@@ -9,6 +10,8 @@ import {
 import { PLACEHOLDER_PROMPTS } from '../../src/gemini/geminiProvider.ts';
 import { readFileSync } from 'node:fs';
 import { fakeProvider, fakeValidator } from './fakes.ts';
+
+assert.equal(fetch.name, 'guardedFetch', 'the network tripwire (test/no-network.mjs) is not in force');
 
 const KEY = 'test-key-not-real-0123456789';
 
@@ -177,7 +180,7 @@ test('gemini module (D3): health shows the last upstream call, sanitised (status
   const transport = async () => ({ status: 400, body: null });
   const config = readGeminiConfig({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY });
   const module = geminiModule(liveGeminiDeps(config, transport, l => { last = l; }), { random: () => 0.5, sleep: async () => {} }, () => last);
-  assert.deepEqual(module.health(), { enabled: true, trialCompile: false }, 'no lastUpstream before any call');
+  assert.deepEqual(module.health(), { enabled: true, trialCompile: false, liveCalls: { used: 0, max: 50 } }, 'no lastUpstream before any call');
   const route = module.routes[0]!;
   await route.handle({ rawBody: JSON.stringify({ prompt: 'a white sphere', mode: 'scene3d' }) } as Parameters<typeof route.handle>[0]);
   const health = module.health() as { lastUpstream?: LastUpstream };
@@ -203,4 +206,74 @@ test('(6) createModule reports ignored GEMINI_* values as problems, never their 
   assert.equal(module.problems?.length, 2);
   assert.ok(module.problems?.every(p => !p.includes('Bad Model!') && !p.includes('-5') && !p.includes(KEY)));
   assert.deepEqual(createModule({}).problems, [], 'a disabled module reads, and reports, nothing');
+});
+
+// ---- the per-process live call cap (GEMINI_MAX_CALLS; D3 free quota only) ----
+
+test('GEMINI_MAX_CALLS: unset = 50, a valid value (0 included) is used, an invalid one FAILS CLOSED to 0 and is a problem (name only)', () => {
+  const on = { GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY };
+  const read = (value?: string, problems: string[] = []) => {
+    const config = readGeminiConfig(value === undefined ? on : { ...on, GEMINI_MAX_CALLS: value }, problems);
+    assert.ok(config.enabled);
+    return config.maxCalls;
+  };
+  assert.equal(read(), 50);
+  assert.equal(read('  '), 50, 'blank is unset');
+  assert.equal(read('3'), 3);
+  assert.equal(read('0'), 0, '0 = no live calls');
+  for (const bad of ['-1', '2.5', 'lots', '10001']) {
+    const problems: string[] = [];
+    assert.equal(read(bad, problems), 0, `${bad}: fails closed, never to the default`);
+    assert.deepEqual(problems, ['GEMINI_MAX_CALLS must be an integer in [0, 10000]; using 0'], `${bad}: names the variable, never the value`);
+  }
+});
+
+test('GEMINI_MAX_CALLS=0 (or an invalid value): live in health, but every request is 429 CALL_CAP_REACHED and nothing is sent', async () => {
+  for (const value of ['0', 'oops']) {
+    let calls = 0;
+    const transport = async () => { calls += 1; return { status: 200, body: null }; };
+    const config = readGeminiConfig({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY, GEMINI_MAX_CALLS: value });
+    const module = geminiModule(liveGeminiDeps(config, transport), { random: () => 0.5, sleep: async () => {} });
+    const route = module.routes[0]!;
+    const reply = await route.handle({ rawBody: JSON.stringify({ prompt: 'x', mode: 'scene3d' }) } as Parameters<typeof route.handle>[0]);
+    assert.equal(reply.status, 429, value);
+    assert.ok(JSON.stringify(reply.body).includes('CALL_CAP_REACHED'));
+    assert.equal(calls, 0, value);
+    assert.deepEqual((module.health() as { liveCalls?: unknown }).liveCalls, { used: 0, max: 0 });
+  }
+});
+
+test('the call cap counts every upstream attempt (retries included), then answers 429 RATE_LIMITED / CALL_CAP_REACHED with nothing sent', async () => {
+  let calls = 0;
+  const transport = async () => { calls += 1; return { status: 503, body: null }; };
+  const config = readGeminiConfig({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY, GEMINI_MAX_CALLS: '2' });
+  const module = geminiModule(liveGeminiDeps(config, transport), { random: () => 0.5, sleep: async () => {} });
+  const route = module.routes[0]!;
+  const send = () => route.handle({ rawBody: JSON.stringify({ prompt: 'a white sphere', mode: 'scene3d' }) } as Parameters<typeof route.handle>[0]);
+  // Request 1: attempt 1 is 503, retry 1 is 503, retry 2 hits the cap: two upstream calls, then the cap answers.
+  const first = await send();
+  assert.equal(calls, 2, 'the third attempt was never sent');
+  assert.equal(first.status, 429);
+  assert.deepEqual((first.body as { error: { code: string; reasons?: string[] } }).error.code, 'RATE_LIMITED');
+  assert.ok(JSON.stringify(first.body).includes('CALL_CAP_REACHED'), JSON.stringify(first.body));
+  const second = await send();
+  assert.equal(calls, 2, 'nothing more is sent once the cap is reached');
+  assert.equal(second.status, 429);
+  assert.deepEqual((module.health() as { liveCalls?: unknown }).liveCalls, { used: 2, max: 2 });
+});
+
+test('the call cap holds under concurrency: a slot is taken before the call starts', async () => {
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  const transport = async () => { calls += 1; await gate; return { status: 400, body: null }; };
+  const config = readGeminiConfig({ GEMINI_ENABLED: '1', GEMINI_API_KEY: KEY, GEMINI_MAX_CALLS: '2' });
+  const module = geminiModule(liveGeminiDeps(config, transport), { random: () => 0.5, sleep: async () => {} });
+  const route = module.routes[0]!;
+  const pending = Array.from({ length: 5 }, () => route.handle({ rawBody: JSON.stringify({ prompt: 'x', mode: 'scene3d' }) } as Parameters<typeof route.handle>[0]));
+  await new Promise(r => setImmediate(r));
+  release();
+  const replies = await Promise.all(pending);
+  assert.equal(calls, 2);
+  assert.deepEqual(replies.map(r => r.status).sort(), [429, 429, 429, 502, 502]);
 });
