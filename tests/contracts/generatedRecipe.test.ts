@@ -14,8 +14,9 @@ import { getObserverFactory } from '../../src/cli/observer';
 import { runOne } from '../../src/cli/run';
 import {
   acceptsRecipe, composeNext, copyRecipe, expandRecipe, expandRecipeStrict, GeneratedSceneRejected, isFallbackFormation,
-  isPackageFrozenScene, makeGeneratedRecipe, makeScore,
+  makeGeneratedRecipe, makeScore,
 } from '../../src/score';
+import { isPackageFrozenScene } from '../../src/score/compose';   // internal (for GF-WP-08), not public API
 import { canonicalJson } from '../../src/score/canonical';
 import { COMPILER_VERSION } from '../../src/score/generated/compile';
 import { sceneHash } from '../../src/score/generated/hashing';
@@ -163,6 +164,27 @@ describe('GF-CC-01 §7.11: strict throws, total falls back', () => {
     expect(() => makeScore([rejectedRecipe], N0, params)).toThrow(GeneratedSceneRejected);
   });
 
+  it('total path: every rejected generated recipe flies the fallback, a wrong label included (WP-07 acceptance)', () => {
+    expect(isFallbackFormation(expandRecipe(wrongCompiler, N0, params))).toBe(true);   // §6.4: another compiler's
+    expect(isFallbackFormation(expandRecipe(mutated, N0, params))).toBe(true);         // a valid scene, wrong sceneHash
+    expect(isFallbackFormation(expandRecipe(rejectedRecipe, N0, params))).toBe(true);  // a rejected compile
+    expect(isFallbackFormation(expandRecipe(generated, N0, params))).toBe(false);
+    // The total path agrees with acceptsRecipe and the strict path on every one of them.
+    for (const r of [wrongCompiler, mutated, rejectedRecipe]) {
+      expect(acceptsRecipe(r, N0, params)).toBe(false);
+      expect(() => expandRecipeStrict(r, N0, params)).toThrow(GeneratedSceneRejected);
+    }
+  });
+
+  it('strict: a slotsDigest label for THIS roster must match the compile (digest-mismatch); one for another roster is not compared', () => {
+    const tampered: GeneratedRecipe = { ...generated, slotsDigest: { ...generated.slotsDigest, digest: 'f'.repeat(64) } };
+    let code = '';
+    try { expandRecipeStrict(tampered, N0, params); } catch (e) { code = (e as GeneratedSceneRejected).code; }
+    expect(code).toBe('digest-mismatch');
+    const otherRoster: GeneratedRecipe = { ...generated, slotsDigest: { n0: 999, slotSpacingMin: 9, digest: 'f'.repeat(64) } };
+    expect(expandRecipeStrict(otherRoster, N0, params).slots).toHaveLength(N0);
+  });
+
   it('acceptsRecipe (GF-CC-02): refuses each mismatch, never throws, ignores a digest made for another roster', () => {
     expect(acceptsRecipe(generated, N0, params)).toBe(true);
     expect(acceptsRecipe(mutated, N0, params)).toBe(false);
@@ -217,13 +239,58 @@ describe('GF-CC-02 in the swarm: one drone, the existing radio', () => {
     expect(() => { for (let t = 0; t < 200; t++) w.step(); }).not.toThrow();
     const s0 = state(w, 0)!;
     expect(s0.score.version).toEqual(pre.version);
-    expect(s0.refused).toEqual([{ version: { issuedTick: 20, origin: 0 }, sceneHash: generated.sceneHash }]);
+    const tamperedHash = sceneHash((bad.movements[1]!.recipe as GeneratedRecipe).scene);   // the recomputed hash, never the label
+    expect(tamperedHash).not.toBe(generated.sceneHash);
+    expect(s0.refused).toEqual([{ version: { issuedTick: 20, origin: 0 }, sceneHash: tamperedHash }]);
     expect(s0.log.filter(l => l.includes('refuse score'))).toHaveLength(1);   // the re-send at tick 60 is not rechecked
     for (let id = 1; id < N0; id++) {
       expect(versionOf(w, id), `drone ${id}`).toEqual(pre.version);
       expect(state(w, id)!.refused, `drone ${id}`).toBeUndefined();          // never relayed, so never heard
     }
   }, 120_000);
+
+  it('one bad message cannot stop the world: a generated recipe with no, null or malformed slotsDigest is refused, never thrown', () => {
+    const pre = makeScore([{ kind: 'sphere' }], N0, params);
+    const good = composeNext(pre, 20, generated, 0, N0, params);
+    const withDigest = (d: unknown, tick: number): Score => ({ ...good, version: { issuedTick: tick, origin: 0 },
+      movements: [good.movements[0]!, { ...good.movements[1]!, recipe: { ...(good.movements[1]!.recipe as GeneratedRecipe), slotsDigest: d } as unknown as GeneratedRecipe }] });
+    const noDigestRecipe: Record<string, unknown> = { ...(good.movements[1]!.recipe as GeneratedRecipe) };
+    delete noDigestRecipe.slotsDigest;
+    const noDigest: Score = { ...good, version: { issuedTick: 18, origin: 0 }, movements: [good.movements[0]!, { ...good.movements[1]!, recipe: noDigestRecipe as unknown as GeneratedRecipe }] };
+    const bad = [noDigest, withDigest(null, 22), withDigest({ n0: 'x' }, 24), withDigest(7, 26)];
+    for (const score of bad) expect(acceptsRecipe(score.movements[1]!.recipe, N0, params)).toBe(false);
+    const w = world(bad.map((score, i) => ({ tick: 18 + 2 * i, droneId: 0, score })), pre);
+    expect(() => { for (let t = 0; t < 80; t++) w.step(); }).not.toThrow();
+    expect(versionOf(w, 0)).toEqual(pre.version);
+    expect(state(w, 0)!.refused).toHaveLength(4);
+  }, 60_000);
+
+  it('a malformed legacy score (a later movement with no recipe) is adopted exactly as before: no throw in the new code', () => {
+    const pre = makeScore([{ kind: 'sphere' }], N0, params);
+    const next = composeNext(pre, 20, { kind: 'helix' }, 0, N0, params);
+    const malformed = { ...next, movements: [...next.movements, { startTick: 1_000_000, transitionTicks: 1, recipe: null }] } as unknown as Score;
+    const w = world([{ tick: 20, droneId: 0, score: malformed }], pre);
+    expect(() => { for (let t = 0; t < 60; t++) w.step(); }).not.toThrow();
+    expect(versionOf(w, 0)).toEqual({ issuedTick: 20, origin: 0 });
+    expect(state(w, 0)!.refused).toBeUndefined();
+  }, 60_000);
+
+  it('a legacy score adopted AFTER a generated one, and after a refusal, is adopted by gossip as always', () => {
+    const pre = makeScore([{ kind: 'sphere' }], N0, params);
+    const gen = composeNext(pre, 20, generated, 0, N0, params);
+    const legacy = composeNext(gen, 300, { kind: 'helix' }, 5, N0, params);
+    const tampered: Score = { ...gen, movements: [gen.movements[0]!, { ...gen.movements[1]!, recipe: { ...(gen.movements[1]!.recipe as GeneratedRecipe), scene: { ...generated.scene, title: 'Tampered' } as GeneratedRecipe['scene'] } }] };
+    // After a generated score: everyone moves on to the legacy one.
+    const a = world([{ tick: 20, droneId: 0, score: gen }, { tick: 300, droneId: 5, score: legacy }], pre);
+    for (let t = 0; t < 900; t++) a.step();
+    for (let id = 0; id < N0; id++) expect(versionOf(a, id), `drone ${id}`).toEqual({ issuedTick: 300, origin: 5 });
+    // After a refusal: the refusing drone still adopts a later legacy score; its refused record stays.
+    const later = composeNext(pre, 100, { kind: 'helix' }, 0, N0, params);
+    const b = world([{ tick: 20, droneId: 0, score: tampered }, { tick: 100, droneId: 0, score: later }], pre);
+    for (let t = 0; t < 600; t++) b.step();
+    expect(state(b, 0)!.refused).toHaveLength(1);
+    for (let id = 0; id < N0; id++) expect(versionOf(b, id), `drone ${id}`).toEqual({ issuedTick: 100, origin: 0 });
+  }, 180_000);
 
   it('a preloaded score holding a rejected generated movement leaves world.step running (the total path)', () => {
     const s = { ...generated.scene, parts: [] } as GeneratedRecipe['scene'];   // rejected by the compiler
@@ -232,4 +299,15 @@ describe('GF-CC-02 in the swarm: one drone, the existing radio', () => {
     const w = world([], preloaded);
     expect(() => { for (let t = 0; t < 50; t++) w.step(); }).not.toThrow();
   }, 60_000);
+});
+
+// Opt-in (P2_WIDE=1, as tests/score/canonical.test.ts): the other committed n0 = 200 scenarios re-derive too.
+const WIDE = process.env.P2_WIDE === '1';
+describe.runIf(WIDE)('P2_WIDE: committed S1-S3 n0 = 200 records re-derive on this branch', () => {
+  it.each((['S1', 'S2', 'S3'] as const).flatMap(sc => (['static', 'encore'] as const).map(arm => [sc, arm] as const)))('%s %s seed 1', (sc, arm) => {
+    const committed = JSON.parse(readFileSync(resolve(root, `results/${sc}_n200_${arm}_s1.json`), 'utf8')) as RunRecord;
+    const record = runOne({ scenario: committed.scenario as ScenarioId, seed: committed.seed, arm: committed.arm, n0: committed.n0, brains: BRAINS, makeObserver: getObserverFactory(), git: committed.git });
+    expect(record.stateHash).toBe(committed.stateHash);
+    expect(record.paramsHash).toBe(committed.paramsHash);
+  }, 180_000);
 });

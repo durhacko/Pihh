@@ -18,8 +18,9 @@ export const CENTRE: Vec3 = [0, 30, 0];
 export const SPACING_MARGIN = 1.001;      // so rounding cannot leave the closest pair below slotSpacingMin
 const CACHE_MAX = 64;
 
-// Memo caches of pure results: the only module-level mutable state in this package. Oldest entries are dropped
-// beyond CACHE_MAX, which only costs a recomputation.
+// Memo caches of pure results (with the fallback and frozen-scene registries below and in compose.ts, the package's
+// only module-level mutable state, all memos of pure results). Oldest entries are dropped beyond CACHE_MAX, which
+// only costs a recomputation.
 const cache = new Map<string, Formation>();
 // Generated recipes: the compile outcome (formation, or the typed rejection), keyed like `cache`.
 const compiled = new Map<string, Compiled>();
@@ -199,8 +200,10 @@ export function expandRecipe(recipe: Recipe, n0: number, params: Params): Format
   const spacing = params.slotSpacingMin;
   const key = keyOf(recipe, n0, spacing);
   if (recipe.kind === 'generated') {
-    const outcome = compileRecipe(recipe, n0, spacing, key);
-    return outcome.ok ? outcome.formation : fallbackFor(n0, spacing);
+    // Every recipe the strict path rejects (wrong compiler, rejected compile, wrong sceneHash or slotsDigest label)
+    // flies the fallback here, never its compile (WP-07 acceptance, §6.4, §7.11).
+    const checked = checkGenerated(recipe, n0, spacing, key);
+    return checked.ok ? checked.formation : fallbackFor(n0, spacing);
   }
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
@@ -210,20 +213,37 @@ export function expandRecipe(recipe: Recipe, n0: number, params: Params): Format
 /**
  * The operator-side expansion (spec §7.11): the same as `expandRecipe` for text, sphere and helix; for a generated
  * recipe it throws `GeneratedSceneRejected` instead of returning the fallback, when the compiler rejects the scene
- * (its code), when `compilerVersion` is not this compiler's (`unsupported-compiler`), or when the `sceneHash` label
- * is not the hash of the scene (`hash-mismatch`). `validateDraft`, `composeNext`, `makeScore` and loaders use it, so
- * the operator never schedules the fallback as if it were the scene.
+ * (its code), when `compilerVersion` is not this compiler's (`unsupported-compiler`), when the `sceneHash` label is
+ * not the hash of the scene (`hash-mismatch`), or when the `slotsDigest` label was made for this n0 and
+ * slotSpacingMin and does not match (`digest-mismatch`). `composeNext` and `makeScore` use it (and operator-side
+ * loaders must, GF-WP-09), so the operator never schedules the fallback as if it were the scene.
  */
 export function expandRecipeStrict(recipe: Recipe, n0: number, params: Params): Formation {
   if (recipe.kind !== 'generated') return expandRecipe(recipe, n0, params);
-  if (recipe.compilerVersion !== COMPILER_VERSION) {
-    throw new GeneratedSceneRejected('unsupported-compiler', `compilerVersion ${String(recipe.compilerVersion)} is not ${COMPILER_VERSION}`);
-  }
   const spacing = params.slotSpacingMin;
-  const outcome = compileRecipe(recipe, n0, spacing, keyOf(recipe, n0, spacing));
-  if (!outcome.ok) throw new GeneratedSceneRejected(outcome.code, outcome.detail);
-  if (outcome.sceneHash !== recipe.sceneHash) throw new GeneratedSceneRejected('hash-mismatch', 'the sceneHash label is not the hash of the scene');
-  return outcome.formation;
+  const checked = checkGenerated(recipe, n0, spacing, keyOf(recipe, n0, spacing));
+  if (!checked.ok) throw new GeneratedSceneRejected(checked.code, checked.detail);
+  return checked.formation;
+}
+
+/**
+ * The one rule both paths share (spec §6.4, §6.5 recipe checks, §7.11): a generated recipe is usable only if it is
+ * for this compiler, its scene compiles, its `sceneHash` label is the scene's hash, and its `slotsDigest` label, when
+ * made for this n0 and slotSpacingMin, matches the compile. A digest made for another roster is not compared.
+ */
+function checkGenerated(recipe: GeneratedRecipe, n0: number, spacing: number, key: string):
+  | { ok: true; formation: Formation } | { ok: false; code: string; detail: string } {
+  if (recipe.compilerVersion !== COMPILER_VERSION) {
+    return { ok: false, code: 'unsupported-compiler', detail: `compilerVersion ${String(recipe.compilerVersion)} is not ${COMPILER_VERSION}` };
+  }
+  const outcome = compileRecipe(recipe, n0, spacing, key);
+  if (!outcome.ok) return outcome;
+  if (outcome.sceneHash !== recipe.sceneHash) return { ok: false, code: 'hash-mismatch', detail: 'the sceneHash label is not the hash of the scene' };
+  const label = recipe.slotsDigest;
+  if (label && label.n0 === n0 && label.slotSpacingMin === spacing && label.digest !== outcome.slotsDigest) {
+    return { ok: false, code: 'digest-mismatch', detail: `the slotsDigest label does not match this compile at n0 ${n0}` };
+  }
+  return { ok: true, formation: outcome.formation };
 }
 
 /** The slotsDigest the compile of this generated recipe produced at (n0, slotSpacingMin); null if it was rejected. */

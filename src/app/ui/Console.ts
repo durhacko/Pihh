@@ -278,7 +278,9 @@ export function createConsoleEngine(ctx: ConsoleContext, print: (line: ConsoleLi
         ctx.hooks.step();
         return say('info', `Stepped to tick ${tick()}.`);
       case 'draft': {
-        const draft = ctx.drafts.add(draftFromRecipe(intent.name, intent.recipe));
+        const input = draftFromRecipe(intent.name, intent.recipe);   // console forms are never generated (GF-CC-01)
+        if (!input) return say('error', 'A generated formation cannot be edited as a draft.');
+        const draft = ctx.drafts.add(input);
         const v = validateDraft(draft, ctx.params);
         if (!v.ok) return say('error', `Draft ${draft.id} “${draft.name}” was created but is not valid: ${v.errors[0]}`);
         if (ctx.store.state.preview) setPreview(ctx, true);

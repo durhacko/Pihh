@@ -191,8 +191,13 @@ export function createPanel(o: SavedCompositionsOptions): SavedCompositionsHandl
   function loadAsDrafts(): void {
     if (selection.kind !== 'selected') return;
     const prefix = [...selection.summary.title].slice(0, NAME_PREFIX_MAX).join('').trim() || 'Saved';
-    selection.composition.movements.forEach((m, i) => o.drafts.add(draftFromRecipe(`${prefix} ${i + 1}`, m.recipe)));
-    loaded = selection.composition.movements.length;
+    // A generated movement is not editable as a draft (GF-CC-01) and is skipped; v1 compositions have none.
+    let added = 0;
+    selection.composition.movements.forEach((m, i) => {
+      const input = draftFromRecipe(`${prefix} ${i + 1}`, m.recipe);
+      if (input) { o.drafts.add(input); added++; }
+    });
+    loaded = added;
     render();
   }
 
