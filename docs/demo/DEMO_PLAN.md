@@ -175,6 +175,7 @@ Issue #7 requires three full rehearsals by different people. Each real entry mus
 
 ## Backup video record — no recording available
 
+- Recorder: [`scripts/demo/README.md`](../../scripts/demo/README.md) records the scripted demo automatically in headless Chrome, as a fallback for the human backup video (#131, #148). It refuses to record on software WebGL unless given `--allow-software`, so record on a laptop GPU. No recording from it is listed here yet, and its output still needs the offline playback checks below.
 - Recording build/tag, seed, duration and file path: **not recorded**.
 - Offline copy played on laptop 1 / laptop 2: **neither verified**.
 - Source run records for numerical claims/captions: **not attached**.

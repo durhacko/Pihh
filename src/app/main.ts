@@ -76,7 +76,7 @@ root.append(stage);
 const rig = new CameraRig();
 const views: { arm: Arm; view: WorldView }[] = [];
 try {
-  for (const arm of ARMS) views.push({ arm, view: new WorldView(panes[arm], params, rig) });
+  for (const arm of ARMS) views.push({ arm, view: new WorldView(panes[arm], params, rig, { arm }) });
 } catch (error) {
   for (const { view } of views) view.dispose();
   root.replaceChildren(h('p', { class: 'banner', style: { position: 'absolute', inset: '40% 20%' } }, 'WebGL could not start. Enable browser graphics acceleration and reload.'));
@@ -120,7 +120,7 @@ function layoutViews(view: ViewMode): void {
   // style.display, not `hidden`: the .vp-label class sets display:flex, which overrides the hidden attribute.
   vpBottom.style.display = view === 'split' ? '' : 'none';
   vpTop.style.display = view === 'encore' ? 'none' : '';
-  for (const { view: v } of views) v.resize();
+  for (const { view: v } of views) { v.setLayout(view); v.resize(); }   // setLayout: quality rung 4 half-rates the static view in split only
 }
 layoutViews(initialView);
 

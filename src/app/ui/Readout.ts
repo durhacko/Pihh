@@ -12,6 +12,7 @@ import { currentMovement, newerVersion } from '../../score';
 import type { Pair } from '../worlds';
 import { fmt, h } from './dom';
 import type { ViewMode } from './store';
+import { LOWEST_QUALITY, QUALITY_LADDER, sharedQuality } from '../render/quality';
 
 /** One arm's phase: hold or transition (observer), and the name of the movement its reference formation is. */
 export interface ArmPhase { inHold: boolean; name: string }
@@ -27,10 +28,12 @@ export interface ReadoutInput {
   fps: number | null;
   /** Set while the loop is stopped by an error. */
   stopped: string | null;
+  /** Render quality ladder (render/quality.ts). Shown only below full quality: nothing changes at level 0. */
+  quality?: { level: number; lowest: number; name: string; description: string };
 }
 export interface ReadoutPart { value: string; muted: boolean }
 export interface ReadoutItem {
-  key: 'npwc' | 'transition' | 'comparable' | 'alive' | 'phase' | 'fps' | 'stopped'; label: string; value: string; muted?: boolean; title?: string;
+  key: 'npwc' | 'transition' | 'comparable' | 'alive' | 'phase' | 'fps' | 'quality' | 'stopped'; label: string; value: string; muted?: boolean; title?: string;
   /** For a split headline: each arm's number, greyed on its own when that arm is in transition. */
   parts?: ReadoutPart[];
 }
@@ -138,6 +141,9 @@ export function readoutItems(input: ReadoutInput): ReadoutItem[] {
     if (p) items.push({ key: 'phase', label: p.inHold ? 'Hold' : 'Transition', value: p.name, title: 'Reference formation (observer)' });
   }
   items.push({ key: 'fps', label: '', value: input.fps === null ? '— fps' : `${input.fps.toFixed(0)} fps`, muted: true });
+  if (input.quality && input.quality.level > 0) {
+    items.push({ key: 'quality', label: `Q${input.quality.level}/${input.quality.lowest}`, value: input.quality.name, muted: true, title: input.quality.description });
+  }
   if (input.stopped) items.push({ key: 'stopped', label: 'Stopped', value: 'press R', title: input.stopped });
   return items;
 }
@@ -151,7 +157,11 @@ export function createReadout(onOpen: () => void): Readout {
   const el = h('div', { class: 'readout surface chrome' }, button);
   return {
     el, button,
-    update(input) {
+    update(given) {
+      // The quality item comes from the shared ladder controller unless the caller passes one (tests).
+      const q = sharedQuality();
+      const input: ReadoutInput = given.quality ? given : { ...given, quality: { level: q.level, lowest: LOWEST_QUALITY, name: QUALITY_LADDER[q.level], description: q.describe() } };
+      el.dataset.quality = String(input.quality?.level ?? 0);
       button.replaceChildren(...readoutItems(input).map(item => {
         // A split headline greys each arm's number on its own; a single one greys as a whole (.transit).
         const value = item.parts
