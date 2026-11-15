@@ -4,8 +4,11 @@ export function bindKeyboard(host: HTMLElement, readStatus: () => ControlStatus 
   function onKey(event: KeyboardEvent) {
     const status = readStatus();
     if (!status?.available || event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
-    if (event.target instanceof Element && event.target.closest('input,textarea,select,button,[contenteditable=true]')) return;
+    if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable=true]')) return;
     const key = event.key.toLowerCase();
+    // Space activates a focused button natively; only there would a shortcut double up. Every other key must
+    // keep working after a panel click leaves focus on a button.
+    if (key === ' ' && event.target instanceof Element && event.target.closest('button')) return;
     let intent: ControlIntent | undefined;
     if (key === ' ') intent = { type: 'play' };
     else if (key === 'r') intent = { type: 'reset', seed: status.seed };

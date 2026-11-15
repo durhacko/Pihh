@@ -1,5 +1,5 @@
 import { Scene, SRGBColorSpace, WebGLRenderer } from 'three';
-import type { Params } from '../../contracts';
+import type { Params, WorldSnapshot } from '../../contracts';
 import { CameraRig } from './CameraRig';
 import type { Layer, LayerFrame } from './Layer';
 import { createLayers } from './layers';
@@ -29,9 +29,20 @@ export class WorldView {
     this.rig.resize(width, height);
   }
 
-  render(frame: LayerFrame): void {
+  /** Every simulation tick's snapshot, in order, before any render of it (#46). */
+  ingest(snapshot: WorldSnapshot): void {
+    for (const layer of this.layers) layer.ingest?.(snapshot);
+  }
+
+  /** The world was rebuilt: layers drop retained evidence. */
+  reset(): void {
+    for (const layer of this.layers) layer.reset?.();
+  }
+
+  /** `updateRig: false` when several views share one rig and the caller updates it once per frame. */
+  render(frame: LayerFrame, updateRig = true): void {
     for (const layer of this.layers) layer.update(frame);
-    this.rig.update();
+    if (updateRig) this.rig.update();
     this.renderer.render(this.scene, this.rig.camera);
   }
 

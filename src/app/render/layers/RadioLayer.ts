@@ -49,6 +49,8 @@ export default function createLayer(): Layer {
         counter.dataset.observed = String(plan.logged);
       }
     },
+    ingest(snapshot) { trace.ingest(snapshot); },
+    reset() { trace.reset(); },
     setVisible(value) { visible = value; group.visible = value && readViewMode().xray; if (counter) counter.hidden = !group.visible; },
     dispose() { scene?.remove(group); geometry.dispose(); material.dispose(); counter?.remove(); },
   };

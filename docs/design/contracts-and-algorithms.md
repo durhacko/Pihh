@@ -88,7 +88,7 @@ export interface Formation {
 
 ## 3. Messages
 
-Two message types. Both are **one-hop broadcasts**: the radio medium never relays, and brains never re-flood.
+Two message types. Both are **one-hop broadcasts**: the radio medium never relays. No unbounded flooding: `SCORE` is rate-limited gossip (§9), in which each adopter re-sends, at most once per `scoreResendMin`.
 
 ```ts
 // src/contracts/messages.ts
@@ -189,7 +189,7 @@ export interface WorldConfig {
 export interface DroneSnap {
   id: number; alive: boolean; diedTick: number | null;
   pos: Vec3; vel: Vec3; colour: RGB;
-  partitionSide: 0 | 1 | null;     // group in the active partition, null if none
+  partitionSide: 0 | 1 | null;     // group in the oldest active partition, null if none
   belief: Belief;                  // from brain.belief(), copied
 }
 export interface RadioEvent {      // one per broadcast, from the medium's real log
@@ -321,8 +321,12 @@ interface EncoreState {
   scoreSendAt: number | null; lastScoreSent: number;
   seq: number; rng: number;     // message counter; seeded PRNG state
   log: string[];
+  now: number;                  // tick of my last step (0 before the first)
+  canHeal: boolean;             // canHeal as last evaluated, on my last scan tick (false before the first)
 }
 ```
+
+`now` and `canHeal` exist only because `belief(state)` gets no tick and no input, so the state has to remember what `belief()` reports. No decision reads them.
 
 ## 8. Healing: local claims (ADR-007)
 
@@ -387,7 +391,8 @@ step(s, in):
   if scan tick:
     if not canHeal(): s.emptySince = all null; s.claim = null
     else:
-      for v != s.slot with |slotPos(v) - in.pos| <= rClaim:
+      for v != s.slot:
+        if |slotPos(v) - in.pos| > rClaim: s.emptySince[v] = null; continue     # out of reach: not watched (issue #76)
         empty = no sensed drone within rOcc of slotPos(v)
         s.emptySince[v] = empty ? (s.emptySince[v] ?? now) : null
       vacant(v) := s.emptySince[v] != null and now - s.emptySince[v] >= tVacant
@@ -418,6 +423,8 @@ targetChanged(): s.lastTargetChange = now; s.settledSince = null; s.yieldSince =
 
 A bid is `(rank, -id)`, compared lexicographically: the higher current slot index wins; on a tie the lower id wins.
 
+A watched slot that leaves `rClaim` (because I moved, or the formation changed) has its `emptySince` timer cleared, so a slot I could not claim never carries an old empty-since time back into reach (issue #76).
+
 ### 8.4 Why this settles
 
 - **Claims only go down.** A commit moves a drone to a slot at least `claimGap + 1` more important. So a drone can commit at most `n0 / claimGap` times, and can never cycle back by claiming.
@@ -431,28 +438,32 @@ This is an argument, not a proof, and it assumes failures eventually stop. The e
 
 1. **Repair is local.** A hole is filled only by drones within `rClaim` of it that sense it. A wiped region heals inward from its rim, layer by layer, and an island with no survivor within sensing range is never detected. The loss ends up spread over the surrounding neighbourhood, not over the whole formation.
 2. **It is greedy, not optimal.** The final holes are in locally unimportant slots, which need not be the globally least important ones.
-3. **It is slow by design:** about 3 s to detect, 1 s to contend, then flight time, per hop of the chain.
+3. **It is slow by design:** per hop of the chain, about 3 s to detect, 1 s to contend, then flight time. A drone that hops twice waits longer before its second hop: after its own commit it must wait `tStable` (6 s), then `tVacant` (2 s, because its timers were cleared while `canHeal` was false), then `claimWindow` (1 s), plus flight. A chain in which one drone hops twice can therefore need about 20 s in total (G1, PR #103: four-hop chains finished 20.2–21.7 s after the kill).
 4. **No healing during transitions, inside a jam, or while score versions disagree nearby.**
 5. **Duplicates can happen** when two claimants cannot hear each other (partition, or every repeat of the claim lost). They clear on radio contact (earlier holder keeps) or by physical yield. Until then two drones crowd one slot; this is counted, not hidden.
 6. **A returning drone causes churn.** If a drone was wrongly taken for dead (for example, a laggard out of radio range), the claimant flies back when the holder reappears.
 7. **A partition during a formation change looks like a mass failure to the group left behind.** If one group adopts a new score and flies away while the other group cannot hear it, the second group sees slots that are empty and silent, which is exactly its evidence for failure, and it repairs its old formation. That is correct on what it knows. On reconnection it adopts the new score, the original holders (earlier `heldSince`) keep their slots, and the claimants pop back. The churn is counted in slot changes and duplicate-slot seconds.
+8. **An injection pauses healing swarm-wide for `tStable`.** Adoption always calls `targetChanged` (§9), even when the current movement is the one `composeNext` copied unchanged. So every adopter fails `canHeal` condition 2 for `tStable` after it adopts. This is harmless for the new movement, which starts `scoreLead` later anyway, but a kill just after an injection is repaired later.
+9. **A score composed from a different base can send a drone back for a moment.** `composeNext` copies the injector's current movement as the new score's first movement. If two injections are composed from different bases (for example on the two sides of a partition, test T16), a drone that adopts the newer score before its new movement starts flies to that copied movement. That may be the injector's old formation, which the drone had already left. It flies there for up to `scoreLead` ticks, until the new movement starts.
 
 ### 8.6 The first falsification test (gate G1)
 
 Headless, `n0 = 40` on a text formation, 20% loss, one seed first, then five:
 
 1. **Null run.** No kills, one formation change, 60 s. Pass: zero slot changes.
-2. **Clumped kill.** In hold, kill the 5 drones nearest a chosen slot. Pass within 30 s: no slot held by two drones for more than 3 s; no commits in the last 10 s; commits ≤ 3 × kills; every commit lowers the committer's slot index; normalised priority-weighted coverage ends above the static brain's on the same seed and kills.
-3. **Silence is not death.** No kills, full radio jam from 5 s to 40 s. Pass: zero slot changes.
+2. **Clumped kill.** In hold, kill the 5 drones nearest a chosen slot. The chosen slot is the kill centre drawn before the run by `randomIds(seed, slots, 1)`, as scenario S2 draws it. Pass within 30 s: no slot held by two drones for more than 3 s; no commits in the last 10 s; commits ≤ 3 × kills; every commit lowers the committer's slot index; normalised priority-weighted coverage ends above the static brain's on the same seed and kills.
+3. **Silence is not death.** No kills, full radio jam from 5 s to 40 s **after the hold begins** (not after launch). Pass: zero slot changes.
+
+**Known limitation of test 2 (G1, PR #103): the result depends on the centre.** The pass criteria are unchanged. An exhaustive sweep outside the gate (all 40 centres × seeds 1–5, 200 runs) met all five conditions in 183 of 200 runs. The 17 misses fail only "no commits in the last 10 s": their last commit comes 20.2–21.7 s after the kill, because a four-hop chain in which one drone hops twice takes that long (§8.5 limit 3). Centre 15 misses on all five seeds. The other four conditions held in all 200 runs.
 
 If test 2 cannot be made to pass by about 23:30, use the fallback ladder in [`decisions-and-risks.md`](../planning/decisions-and-risks.md#fallback-ladder-if-healing-fails-g1).
 
 ## 9. Score dissemination and partitions (ADR-005, ADR-008)
 
-- **Adopt** a received score only if its version is newer: `s.score = score; recompute mvIndex; targetChanged(); scheduleScoreSend()`.
-- **`scheduleScoreSend()`:** if no send is pending, set `scoreSendAt = max(now + 1 + (rng % scoreJitter), lastScoreSent + scoreResendMin)`. `lastScoreSent` starts at `-scoreResendMin`, so the first send is not delayed. **A scheduled send always fires; it is never cancelled.** Hearing the same version from someone else proves nothing about my other neighbours: with A in range of B, B in range of C, and A out of range of C, only B can reach C, so B must not stand down because it heard A. The rate limit (`scoreResendMin`) bounds the traffic instead: each drone sends at most one `SCORE` per two seconds.
+- **Adopt** a received score only if its version is newer: `s.score = score; recompute mvIndex; targetChanged(); scheduleScoreSend()`. `targetChanged` is called on every adoption, which pauses healing for `tStable` (§8.5 limit 8).
+- **`scheduleScoreSend()`:** if no send is pending, set `scoreSendAt = max(now + 1 + jitter, lastScoreSent + scoreResendMin)`, where `jitter = nextRandom() % scoreJitter` is a fresh draw from the drone's seeded stream (`rng` holds its state), and `jitter = 0` when `scoreJitter = 0` (no jitter). `lastScoreSent` starts at `-scoreResendMin`, so the first send is not delayed. **A scheduled send always fires; it is never cancelled.** Hearing the same version from someone else proves nothing about my other neighbours: with A in range of B, B in range of C, and A out of range of C, only B can reach C, so B must not stand down because it heard A. The rate limit (`scoreResendMin`) bounds the traffic instead: each drone sends at most one `SCORE` per two seconds.
 - **Anti-entropy:** every heartbeat carries the sender's version. A drone that hears an older version schedules a `SCORE` send. A drone that hears a newer one does nothing: the newer drone will hear its heartbeat and send.
-- **Why it cannot stall:** a stale drone keeps sending heartbeats. Each one that an up-to-date neighbour hears leads to a `SCORE` send within `scoreResendMin + scoreJitter` ticks, and each send reaches the stale drone with probability `1 - loss`. So any stale drone with a working link to an up-to-date drone adopts with probability 1, and a chain relays hop by hop. This is an argument; test T18 (a three-drone relay line and a hidden-terminal variant) checks it.
+- **Why it cannot stall:** a stale drone keeps sending heartbeats. Each one that an up-to-date neighbour hears leads to a `SCORE` send within `max(1 + scoreJitter, scoreResendMin)` ticks of hearing it, and each send reaches the stale drone with probability `1 - loss`. So any stale drone with a working link to an up-to-date drone adopts with probability 1, and a chain relays hop by hop. This is an argument; test T18 (a three-drone relay line and a hidden-terminal variant) checks it.
 - **Late adopters** join by the clock: `currentMovement` puts them straight into whatever movement is current, and `canHeal` keeps them from judging vacancies until they have arrived and settled.
 
 What each kind of convergence means, and what we claim:
@@ -484,7 +495,21 @@ steer(pos, vel, target, sensed, params):
 
 `dAvoid < slotSpacingMin`, so drones at rest on their slots do not push each other. Light colour is the slot's colour.
 
-SHOULD (`transitLanes`): `steer` takes no id, so the lane offset is a separate function, `steerTarget(id, pos, target, params)`, which returns the point to aim at (the target itself when `transitLanes` is off). While more than 3 m from the target, aim at `target + [0, 0, ((id % 3) - 1) * 2]` so crossing traffic is spread over three depth layers, then go straight in. Turn it on only if transitions gridlock or collision counts are ugly.
+**Paced targets (MUST, both arms; [contract] #80).** A brain does not steer straight at its slot. It steers at `pacedSlotPos(score, tick, slot, n0, params)` (`src/agent/steer.ts`), a point that moves in a straight line, at constant speed, from the same slot index of the previous movement (`launchPos(slot, n0)` for movement 0) to the slot of the current movement:
+
+```text
+pacedSlotPos(score, tick, slot, n0, params):
+  m = currentMovement(score, tick);  to = slot `slot` of m
+  if m is movement 0 and m.startTick > 0: return to                       # no known previous formation: not paced
+  from = slot `slot` of the previous movement (launchPos(slot, n0) for movement 0, the launch movement)
+  begin = max(m.startTick, 0);  end = m.holdStart - PACE_SETTLE_TICKS     # PACE_SETTLE_TICKS = 3 s = 60 ticks
+  if end <= begin or tick >= end: return to
+  return from + (to - from) * max(0, (tick - begin) / (end - begin))
+```
+
+The point reaches the slot 3 s before `holdStart` (the settle allowance of the authoring formula, section 6), so the formation is on its slots when the hold starts. Every drone of a formation moves its point in step, so crossing traffic meets at transit speeds the sidestep can handle, not at `vMax`. Movement 0 is paced from the launch grid only when it starts at or before tick 0; a later movement 0 is in practice the current movement that `composeNext` carries into an injected score, whose previous formation that score no longer holds, so it is flown unpaced. In S0 (static) this cut collisions per run from 27 to 7 at n0 = 100, 60 to 14 at n0 = 200 and 92 to 30 at n0 = 300 (`research/experiments/80-collisions/` on the spike branch). The paced point is used **only** for steering: the target a brain reports (`Belief.target`), its at-slot and settled checks, and vacancy sensing all use the real slot position. A brain whose slot changes (healing) paces against its new slot index, which in a hold is the slot itself.
+
+SHOULD (`transitLanes`): `steer` takes no id, so the lane offset is a separate function, `steerTarget(id, pos, target, params)`, which returns the point to aim at (the target itself when `transitLanes` is off). While more than 3 m from the target, aim at `target + [0, 0, ((id % 3) - 1) * 2]` so crossing traffic is spread over three depth layers, then go straight in. With paced targets, the lane is judged against the **real slot** (the drone trails its paced point by less than 3 m) and the offset is added to the paced point. Measured in #80, it does not reduce collisions; it stays off.
 
 Collisions (`d < dCollide`) and near-misses (`d < dNear`) are **counted from true positions by the world and have no physical effect**. A pair is counted once each time it enters the distance. At `vMax` two drones can close 0.8 m in one tick, so end-of-tick sampling can miss a fast pass: counts are lower bounds unless the world uses the closest approach within the tick (SHOULD). We never claim collision-freedom; we report the counts. This is a simulated proof of concept, not flight-control software.
 

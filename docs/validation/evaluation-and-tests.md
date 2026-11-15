@@ -55,7 +55,13 @@ Capacity loss `= 1 − P*(M)`. Coordination loss `= P*(M) − pwc`. With no live
 
 ## 3. Scenarios
 
-MUST. `n0 = 200`, 1800 ticks, default `Params`. Preloaded score `EVAL`, version `{0, OPERATOR}`: movement A = text `ENCORE` with `startTick: -200` (the contract allows the first movement to start before tick 0; drones still launch at tick 0), movement B = sphere at tick 900, `transitionTicks` by the contract's authoring formula. The runner asserts A's `holdStart + holdGrace ≤ 380` and B's `holdStart ≤ 1300`; if A's assertion fails, make A's `startTick` more negative before the freeze and leave the event ticks alone. Shortening the text does not help: the formation's size is set by 200 slots at `slotSpacingMin`, not by the letter count.
+MUST. `n0 = 200`, 1800 ticks, default `Params`. Preloaded score `EVAL`, version `{0, OPERATOR}`: movement A = text `ENCORE`, movement B = sphere at tick 900, `transitionTicks` by the contract's authoring formula (`tA` for A, measured from the launch grid). `buildEvalScore` computes A's start as `min(-40, 380 − holdGrace − tA)`: −40 at n0 ≤ 200, and earlier at larger n0 (−51 at 250, −84 at 300). This keeps A's `holdStart + holdGrace ≤ 380` by construction. The contract allows the first movement to start before tick 0, and drones still launch at tick 0. A starts as late as that allows because drones fly paced targets (contract §10). The launch flight runs from tick 0 to A's `holdStart − 60`, so a later start means a slower, safer launch.
+
+The runner then asserts two things:
+- **A's paced launch is feasible.** The window `holdStart − 60` must be at least `⌈(tA − 60) / 2⌉` ticks, the farthest drone's flight time at `vMax`.
+- **B's hold begins in time.** B's `holdStart ≤ 1300`.
+
+If either assertion fails, the formation cannot be shown in time at that n0. Use a smaller n0 or move the event ticks later. Do not change A's start by hand. Shortening the text does not help: the formation's size is set by n0 slots at `slotSpacingMin`, not by the letter count.
 
 A pure builder in `src/cli/scenarios.ts` (the world may not import `src/score`, the CLI may) returns `{ score, events }` from `(id, seed, params)`. It draws from its own seeded stream and resolves kills to explicit ids from formation-A slot positions (launch slot = id), never from live positions. Plane `P`: point `[0, 30, 0]`, normal `[1, 0, 0]`.
 
@@ -118,8 +124,8 @@ vitest, headless. All MUST except T15 and T16 (SHOULD). "Gate" is the latest gat
 | T06 | Packet loss | core-sim | `loss` 0: every in-range live receiver, latency in `latencyMin…latencyMax`; `loss` 1: none; `loss` 0.3 over 10 000 candidates: 0.67–0.73 delivered; beyond `rRadio`: none | G1 |
 | T07 | Partition and jam | core-sim | While on: no delivery between partition groups (also after drones cross the plane) or into, out of or inside the sphere; `partitioned` and `jammed` counted; after off: deliveries resume | G3 |
 | T08 | G1 null run | core-agent | [Contract §8.6](../design/contracts-and-algorithms.md#86-the-first-falsification-test-gate-g1) test 1 | G1 |
-| T09 | G1 clumped kill | core-agent | §8.6 test 2, all five conditions | G1 |
-| T10 | G1 silence is not death | core-agent | §8.6 test 3 | G1 |
+| T09 | G1 clumped kill | core-agent | §8.6 test 2, all five conditions, kill centre drawn per seed by `randomIds(seed, slots, 1)`. The result depends on the centre: see the known limitation under §8.6 | G1 |
+| T10 | G1 silence is not death | core-agent | §8.6 test 3: jam from 5 s to 40 s after the hold begins | G1 |
 | T11 | Recovery stability | observer | S1 and S2 on dev seeds: `slotChanges ≤ 3 × kills`, at most 3 per drone, every commit lowers the slot index, `lateSlotChanges = 0`, no slot duplicated for more than 3 s | G5 |
 | T12 | Collision accounting | core-sim | Two scripted drones passing head-on at 2 m/s closing speed: exactly one near-miss entry and one collision entry; dead drones never counted | G1 |
 | T13 | UI event to simulation | app-ui | The kill-10% action schedules one `KILL` with the same `0.1 · n0` ids into both worlds; next snapshot shows them dead in both; the app's event log replayed headless gives the same `stateHash()` | G3 |

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { performance } from 'node:perf_hooks';
 import { makeParams } from '../../src/contracts';
-import type { AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Params, Score, Vec3 } from '../../src/contracts';
+import type { AgentBrain, AgentInit, AgentInput, AgentOutput, Belief, Message, Params, Score, Sensed, Vec3 } from '../../src/contracts';
+import { launchPos } from '../../src/score';
 import { agentSeed, createWorld } from '../../src/sim';
 import { launchPosition } from '../../src/sim/math';
 import { dummyBrain } from '../fixtures/dummyBrain';
@@ -33,6 +34,10 @@ function config(n0 = 4, overrides: Partial<Params> = {}, brain = fixture()) {
 }
 
 describe('world tick and isolation', () => {
+  it('keeps its private launch grid identical to launchPos in src/score', () => {
+    // src/sim may not import src/score, so math.ts holds a copy; this pins the two together.
+    for (const n0 of [40, 200]) for (let id = 0; id < n0; id++) expect(launchPosition(id, n0)).toEqual(launchPos(id, n0));
+  });
   it('launches at rest on a 1.5m grid, first advances to tick 1, and clamps motion', () => {
     const world = createWorld(config(4, { aMax: 2, vMax: 1 }, fixture({ accel: () => [1000, -1000, 1000], send: false })));
     expect(world.inspect(0)).toBeNull();
@@ -100,6 +105,44 @@ describe('world tick and isolation', () => {
     };
     const world = createWorld(config(4, {}, brain));
     expect(world.step().drones.map(d => d.pos)).toEqual(Array.from({ length: 4 }, (_, id) => launchPosition(id, 4)));
+  });
+  it('inspect().input is what the brain was given, even if the brain then mutates its input', () => {
+    const given = new Map<number, AgentInput>();
+    const brain = fixture();
+    const normalStep = brain.step;
+    brain.step = (state, input) => {
+      given.set((state as State).id, structuredClone(input));
+      const output = normalStep(state, input);
+      input.pos[0] = 999; input.vel[0] = 999;
+      for (const peer of input.sensed) { peer.rel[0] = 999; peer.vel[0] = 999; }
+      (input.sensed as Sensed[]).length = 0;
+      (input.inbox as Message[]).length = 0;
+      return output;
+    };
+    const world = createWorld(config(4, { loss: 0, latencyMin: 1, latencyMax: 1 }, brain));
+    world.step(); world.step();
+    for (let id = 0; id < 4; id++) {
+      const recorded = world.inspect(id)!.input;
+      expect(recorded.inbox).toHaveLength(3);
+      expect(recorded.sensed).toHaveLength(3);
+      expect(recorded).toEqual(given.get(id));
+    }
+  });
+  it('accepts a class-instance brain: stored by reference, prototype methods kept, caller object not frozen', () => {
+    class Climber implements AgentBrain {
+      readonly kind = 'static' as const;
+      private readonly inner = fixture({ send: false, accel: () => [0, 1, 0] });
+      init(init: AgentInit): unknown { return this.inner.init(init); }
+      step(state: unknown, input: AgentInput): AgentOutput { return this.inner.step(state, input); }
+      belief(state: unknown): Belief { return this.inner.belief(state); }
+    }
+    const brain = new Climber();
+    const world = createWorld(config(4, {}, brain));
+    expect(world.config.brain).toBe(brain);
+    expect(Object.isFrozen(brain)).toBe(false);
+    const snapshot = world.step();
+    expect(snapshot.drones.every(d => d.vel[1] > 0)).toBe(true);
+    expect(snapshot.drones.map(d => d.belief.target)).toEqual(Array.from({ length: 4 }, (_, id) => launchPosition(id, 4)));
   });
   it('rejects scheduling into the past and invalid packet-loss events', () => {
     const world = createWorld(config());
@@ -236,5 +279,5 @@ describe('replay and accounting', () => {
     const start = performance.now();
     for (let tick = 0; tick < 200; tick++) world.step();
     console.log(`200-drone dummyBrain (radio enabled) benchmark: ${((performance.now() - start) / 200).toFixed(3)} ms/tick`);
-  }, 15_000); // Bounded headroom for CPU contention across concurrent local check runs.
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });

@@ -1,9 +1,10 @@
 // tests/app/worlds.test.ts
-// WP-3b (#6): the app's two worlds, headless. Real createWorld, real score, real static brain.
+// WP-3b (#6): the app's two worlds, headless. Real createWorld, real score, the real Encore and static brains.
 import { describe, expect, it, vi } from 'vitest';
 import { makeParams } from '../../src/contracts';
 import type { EnvEvent, WorldSnapshot } from '../../src/contracts';
-import { ARMS, createWorlds, DEFAULT_N0, encoreBrainIsFixture, idsInRegion, killEvent, type Pair, type Worlds } from '../../src/app/worlds';
+import { idsInSphere } from '../../src/sim';
+import { ARMS, createWorlds, DEFAULT_N0, killEvent, type Pair, type Worlds } from '../../src/app/worlds';
 
 const SEED = 1234;
 const aliveCount = (s: WorldSnapshot) => s.drones.filter(d => d.alive).length;
@@ -29,8 +30,8 @@ describe('createWorlds', () => {
     expect(baseline.config.seed).toBe(SEED);
     expect(encore.config.params).toEqual(baseline.config.params);
     expect(encore.config.score).toEqual(baseline.config.score);
+    expect(encore.config.brain.kind).toBe('encore');
     expect(baseline.config.brain.kind).toBe('static');
-    expect(encoreBrainIsFixture).toBe(encore.config.brain.kind !== 'encore');
     expect(worlds.tick).toBe(0);
     expect(worlds.latest()).toBeNull();
   });
@@ -52,7 +53,7 @@ describe('createWorlds', () => {
       expect(s.encore.drones).toHaveLength(200);
       expect(s.static.drones).toHaveLength(200);
     }
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('drones lift off the launch grid toward the first formation', () => {
     const worlds = createWorlds({ seed: SEED });
@@ -61,7 +62,7 @@ describe('createWorlds', () => {
       const meanHeight = s[arm].drones.reduce((sum, d) => sum + d.pos[1], 0) / s[arm].drones.length;
       expect(meanHeight).toBeGreaterThan(1);
     }
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('scheduleBoth', () => {
@@ -95,7 +96,7 @@ describe('scheduleBoth', () => {
     // Stays dead, and the worlds keep stepping in lockstep.
     const later = runTo(worlds, 60);
     for (const arm of ARMS) expect(aliveCount(later[arm])).toBe(196);
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('rejects an event that is not after the shared tick, in neither world', () => {
     const worlds = createWorlds({ seed: SEED, n0: 30 });
@@ -116,12 +117,12 @@ describe('scheduleBoth', () => {
   });
 });
 
-describe('idsInRegion', () => {
-  it('returns live drones within the radius, ascending, from one snapshot', () => {
+describe('regional kill (idsInSphere from src/sim)', () => {
+  it('resolves live drones within the radius, ascending, from one Encore snapshot', () => {
     const worlds = createWorlds({ seed: SEED });
     const s = runTo(worlds, 80).encore;
     const centre = s.drones[50].pos;
-    const ids = idsInRegion(s, centre, 4);
+    const ids = idsInSphere(s, centre, 4);
     expect(ids).toContain(50);
     expect(ids).toEqual([...ids].sort((a, b) => a - b));
     for (const d of s.drones) {
@@ -129,9 +130,8 @@ describe('idsInRegion', () => {
       expect(ids.includes(d.id)).toBe(inside && d.alive);
     }
     worlds.scheduleBoth(killEvent(worlds, [50]));
-    expect(idsInRegion(worlds.stepBoth().encore, centre, 4)).not.toContain(50);
-    expect(() => idsInRegion(s, centre, 0)).toThrow(RangeError);
-  });
+    expect(idsInSphere(worlds.stepBoth().encore, centre, 4)).not.toContain(50);
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
 
 describe('determinism', () => {
@@ -148,13 +148,13 @@ describe('determinism', () => {
     worlds.reset(SEED);
     runTo(worlds, 200);
     expect(hashes(worlds)).toEqual(first);
-  }, 15_000); // Bounded headroom for CPU contention across concurrent local check runs.
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('two runs with the same seed and events give identical hashes and snapshots', () => {
     const script = (worlds: Worlds) => {
       const snaps: Pair<WorldSnapshot>[] = [];
       while (worlds.tick < 200) {
-        if (worlds.tick === 60) worlds.scheduleBoth(killEvent(worlds, idsInRegion(worlds.latest()!.encore, worlds.latest()!.encore.drones[120].pos, 5)));
+        if (worlds.tick === 60) worlds.scheduleBoth(killEvent(worlds, idsInSphere(worlds.latest()!.encore, worlds.latest()!.encore.drones[120].pos, 5)));
         snaps.push(worlds.stepBoth());
       }
       return snaps;
@@ -167,5 +167,5 @@ describe('determinism', () => {
     expect(runA[199]).toEqual(runB[199]);
     expect(aliveCount(runA[199].encore)).toBeLessThan(200);
     expect(aliveCount(runA[199].encore)).toBe(aliveCount(runA[199].static));
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { makeParams, type Score } from '../../../src/contracts';
-import { createWorld } from '../../../src/sim';
-import { bindControls, createActionController, idsInRegion, type ControlContext } from '../../../src/app/actions';
+import { createWorld, idsInSphere } from '../../../src/sim';
+import { bindControls, createActionController, type ControlContext } from '../../../src/app/actions';
 import { staticBrain } from '../../../src/agent/staticBrain';
 
 const score: Score = { version: { issuedTick: 0, origin: -1 }, movements: [{ startTick: 0, transitionTicks: 0, recipe: { kind: 'sphere' } }] };
@@ -27,7 +27,7 @@ describe('real-world control scheduling', () => {
     const controls = bindControls(host, fixture.context);
     controls.selectDrone(4);
     const before = fixture.getSnapshots().encore;
-    const expected = idsInRegion(before, before.drones[4].pos, 1.6);
+    const expected = idsInSphere(before, before.drones[4].pos, 1.6);
     host.dispatchEvent(new CustomEvent('encore:control', { detail: { type: 'kill-region', radius: 1.6 } }));
     expect(controls.getEventLog()).toEqual([{ type: 'KILL', tick: before.tick + 1, ids: expected }]);
     expect(fixture.onScheduledEvent).toHaveBeenCalledExactlyOnceWith(controls.getEventLog()[0]);
