@@ -1,6 +1,6 @@
 {
   "id": "FX-BAD/movements",
-  "description": "R7 composition shape, R8 movement count, R9 runtime fields (MDB-T06, MDB-T10). Array order is play order.",
+  "description": "R7 composition shape, R8 movement count, R9 runtime fields (RUNTIME_FIELD at every level: composition, movement, recipe, request, generator) (MDB-T06, MDB-T10). Array order is play order.",
   "cases": [
     {
       "name": "0 movements",
@@ -550,6 +550,154 @@
           {
             "path": "movements[1].recipe.text",
             "reason": "INVALID_TEXT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field startTick in a recipe",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "sphere",
+              "startTick": 0
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.startTick",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field transitionTicks in a text recipe",
+      "target": "composition",
+      "input": {
+        "v": 1,
+        "movements": [
+          {
+            "recipe": {
+              "kind": "text",
+              "text": "HI",
+              "transitionTicks": 200
+            },
+            "holdTicks": 600
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "movements[0].recipe.transitionTicks",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field version at the request top level",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "version": {
+          "issuedTick": 0,
+          "origin": 0
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "version",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field droneId at the request top level",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "manual",
+        "droneId": 5
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "droneId",
+            "reason": "RUNTIME_FIELD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime field origin in a generator",
+      "target": "request",
+      "input": {
+        "schemaVersion": 1,
+        "title": "T",
+        "composition": {
+          "v": 1,
+          "movements": [
+            {
+              "recipe": {
+                "kind": "sphere"
+              },
+              "holdTicks": 600
+            }
+          ]
+        },
+        "source": "gemini",
+        "generator": {
+          "model": "m",
+          "integrationVersion": "1",
+          "origin": 3
+        }
+      },
+      "expect": {
+        "ok": false,
+        "errors": [
+          {
+            "path": "generator.origin",
+            "reason": "RUNTIME_FIELD"
           }
         ]
       }

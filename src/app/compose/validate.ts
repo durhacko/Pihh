@@ -87,6 +87,7 @@ export interface CompositionOptions {
 // ------------------------------------------------------------------------------------------------------- helpers
 
 const KINDS: readonly string[] = ['text', 'sphere', 'helix'];   // GF-CC-01 hook: 'generated', schemaVersion 2 only
+/** Runtime fields (spec section 10.1): RUNTIME_FIELD wherever they appear, at any level of the shape (MDB-T06). */
 const RUNTIME_FIELDS: readonly string[] = ['version', 'startTick', 'transitionTicks', 'origin', 'droneId'];
 const FORBIDDEN_KEYS: readonly string[] = ['__proto__', 'constructor', 'prototype'];
 
@@ -95,57 +96,91 @@ type Issues = CompositionIssue[];
 const at = (path: string, key: string | number) =>
   typeof key === 'number' ? `${path}[${key}]` : /^[A-Za-z_$][\w$]*$/.test(key) ? (path ? `${path}.${key}` : key) : `${path}[${JSON.stringify(key)}]`;
 
-/** A plain data object (JSON object): not null, not an array, prototype Object.prototype or null. */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
+// READ ONCE. Every container is read exactly once, through property descriptors, into a snapshot; every check and the
+// output copy then use only the snapshot. No [[Get]] and no `.length` read ever touches the input, so a Proxy or an
+// accessor cannot show one value to the check and another to the copy.
 
-/** The value of an own data property, or undefined. Never runs a getter. */
-function own(obj: Record<string, unknown>, key: string): unknown {
-  const d = Object.getOwnPropertyDescriptor(obj, key);
-  return d && 'value' in d ? d.value : undefined;
+/** One read of a plain data object: its own keys, the value of each own data property, and its accessor keys. */
+interface Fields { keys: readonly (string | symbol)[]; values: ReadonlyMap<string, unknown>; accessors: ReadonlySet<string> }
+
+/** Snapshot of a plain object (prototype Object.prototype or null, not an array), or null for anything else. */
+function readFields(value: unknown): Fields | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const proto: unknown = Reflect.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return null;
+  const keys = Reflect.ownKeys(value);
+  const values = new Map<string, unknown>();
+  const accessors = new Set<string>();
+  for (const key of keys) {
+    if (typeof key !== 'string') continue;
+    const d = Reflect.getOwnPropertyDescriptor(value, key);
+    if (d && 'value' in d) values.set(key, d.value);
+    else accessors.add(key);   // an accessor, or a key that vanished between the two reads: never a value
+  }
+  return { keys, values, accessors };
 }
 
 /**
- * R2/R16 key check. Every own key must be in `allowed`; '$'-prefixed, dotted and prototype keys are rejected (R2);
- * runtime fields get RUNTIME_FIELD (R9) where `runtime` is set. Accessor properties are rejected as INVALID_FIELD.
+ * Snapshot of a dense array: its own keys must be exactly '0'…'n-1' and 'length', every index an own data property.
+ * Holes, extra keys, accessors and a non-array give 'shape'; more than `max` elements give 'too-long', unread.
  */
-function checkKeys(obj: Record<string, unknown>, path: string, allowed: readonly string[], rule: string, issues: Issues, runtime = false): void {
-  for (const key of Reflect.ownKeys(obj)) {
+function readArray(value: unknown, max: number): { items: unknown[] } | { problem: 'shape' | 'too-long' } {
+  if (!Array.isArray(value)) return { problem: 'shape' };
+  const lengthDesc = Reflect.getOwnPropertyDescriptor(value, 'length');
+  const n: unknown = lengthDesc && 'value' in lengthDesc ? lengthDesc.value : undefined;
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) return { problem: 'shape' };
+  if (n > max) return { problem: 'too-long' };
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== n + 1) return { problem: 'shape' };
+  const expected = new Set<string | symbol>(['length']);
+  for (let i = 0; i < n; i++) expected.add(String(i));
+  if (!keys.every(k => expected.has(k))) return { problem: 'shape' };
+  const items: unknown[] = [];
+  for (let i = 0; i < n; i++) {
+    const d = Reflect.getOwnPropertyDescriptor(value, String(i));
+    if (!d || !('value' in d)) return { problem: 'shape' };
+    items.push(d.value);
+  }
+  return { items };
+}
+
+/**
+ * R2/R16 key check on a snapshot. Every own key must be in `allowed`; symbol, '$'-prefixed, dotted and prototype keys
+ * are rejected (R2); runtime fields get RUNTIME_FIELD (R9) at every level; accessor properties are INVALID_FIELD.
+ */
+function checkKeys(fields: Fields, path: string, allowed: readonly string[], rule: string, issues: Issues): void {
+  for (const key of fields.keys) {
     if (typeof key !== 'string') { issues.push({ path, rule: 'R2', reason: 'UNKNOWN_KEY' }); continue; }
     const p = at(path, key);
     if (FORBIDDEN_KEYS.includes(key) || key.startsWith('$') || key.includes('.')) issues.push({ path: p, rule: 'R2', reason: 'UNKNOWN_KEY' });
-    else if (runtime && RUNTIME_FIELDS.includes(key)) issues.push({ path: p, rule: 'R9', reason: 'RUNTIME_FIELD' });
+    else if (RUNTIME_FIELDS.includes(key)) issues.push({ path: p, rule: 'R9', reason: 'RUNTIME_FIELD' });
     else if (!allowed.includes(key)) issues.push({ path: p, rule, reason: 'UNKNOWN_KEY' });
-    else if (!('value' in (Object.getOwnPropertyDescriptor(obj, key) ?? {}))) issues.push({ path: p, rule, reason: 'INVALID_FIELD' });
+    else if (fields.accessors.has(key)) issues.push({ path: p, rule, reason: 'INVALID_FIELD' });
   }
 }
 
 const codePoints = (s: string) => [...s].length;
 /** Lone surrogates cannot be encoded as UTF-8; such a string is never a valid stored string. */
 const wellFormed = (s: string) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+const channel = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 1;
 
 function checkPalette(value: unknown, path: string, issues: Issues): [RGB, RGB] | null {
-  const channel = (x: unknown) => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 1;
-  const triple = (t: unknown): t is RGB => Array.isArray(t) && t.length === 3 && Reflect.ownKeys(t).length === 4 && [0, 1, 2].every(i => channel(own(t as unknown as Record<string, unknown>, String(i))));
-  if (!Array.isArray(value) || value.length !== 2 || Reflect.ownKeys(value).length !== 3) {
-    issues.push({ path, rule: 'R13', reason: 'INVALID_COLOUR' });
-    return null;
-  }
+  const pair = readArray(value, 2);
+  if (!('items' in pair) || pair.items.length !== 2) { issues.push({ path, rule: 'R13', reason: 'INVALID_COLOUR' }); return null; }
   const out: RGB[] = [];
-  for (let i = 0; i < 2; i++) {
-    const t = own(value as unknown as Record<string, unknown>, String(i));
-    if (!triple(t)) { issues.push({ path: at(path, i), rule: 'R13', reason: 'INVALID_COLOUR' }); continue; }
-    out.push([t[0] + 0, t[1] + 0, t[2] + 0]);   // + 0 turns -0 into 0, as canonicalJson would
-  }
+  pair.items.forEach((entry, i) => {
+    const triple = readArray(entry, 3);
+    if (!('items' in triple) || triple.items.length !== 3 || !triple.items.every(channel)) { issues.push({ path: at(path, i), rule: 'R13', reason: 'INVALID_COLOUR' }); return; }
+    const [r, g, b] = triple.items as [number, number, number];
+    out.push([r + 0, g + 0, b + 0]);   // the snapshot values; + 0 turns -0 into 0, as canonicalJson would
+  });
   return out.length === 2 ? [out[0]!, out[1]!] : null;
 }
 
 function checkRecipe(value: unknown, path: string, mode: 'save' | 'stored', issues: Issues): Recipe | null {
-  if (!isPlainObject(value)) { issues.push({ path, rule: 'R11', reason: 'INVALID_FIELD' }); return null; }
-  const kind = own(value, 'kind');
+  const fields = readFields(value);
+  if (!fields) { issues.push({ path, rule: 'R11', reason: 'INVALID_FIELD' }); return null; }
+  const kind = fields.values.get('kind');
   if (typeof kind !== 'string' || !KINDS.includes(kind)) {
     // GF-CC-01 hook: a 'generated' recipe (schemaVersion 2 only) is checked here, and its trial expansion uses the
     // strict path (expandRecipeStrict), never the total expandRecipe, whose fallback sphere would hide a rejection.
@@ -153,10 +188,10 @@ function checkRecipe(value: unknown, path: string, mode: 'save' | 'stored', issu
     return null;   // nothing else of an unsupported recipe is read, and it is never expanded (MDB-T02)
   }
   const before = issues.length;
-  checkKeys(value, path, kind === 'text' ? ['kind', 'text', 'palette'] : ['kind', 'palette'], 'R11', issues);
+  checkKeys(fields, path, kind === 'text' ? ['kind', 'text', 'palette'] : ['kind', 'palette'], 'R11', issues);
   let text = '';
   if (kind === 'text') {
-    const raw = own(value, 'text');
+    const raw = fields.values.get('text');
     const textPath = at(path, 'text');
     // validateText also rejects lone surrogates: they are not in FONT.
     if (typeof raw !== 'string' || validateText(raw) !== null) issues.push({ path: textPath, rule: 'R12', reason: 'INVALID_TEXT' });
@@ -164,48 +199,48 @@ function checkRecipe(value: unknown, path: string, mode: 'save' | 'stored', issu
     else text = raw.toUpperCase();
   }
   let palette: [RGB, RGB] | null = null;
-  if (Object.hasOwn(value, 'palette')) palette = checkPalette(own(value, 'palette'), at(path, 'palette'), issues);
+  if (fields.values.has('palette')) palette = checkPalette(fields.values.get('palette'), at(path, 'palette'), issues);
   if (issues.length > before) return null;
   const tail = palette ? { palette } : {};
   return kind === 'text' ? { kind: 'text', text, ...tail } : { kind: kind as 'sphere' | 'helix', ...tail };
 }
 
 function checkMovement(value: unknown, path: string, params: Params, mode: 'save' | 'stored', issues: Issues): SavedShowMovement | null {
-  if (!isPlainObject(value)) { issues.push({ path, rule: 'R9', reason: 'INVALID_FIELD' }); return null; }
+  const fields = readFields(value);
+  if (!fields) { issues.push({ path, rule: 'R9', reason: 'INVALID_FIELD' }); return null; }
   const before = issues.length;
-  checkKeys(value, path, ['recipe', 'holdTicks'], 'R9', issues, true);
-  const hold = own(value, 'holdTicks');
-  if (typeof hold !== 'number' || !Number.isSafeInteger(hold) || hold < 0 || hold > COMPOSITION_LIMITS.maxHoldTicks) {
-    issues.push({ path: at(path, 'holdTicks'), rule: 'R9', reason: 'INVALID_TIMING' });
-  }
-  const recipe = checkRecipe(own(value, 'recipe'), at(path, 'recipe'), mode, issues);
+  checkKeys(fields, path, ['recipe', 'holdTicks'], 'R9', issues);
+  const hold = fields.values.get('holdTicks');
+  const holdOk = typeof hold === 'number' && Number.isSafeInteger(hold) && hold >= 0 && hold <= COMPOSITION_LIMITS.maxHoldTicks;
+  if (!holdOk) issues.push({ path: at(path, 'holdTicks'), rule: 'R9', reason: 'INVALID_TIMING' });
+  const recipe = checkRecipe(fields.values.get('recipe'), at(path, 'recipe'), mode, issues);
   if (recipe) {
     // R14: trial expansion at this n0, as validateDraft does. Today's kinds go through expandRecipe, which throws on a
-    // bad recipe; it must also give exactly n0 slots.
+    // bad recipe; it must also give exactly n0 slots. It expands the validated copy, never the input.
     let ok = false;
     try { ok = expandRecipe(recipe, params.n0, params).slots.length === params.n0; } catch { ok = false; }
     if (!ok) issues.push({ path: at(path, 'recipe'), rule: 'R14', reason: 'EXPANSION_FAILED' });
   }
-  if (issues.length > before || !recipe) return null;
+  if (issues.length > before || !recipe || !holdOk) return null;
   return { recipe, holdTicks: (hold as number) + 0 };   // -0 -> 0
 }
 
 function checkComposition(value: unknown, path: string, params: Params, mode: 'save' | 'stored', issues: Issues): SavedShowComposition | null {
-  if (!isPlainObject(value)) { issues.push({ path, rule: 'R7', reason: 'INVALID_FIELD' }); return null; }
+  const fields = readFields(value);
+  if (!fields) { issues.push({ path, rule: 'R7', reason: 'INVALID_FIELD' }); return null; }
   const before = issues.length;
-  checkKeys(value, path, ['v', 'movements'], 'R7', issues, true);
-  if (own(value, 'v') !== 1) issues.push({ path: at(path, 'v'), rule: 'R7', reason: 'INVALID_FIELD' });
-  const movements = own(value, 'movements');
+  checkKeys(fields, path, ['v', 'movements'], 'R7', issues);
+  if (fields.values.get('v') !== 1) issues.push({ path: at(path, 'v'), rule: 'R7', reason: 'INVALID_FIELD' });
   const mPath = at(path, 'movements');
+  const movements = readArray(fields.values.get('movements'), COMPOSITION_LIMITS.maxMovements);
   const out: SavedShowMovement[] = [];
-  if (!Array.isArray(movements) || movements.length === 0) issues.push({ path: mPath, rule: 'R8', reason: 'INVALID_FIELD' });
-  else if (movements.length > COMPOSITION_LIMITS.maxMovements) issues.push({ path: mPath, rule: 'R8', reason: 'TOO_MANY_MOVEMENTS' });   // not descended into
-  else if (Reflect.ownKeys(movements).length !== movements.length + 1) issues.push({ path: mPath, rule: 'R8', reason: 'INVALID_FIELD' });   // holes or extra keys
+  if (!('items' in movements)) issues.push({ path: mPath, rule: 'R8', reason: movements.problem === 'too-long' ? 'TOO_MANY_MOVEMENTS' : 'INVALID_FIELD' });   // too long: not descended into
+  else if (movements.items.length === 0) issues.push({ path: mPath, rule: 'R8', reason: 'INVALID_FIELD' });
   else {
-    for (let i = 0; i < movements.length; i++) {
-      const m = checkMovement(own(movements as unknown as Record<string, unknown>, String(i)), at(mPath, i), params, mode, issues);
+    movements.items.forEach((item, i) => {
+      const m = checkMovement(item, at(mPath, i), params, mode, issues);
       if (m) out.push(m);
-    }
+    });
   }
   return issues.length > before ? null : { v: 1, movements: out };
 }
@@ -240,18 +275,17 @@ function checkPrintable(value: unknown, path: string, rule: string, min: number,
 }
 
 function checkGenerator(value: unknown, path: string, issues: Issues): Generator | null {
-  if (!isPlainObject(value)) { issues.push({ path, rule: 'R6', reason: 'INVALID_FIELD' }); return null; }
+  const fields = readFields(value);
+  if (!fields) { issues.push({ path, rule: 'R6', reason: 'INVALID_FIELD' }); return null; }
   const before = issues.length;
-  checkKeys(value, path, ['model', 'integrationVersion', 'sceneHashes'], 'R6', issues);
-  const model = checkPrintable(own(value, 'model'), at(path, 'model'), 'R6', 1, GENERATOR_LIMITS.maxModelChars, issues);
-  const integrationVersion = checkPrintable(own(value, 'integrationVersion'), at(path, 'integrationVersion'), 'R6', 1, GENERATOR_LIMITS.maxIntegrationVersionChars, issues);
+  checkKeys(fields, path, ['model', 'integrationVersion', 'sceneHashes'], 'R6', issues);
+  const model = checkPrintable(fields.values.get('model'), at(path, 'model'), 'R6', 1, GENERATOR_LIMITS.maxModelChars, issues);
+  const integrationVersion = checkPrintable(fields.values.get('integrationVersion'), at(path, 'integrationVersion'), 'R6', 1, GENERATOR_LIMITS.maxIntegrationVersionChars, issues);
   let sceneHashes: string[] | undefined;
-  if (Object.hasOwn(value, 'sceneHashes')) {
-    const raw = own(value, 'sceneHashes');
-    const hashes = Array.isArray(raw) && raw.length <= GENERATOR_LIMITS.maxSceneHashes && Reflect.ownKeys(raw).length === raw.length + 1
-      ? raw.map((_, i) => own(raw as unknown as Record<string, unknown>, String(i))) : null;
-    if (!hashes || !hashes.every(h => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h))) issues.push({ path: at(path, 'sceneHashes'), rule: 'R6', reason: 'INVALID_FIELD' });
-    else sceneHashes = hashes as string[];
+  if (fields.values.has('sceneHashes')) {
+    const hashes = readArray(fields.values.get('sceneHashes'), GENERATOR_LIMITS.maxSceneHashes);
+    if (!('items' in hashes) || !hashes.items.every(h => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h))) issues.push({ path: at(path, 'sceneHashes'), rule: 'R6', reason: 'INVALID_FIELD' });
+    else sceneHashes = hashes.items as string[];
   }
   if (issues.length > before || model === null || integrationVersion === null) return null;
   return { model, integrationVersion, ...(sceneHashes ? { sceneHashes } : {}) };
@@ -266,25 +300,26 @@ function checkGenerator(value: unknown, path: string, issues: Issues): Generator
 export function validateShowRequest(input: unknown, params: Params): ShowRequestCheck {
   try {
     const errors: Issues = [];
-    if (!isPlainObject(input)) return { ok: false, errors: [{ path: '', rule: 'R16', reason: 'INVALID_FIELD' }] };
-    const version = own(input, 'schemaVersion');
+    const fields = readFields(input);
+    if (!fields) return { ok: false, errors: [{ path: '', rule: 'R16', reason: 'INVALID_FIELD' }] };
+    const version = fields.values.get('schemaVersion');
     if (typeof version === 'number' && Number.isSafeInteger(version) && version > SUPPORTED_SCHEMA_VERSION) {
       return { ok: false, errors: [{ path: 'schemaVersion', rule: 'R3', reason: 'SCHEMA_VERSION_UNSUPPORTED' }] };
     }
-    checkKeys(input, '', ['schemaVersion', 'title', 'prompt', 'composition', 'source', 'generator', 'operationId'], 'R16', errors);
+    checkKeys(fields, '', ['schemaVersion', 'title', 'prompt', 'composition', 'source', 'generator', 'operationId'], 'R16', errors);
     if (version !== SUPPORTED_SCHEMA_VERSION) errors.push({ path: 'schemaVersion', rule: 'R3', reason: 'INVALID_FIELD' });
-    const rawTitle = own(input, 'title');
+    const rawTitle = fields.values.get('title');
     const title = checkPrintable(typeof rawTitle === 'string' ? rawTitle.trim() : rawTitle, 'title', 'R4', 1, COMPOSITION_LIMITS.maxTitleChars, errors);
     let prompt: string | undefined;
-    if (Object.hasOwn(input, 'prompt')) prompt = checkPrintable(own(input, 'prompt'), 'prompt', 'R5', 0, COMPOSITION_LIMITS.maxPromptChars, errors, true) ?? undefined;
-    const source = own(input, 'source');
+    if (fields.values.has('prompt')) prompt = checkPrintable(fields.values.get('prompt'), 'prompt', 'R5', 0, COMPOSITION_LIMITS.maxPromptChars, errors, true) ?? undefined;
+    const source = fields.values.get('source');
     if (source !== 'manual' && source !== 'gemini') errors.push({ path: 'source', rule: 'R6', reason: 'INVALID_FIELD' });
     let generator: Generator | null = null;
-    const hasGenerator = Object.hasOwn(input, 'generator');
+    const hasGenerator = fields.values.has('generator');
     if (source === 'gemini' && !hasGenerator) errors.push({ path: 'generator', rule: 'R6', reason: 'INVALID_FIELD' });
     else if (source !== 'gemini' && hasGenerator) errors.push({ path: 'generator', rule: 'R6', reason: 'INVALID_FIELD' });
-    else if (hasGenerator) generator = checkGenerator(own(input, 'generator'), 'generator', errors);
-    const composition = checkComposition(own(input, 'composition'), 'composition', params, 'save', errors);
+    else if (hasGenerator) generator = checkGenerator(fields.values.get('generator'), 'generator', errors);
+    const composition = checkComposition(fields.values.get('composition'), 'composition', params, 'save', errors);
     if (errors.length || title === null || !composition) return { ok: false, errors };
     const request: ShowRequest = {
       schemaVersion: 1, title, ...(prompt !== undefined ? { prompt } : {}), composition, source: source as ShowSource, ...(generator ? { generator } : {}),

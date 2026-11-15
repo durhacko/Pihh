@@ -10,7 +10,9 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const BANNED_GLOBALS = ['window', 'document', 'navigator', 'localStorage', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'process', 'require', 'Buffer', '__dirname', 'globalThis'];
+// Network, DOM and process globals, plus the clock and unseeded randomness (#240 review): validation must be deterministic.
+const BANNED_GLOBALS = ['window', 'document', 'navigator', 'localStorage', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'process', 'require', 'Buffer', '__dirname', 'globalThis', 'Date', 'performance'];
+const BANNED_MATH = ['random'];   // Math.random and Math['random']
 const ALLOWED_DIRS = ['src/contracts/', 'src/score/'];
 
 function resolveModule(fromFile: string, spec: string): string | null {
@@ -43,6 +45,10 @@ function scan(entry: string): { files: string[]; problems: string[] } {
       if (ts.isImportEqualsDeclaration(node)) problems.push(`${file}: import =`);
       if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) problems.push(`${file}: dynamic import`);
       if (ts.isIdentifier(node) && BANNED_GLOBALS.includes(node.text)) problems.push(`${file}: global ${node.text}`);
+      if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && ts.isIdentifier(node.expression) && node.expression.text === 'Math') {
+        const key = ts.isPropertyAccessExpression(node) ? node.name.text : ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : '<computed>';
+        if (BANNED_MATH.includes(key) || key === '<computed>') problems.push(`${file}: Math.${key}`);
+      }
       ts.forEachChild(node, visit);
     };
     visit(ast);
@@ -66,6 +72,11 @@ describe('src/app/compose/validate.ts is pure (XI-2, XI-13)', () => {
     expect(files).toContain('src/app/actions.ts');
     expect(files.some(f => f.startsWith('src/sim/'))).toBe(true);
     expect(problems.some(p => p === 'reaches src/app/actions.ts')).toBe(true);
+  });
+
+  it('negative control: the clock and randomness checks fire on the app shell, which uses them', () => {
+    const { problems } = scan('src/app/main.ts');
+    expect(problems.filter(p => / (global (Date|performance)|Math\.random)$/.test(p)).length).toBeGreaterThan(0);
   });
 
   it('commands.ts keeps only an import and a re-export of the moved validateText and TEXT_MAX', () => {
