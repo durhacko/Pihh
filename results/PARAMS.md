@@ -1,7 +1,7 @@
 # Frozen evaluation parameters
 
-Frozen for the minimum-matrix evidence run (evaluation doc §5, step 2) at commit `571c8e44f8e85a87807c15543b75f924e23b9413`.
-Every RunRecord in this directory carries `paramsHash` = the sha256 below and `git` = that commit.
+Frozen for the minimum-matrix evidence run (evaluation doc §5, step 2) at commit `571c8e44f8e85a87807c15543b75f924e23b9413`, and unchanged for the freeze at `0b2f8f3c7c57f1f3d34adf99a1748ab20baae973`.
+Every RunRecord in this directory carries `paramsHash` = the sha256 below; their `git` is the freeze commit named in [RESULTS.md](RESULTS.md).
 
 - Source: `makeParams(200)` from `src/contracts/params.ts` (defaults, n0 = 200, claimGap = max(2, ceil(0.03 · n0)) = 6).
 - `paramsHash` = sha256 of the canonical JSON (object keys sorted at every level, no whitespace), as computed by `paramsHash()` in `src/cli/run.ts`.

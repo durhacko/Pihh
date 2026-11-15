@@ -21,8 +21,8 @@ It refuses before doing any work if:
 
 After installing, every top-level record must carry HEAD.
 
-`FREEZE_FULL=1` also runs the full matrix (S0–S5 × seeds 1–20 × both arms at n0 = 200, plus S1 and S2 × seeds 1–20 at n0 = 100; 320 records, about 27 min at 3 processes) into `full/n200/` and `full/n100/`. Each gets its own PARAMS.md and RESULTS.md, and progress is printed as each job finishes. This never writes to the top level.
+`FREEZE_FULL=1` also runs the full matrix (S0–S5 × seeds 1–20 × both arms at n0 = 200, plus S1 and S2 × seeds 1–20 at n0 = 100; 320 records; 657 s, about 11 min, with at most 3 processes in the freeze at 0b2f8f3) into `full/n200/` and `full/n100/`. Each gets its own PARAMS.md and RESULTS.md, and progress is printed as each job finishes. This never writes to the top level.
 
 One JSON file per (scenario, n0, arm, seed): `S2_n200_static_s1.json`. Records hold no wall-clock values, so a re-run from the same commit and params gives an equal `stateHash` and `summary`.
 
-The minimum matrix (S0, S1, S2, S3, S5; seeds 1-5; both arms; n0 = 200) from `main` 571c8e4 is here: [RESULTS.md](RESULTS.md), with the frozen params in [PARAMS.md](PARAMS.md).
+The minimum matrix (S0, S1, S2, S3, S5; seeds 1-5; both arms; n0 = 200) from `main` 0b2f8f3 is here: [RESULTS.md](RESULTS.md), with the frozen params in [PARAMS.md](PARAMS.md). The full matrix from the same commit is in [full/n200/RESULTS.md](full/n200/RESULTS.md) and [full/n100/RESULTS.md](full/n100/RESULTS.md). The earlier run from 571c8e4 is kept in [superseded-571c8e4/RESULTS.md](superseded-571c8e4/RESULTS.md).
