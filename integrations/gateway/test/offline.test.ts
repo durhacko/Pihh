@@ -7,6 +7,8 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The root repo's TypeScript (as `npm run typecheck` uses); the gateway package itself has no dependencies.
+import ts from 'typescript';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const gateway = join(here, '..');
@@ -131,15 +133,60 @@ test('no outbound network API, eval or module loader in the code', () => {
   for (const file of source) if (rel(file) !== 'src/server.ts') assert.ok(!raw(file).includes('node:http'), rel(file));
 });
 
-/** Every mention of the identifier `process` in code, with what follows it. Catches `process.x`, `process[...]`,
- *  `const { env } = process`, `f(process)` and `process?.env` alike: anything but `process.<allowed>` fails. */
+/** True if `name` is bound by `binding` (an identifier or a destructuring pattern). */
+function binds(binding: ts.BindingName, name: string): boolean {
+  if (ts.isIdentifier(binding)) return binding.text === name;
+  return binding.elements.some(e => !ts.isOmittedExpression(e) && binds(e.name, name));
+}
+
+/** True if a scope enclosing `node` declares its own `process` (a parameter, variable, function or catch binding),
+ *  so the identifier there is a local, not Node's global. */
+function shadowed(node: ts.Node): boolean {
+  for (let scope: ts.Node | undefined = node.parent; scope; scope = scope.parent) {
+    if (ts.isFunctionLike(scope) && scope.parameters.some(p => binds(p.name, 'process'))) return true;
+    if (ts.isCatchClause(scope) && scope.variableDeclaration && binds(scope.variableDeclaration.name, 'process')) return true;
+    if (ts.isBlock(scope) || ts.isSourceFile(scope) || ts.isModuleBlock(scope)) {
+      for (const statement of scope.statements) {
+        if (ts.isVariableStatement(statement) && statement.declarationList.declarations.some(d => binds(d.name, 'process'))) return true;
+        if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name?.text === 'process') return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Every reference to Node's global `process`, by AST (so strings, comments and property names never count), with
+ * the property read from it: `process.env` gives 'env'; anything else (`const { env } = process`, `f(process)`,
+ * `process['env']`, `process?.env`) gives '<bare>'. A local binding named `process` (for example a string
+ * parameter) shadows the global in its scope and is not a use.
+ */
 function processUses(text: string): string[] {
-  return [...text.matchAll(/(?<![\w$.])process\b(\s*\.\s*[A-Za-z_$][\w$]*)?/g)].map(m => (m[1] ?? '').replace(/[\s.]/g, '') || '<bare>');
+  const file = ts.createSourceFile('scan.ts', text, ts.ScriptTarget.Latest, true);
+  const uses: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && node.text === 'process') {
+      const parent = node.parent;
+      const isName =
+        (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+        ((ts.isParameter(parent) || ts.isVariableDeclaration(parent) || ts.isBindingElement(parent) || ts.isFunctionDeclaration(parent) ||
+          ts.isClassDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent) ||
+          ts.isPropertyDeclaration(parent) || ts.isMethodDeclaration(parent)) && parent.name === node) ||
+        (ts.isBindingElement(parent) && parent.propertyName === node);
+      if (!isName && !shadowed(node)) {
+        const direct = ts.isPropertyAccessExpression(parent) && parent.expression === node && !parent.questionDotToken;
+        uses.push(direct ? parent.name.text : '<bare>');
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return uses;
 }
 
 test('only the entry point touches process, and only env (once, into main), argv, stderr, exitCode and on', () => {
   for (const file of source) {
-    const uses = processUses(code(file));
+    const uses = processUses(raw(file));
     if (rel(file) !== 'src/server.ts') {
       assert.deepEqual(uses, [], `${rel(file)} touches process`);
       continue;
@@ -153,7 +200,22 @@ test('only the entry point touches process, and only env (once, into main), argv
 test('the process scan catches destructuring, aliasing and optional chaining', () => {
   assert.deepEqual(processUses('const { env } = process;'), ['<bare>']);
   assert.deepEqual(processUses('const p = process; read(process?.env);'), ['<bare>', '<bare>']);
-  assert.deepEqual(processUses("process['env']; process . env; x.process.y; myprocess.env"), ['<bare>', 'env']);
+  assert.deepEqual(processUses("process['env']; process . env; x.process.y; myprocess.env; const o = { process };"), ['<bare>', 'env', '<bare>']);
+});
+
+test('the process scan ignores strings, comments, property names and a local binding named process', () => {
+  const local = [
+    'function refuse(env: Env, process: string) { return `the ${process} must not hold it; unset it for this process`; }',
+    "// this process reads process.env\nconst s = 'process.env and process';",
+    'const o = { process: 1 }; o.process; type T = { process: string };',
+    'function f() { const process = "importer"; return process.length; }',
+    'try { x(); } catch (process) { log(process); }',
+    'const { process: role } = config; role;',
+  ];
+  for (const text of local) assert.deepEqual(processUses(text), [], text);
+  // Shadowing is per scope: the global is still caught outside the function that shadows it.
+  assert.deepEqual(processUses('function f(process: string) { return process; }\nconst e = process.env;'), ['env']);
+  assert.deepEqual(processUses('function f(process: string) { return process; }\nconst { env } = process;'), ['<bare>']);
 });
 
 test('the package has no dependencies', () => {
