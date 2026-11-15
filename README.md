@@ -266,7 +266,7 @@ For development with hot reload: `npm run dev`, then open the printed address (V
 | `?seed=N` | Reproducible seed (default 1) |
 | `?split=1` | Encore on top, static below, one camera |
 | `?arm=static` | Single view of the static world |
-| `?q=low` | Lower pixel ratio for slow machines |
+| `?q=low` | Lowest render quality for slow machines: no plain heartbeat lines, no halos, pixel ratio 1, static view at half rate in split. Rendering only |
 | `?n0=100`, `150` or `200` | Roster size (default 200; other values are ignored) |
 
 ## A 90-second tour
@@ -288,11 +288,12 @@ For development with hot reload: `npm run dev`, then open the printed address (V
 
    | Key | Action |
    |---|---|
-   | <kbd>K</kbd> | Kill every drone within 8 m of the selected one. With nothing selected, click where the centre should be |
-   | <kbd>J</kbd> | Jam the radio within 12 m of it, or click a centre if nothing is selected. Press <kbd>J</kbd> again to lift the jam |
+   | <kbd>K</kbd> | Kill every live drone within the region radius of the selected one: 6 m by default, 3–16 m with the **Region radius** slider under Disrupt. The same drones die in both worlds. With no live drone selected, click where the centre should be |
+   | <kbd>J</kbd> | Jam the radio in a fixed sphere of the jam radius around it: 12 m by default, 4–30 m with the **Jam radius** slider under Disrupt (set it before jamming: the slider is hidden while a jam is on). With no live drone selected, click a centre. Press <kbd>J</kbd> again to lift the jam |
    | <kbd>P</kbd> | Partition the swarm along the plane x = 0 (press again to reconnect) |
    | <kbd>I</kbd> or <kbd>F</kbd> | Open the Composer: choose text, sphere or double helix, pick the target drone, then press **Inject**. Nothing is sent until then |
-   | <kbd>X</kbd> / <kbd>C</kbd> | Radio X-ray: a sample of the radio messages actually sent: every claim and new score (up to 24 receivers each), and 3 receivers of every 4th other broadcast; plus each drone's line to its flight target (the Tethers lens, which you can turn off under Lenses) / colour drones by the score version they believe |
+   | <kbd>X</kbd> | Radio X-ray: a sample of the radio messages actually sent: every heartbeat that carries a claim and every score message, new or resent to a drone on an older score (up to 24 receivers each); up to 3 receivers of about one in four other heartbeats; and a short stub at the sender for messages that were lost, jammed or partitioned. With a drone selected, only its own links and stubs are drawn (the counter says "filtered to #N"). If the frame rate stays below 27 fps for a few seconds, plain heartbeat lines are the first thing dropped; `?q=low` drops them too |
+   | <kbd>C</kbd> | Colour drones by the score version they believe |
    | <kbd>Space</kbd> / <kbd>R</kbd> | Play or pause / reset to the seed |
    | <kbd>[</kbd> <kbd>]</kbd> | Slower or faster (0.25× to 4×) |
    | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Camera: front, ¾, top |

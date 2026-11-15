@@ -121,7 +121,7 @@ HUD, 4 Hz, from each world's `MetricsSample`:
 | 12 | — | X-ray | Dim, sampled real heartbeats |
 | 16 | — | Split | Identical static arm below |
 | 20 | `KILL{ids}`: `idsInSphere` over one letter, about 10% of `n0` | Ghosts | Same hole in both arms |
-| 20–44 | None: drones act | — | Above: claim heartbeats, tethers, hole refilling from its rim, nPWC rising. Below: unchanged |
+| 20–44 | None: drones act | — | Above: claim heartbeats, hole refilling from its rim, nPWC rising. Below: unchanged |
 | 44 | Preloaded movement 1 (helix) | Split off | Survivors re-form with no messages |
 | 54 | `JAM_ON`, upper third | Belief colours | Jam sphere, deaf rings; drones keep flying their score |
 | 58 | `INJECT_SCORE` (sphere), one un-jammed drone | Speed 0.5× | New colour spreads along real `SCORE` lines; the jam blocks sends involving drones currently inside it |
