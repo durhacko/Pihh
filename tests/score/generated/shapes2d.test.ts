@@ -8,6 +8,7 @@ import {
   MASK_SIZE, MIN_STROKE_WIDTH, MIN_RADIUS, NORMALISED_HALF_EXTENT,
   type Pt2, type PartInput2D, type Geom2D, type Mask2D,
 } from '../../../src/score/generated/shapes2d';
+import type { SceneSpec2D } from '../../../src/score/generated/types';
 
 // A seeded generator for test data (mulberry32), so the "random" segments are fixed.
 function rng(seed: number): () => number {
@@ -416,8 +417,8 @@ describe('outlines and part data', () => {
 });
 
 describe('adapter and input errors', () => {
-  it('buildRegion2D reads a scene-shaped object and matches buildRegion on its parts', () => {
-    const scene = { version: 1, mode: 'silhouette2d', title: 'Elephant', view: 'side', foreground: '#FFFFFF', parts: ELEPHANT };
+  it('buildRegion2D reads a SceneSpec2D and matches buildRegion on its parts', () => {
+    const scene: SceneSpec2D = { version: 1, mode: 'silhouette2d', title: 'Elephant', view: 'side', foreground: '#FFFFFF', parts: ELEPHANT };
     expect(sameBits(rasterise(buildRegion2D(scene)), maskOf(ELEPHANT))).toBe(true);
   });
 

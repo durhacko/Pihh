@@ -14,6 +14,8 @@
 // Only `buildRegion2D` touches the scene types of GF-WP-01 (#203). Everything else works on the local
 // input types below, so the module does not depend on the scene types' exact names.
 
+import type { SceneSpec2D } from './types';
+
 export type Pt2 = [number, number];
 export interface Box2 { min: Pt2; max: Pt2 }
 
@@ -526,15 +528,11 @@ export function buildRegion(inputs: readonly PartInput2D[]): Region2D {
 }
 
 /**
- * The scene's structural shape as this module reads it: the fields of spec §6.2 `SceneSpec2D` that
- * geometry needs. The one coupling to GF-WP-01's types (#203); rewired to `SceneSpec2D` once it merges.
+ * Adapter from a (canonical, V3-valid) GF-WP-01 `SceneSpec2D` to the region: the only place this
+ * module reads the scene types. `Shape2D` and `Geometry2D` (types.ts) match the local input types
+ * field for field.
  */
-export interface SceneLike2D {
-  parts: readonly { id: string; operation: 'union' | 'subtract'; priority: number; geometry: Geom2D }[];
-}
-
-/** Adapter from a (canonical, V3-valid) 2D scene to the region. The only place scene types are read. */
-export function buildRegion2D(scene: SceneLike2D): Region2D {
+export function buildRegion2D(scene: SceneSpec2D): Region2D {
   return buildRegion(scene.parts.map((s) => ({ id: s.id, operation: s.operation, priority: s.priority, geometry: s.geometry })));
 }
 
