@@ -4,12 +4,12 @@
 >
 > Source design by **William Pimentel** (`wpimento`): [`../handoffs/Encore_Gemini_Flash_Lite_Architecture.md`](../handoffs/Encore_Gemini_Flash_Lite_Architecture.md). Integrated into the Encore repository by **Arnav** (contract owner), issue #117.
 
-Purpose: the primary, implementation-facing specification for turning a natural-language prompt into a validated `Formation` that Encore's existing decentralised swarm disseminates and flies. Status: proposed; every contract change needs Arnav's approval and the network-facing path needs a team decision (GF-D1). Owner: Arnav (integration, contract), William (sponsor requirements, provider, gateway, persistence). Audit base: `main` at 4c41f75.
+Purpose: the primary, implementation-facing specification for turning a natural-language prompt into a validated `Formation` that Encore's existing decentralised swarm disseminates and flies. Status: proposed; every contract change needs Arnav's approval and the network-facing path needs a team decision (GF-D1). Owner lanes: Arnav (integration, contract); William keeps the sponsor-specific decisions (sponsor requirements, provider, gateway hosting, persistence designs). Nobody is assigned: assignees are TBD by Arnav (XI-10). Audit base: `main` at 4c41f75.
 
 Companion documents, written in parallel and sharing the IDs used here:
 
 - Work packages `GF-WP-01…15`: [`../planning/gemini-integration-work-packages.md`](../planning/gemini-integration-work-packages.md).
-- Tests `GF-T01…GF-T40` and the complexity ladder `CL-1…CL-6`: [`../validation/gemini-formation-evaluation.md`](../validation/gemini-formation-evaluation.md).
+- Tests `GF-T01…GF-T41` plus `GF-T24b`, and the complexity ladder `CL-1…CL-6`: [`../validation/gemini-formation-evaluation.md`](../validation/gemini-formation-evaluation.md).
 
 This file is canonical for `GF-FR`, `GF-NFR`, `GF-CC`, `CR`, `GF-D` and `GF-R` IDs.
 
@@ -27,7 +27,27 @@ In scope:
 - The two operating modes, OFFLINE-AUTHORING and LIVE-GATEWAY (§4.3); the gateway interface (§10); the frontend flow (§11); persistence boundaries (§13).
 - Risks, conflict records, proposed requirements, decisions, open questions, traceability and the review record (§15–§22).
 
-Out of scope: provider selection beyond William's choice, gateway hosting, MongoDB and Tiger Data schemas beyond William's field lists (William owns these, §2), and any change to how drones coordinate.
+Out of scope: provider selection beyond William's choice, gateway hosting, the MongoDB and Tiger Data schemas (William's own specs define them: MongoDB `encore.saved_shows` in #130, Tiger Data in #142; §13), and any change to how drones coordinate.
+
+Cross-integration rulings XI-1…XI-15 bind this spec, the MongoDB spec (#130) and the Tiger Data spec (#142). They are the orchestrator's rulings, not a repository document. XI-11…XI-14 are recorded once in [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard) and XI-15 in [boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes) (provisional, #110). The others are recorded only here, by the section that applies each one:
+
+| Ruling | Content | Applied in |
+|---|---|---|
+| XI-1 | One optional gateway, `integrations/gateway/`, with modules `gemini`, `shows`, `tiger` | §10.4, CR-10 |
+| XI-2 | The gateway may import pure Encore modules only | §6.5, §10.2, §10.4, CR-24 |
+| XI-3 | One error envelope and one shared code list | §10.1, CR-36 |
+| XI-4 | X-RUN/live and X-PERSIST (provisional, #110) | §10.4, §13 |
+| XI-5 | Gateway calls while the simulation runs, never in the tick loop or a decision path | §13.1, CR-25 |
+| XI-6 | Data ownership and identity links | §13 |
+| XI-7 | One canonical JSON and SHA-256 | §6.7 |
+| XI-8 | Size caps | §13.1 |
+| XI-9 | D3 = GF-D1 = MDB-D1 = TIG-D1, approved per integration | §4.3, §19 |
+| XI-10 | Nobody is assigned | §2 |
+| XI-11 | `requestId` pattern; a non-matching value is dropped | §10.1 |
+| XI-12 | One gateway skeleton and one guard | §10.3, §10.4 |
+| XI-13 | Pure validator at `src/app/compose/validate.ts` | §10.4, §11.1 |
+| XI-14 | App network code in `src/app/live/`, one build flag per module | §10.3, §10.4 |
+| XI-15 | `encore.composition` v1 and v2 (v2 adds `holdTicks` and generated cues) | §12, §17, CR-29 |
 
 ### 1.1 What Gemini must not do
 
@@ -52,9 +72,11 @@ These hold in every mode. They restate William's "Strict separation of responsib
 | Sponsor requirements (MLH "Best Use of Gemini API", MongoDB Atlas, Tiger Data) | William | Provisional. Names verified on the MLH prize page 2026-11-15; eligibility rules not published there (unverified) |
 | Provider facts (model, SDK, pricing, limits) | William | Re-checked 2026-11-15 against official docs (§10.6); his values kept side by side |
 | Gateway module `gemini` (`POST /api/generate-formation`) | William | Interface contract only (§10). Hosting, prompts and keys are his |
-| MongoDB library, Tiger Data telemetry | William | MongoDB: his spec in #130. Tiger Data: reserved (§13). Attach through X-PERSIST / X-OUT |
+| MongoDB library, Tiger Data evidence | William | MongoDB: his spec in #130 (`encore.saved_shows`). Tiger Data: his plan in #142 (experiment evidence only); GF-WP-15's Tiger half stays in William's lane (§13). Both attach through X-PERSIST (provisional, #110); Tiger reads X-OUT exports |
 | Contract changes `GF-CC-*` | Arnav | Proposed, not approved |
 | Compiler, Composer integration, tests | Arnav's lanes, via `GF-WP-*` | Proposed |
+
+The Owner column names who decides, not who builds. Nobody is assigned, and implementation assignees are TBD by Arnav (XI-10). "Reserved for William" means William's lane only, never an assignment.
 
 Section references such as "handoff §4.5" point into the source handoff, preserved unmodified (banner).
 
@@ -62,9 +84,11 @@ Section references such as "handoff §4.5" point into the source handoff, preser
 
 ## 3. Audit
 
-Base: `main` at **4c41f75**; line citations are at 4c41f75. Status labels: **(a)** implemented and tested on main · **(b)** implemented, not integrated · **(c)** open PR or active branch · **(d)** documented only · **(e)** not present.
+Base: `main` at **4c41f75**; line citations are at 4c41f75 unless they name another commit. Status labels: **(a)** implemented and tested on main · **(b)** implemented, not integrated · **(c)** open PR or active branch · **(d)** documented only · **(e)** not present.
 
 Changes since first audit (7a50a69 / 9f78902): #119/#120 made main green; #116 (CLI Encore arm), #68 (Encore isolation and replay tests), #118 (perf and screenshot harness), #115 (perf: `encoreBrain.ts`, `world.ts`), #122 (evidence matrix) and #121 (#112/#109 follow-ups) merged; `src/contracts` and `src/score` are unchanged.
+
+**Note, 2026-11-15: #113 merged after the audit base.** The app shell merged as 6d5ea32 and is on `origin/main` at c697f6c. There `main.ts` imports `connectComposer` and mounts the Composer and its stage preview (`main.ts:22, 459` at c697f6c), and it defines the rosters 100, 150 and 200 (`main.ts:49` at c697f6c). The tables below keep their 4c41f75 labels. Read "not mounted" and "#113 (c)" as "true at 4c41f75; mounted since 6d5ea32". Other line citations were not re-checked at c697f6c.
 
 ### 3.1 Relevant merged work
 
@@ -73,16 +97,17 @@ Changes since first audit (7a50a69 / 9f78902): #119/#120 made main green; #116 (
 | #105 score gossip | Adopts strictly newer scores; checks only the version and a non-empty `movements` (`encoreBrain.ts:129-143`). **No recipe validation** |
 | #96 paced targets | `pacedSlotPos` paces from the **same slot index** of the previous movement (§8.10) |
 | #111 contract text | §8.5 limits 8 (injection pauses healing) and 9 (fly-back for up to `scoreLead`) |
-| #112 composer | `validateDraft` (trial `expandRecipe`), PreviewLayer, `dispatchInject` → `INJECT_SCORE`. **Not mounted** on main (b); #113 mounts it (c) |
+| #112 composer | `validateDraft` (trial `expandRecipe`), PreviewLayer, `dispatchInject` → `INJECT_SCORE`. **Not mounted** at 4c41f75 (b); #113 mounted it in 6d5ea32 (note above) |
 | #107 Encore brain in app | Injected scores are adopted and gossiped in the app |
 
 ### 3.2 Active work that touches this design
 
 | Item | Why it matters |
 |---|---|
-| #113 app shell (c) | Owns `main.ts`, `worlds.ts`, `actions.ts`, `commands.ts`, `Hud.ts`; mounts the Composer, Console, Preview and Inspector that GD-11 extends |
+| #113 app shell (c at 4c41f75; merged in 6d5ea32) | Owns `main.ts`, `worlds.ts`, `actions.ts`, `commands.ts`, `Hud.ts`; mounts the Composer, Console, Preview and Inspector that GD-11 extends |
 | #110 Phase 2 docs (c) | X-IN/X-OUT/X-PERSIST/X-RUN, linter L1–L6, decision D3. **Provisional** |
 | #130 MongoDB docs (c) | William's show-library spec; shares the gateway (§10.4) and realises GF-WP-15's MongoDB half (§13) |
+| #142 Tiger Data docs (c) | William's analytics plan; shares the gateway (`tiger` module) and the canonical JSON (§6.7); holds experiment evidence only (§13.2) |
 | Evidence (#122, merged) | Any later `src/agent/**`, `Params` or `EncoreState` change needs a new evidence revision (§8.2) |
 
 ### 3.3 What exists, (a)–(e)
@@ -94,7 +119,7 @@ Changes since first audit (7a50a69 / 9f78902): #119/#120 made main green; #116 (
 | Memo key `JSON.stringify(recipe)` + n0 + `slotSpacingMin`, built on every call, FIFO cache of 64 | (a) | `expand.ts:125-133` |
 | `copyRecipe` deep-copies only `palette` | (a) | `src/score/compose.ts:29-34` |
 | Transition time from the largest same-index displacement (formula in §8.10) | (a) | `src/score/timing.ts:36-49` |
-| Composer preview of an exact `expandRecipe` result, local only | (b) | `src/app/render/layers/PreviewLayer.ts`; not mounted on main |
+| Composer preview of an exact `expandRecipe` result, local only | (b) | `src/app/render/layers/PreviewLayer.ts`; not mounted at 4c41f75, mounted since 6d5ea32 |
 | Recipe validation in brains | (e) | Unknown kinds reach `expandRecipe` and would throw inside `world.step` |
 | Any network code in `src/app` | (e) | No `fetch`, `XMLHttpRequest`, `WebSocket` (grep) |
 | Web Worker | (e) | No `new Worker` in `src` |
@@ -123,8 +148,8 @@ The user types "Generate a 3D elephant with grey skin, large ears and white tusk
 | Where Gemini runs | At authoring time, by a person or a tool **outside this repo** (for example Google AI Studio) | The `gemini` module of the optional gateway (`integrations/gateway/`, §10.4), called from the app at show time |
 | What the app receives | Only validated scene JSON files, committed under a proposed `assets/scenes/` library (GF-WP-09), bundled at build time, or picked through X-IN | A scene in the gateway's response |
 | Network at run time | None | App → local gateway → Google |
-| Compliance today | Meets [NFR-04](../specification/requirements.md#3-non-functional-requirements) and the AGENTS.md ground rule **only if no network client is checked into the repo**. A checked-in authoring script that calls Gemini is LIVE-GATEWAY-class | **Forbidden** today by NFR-04, the AGENTS.md "Software only" ground rule and [contract §12](../design/contracts-and-algorithms.md#12-deliberately-not-in-the-mvp) "Never" |
-| Gate | GF-CC-01 approved | GF-CC-01 plus **GF-D1**: Phase 2 decision D3 approved for this integration, amending NFR-04, the ground rule, contract §12 and the decisions log ([boundaries §9](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3), whose condition 2 admits the one confined X-RUN/live app folder); depends on X-RUN/live (provisional, #110) |
+| Compliance today | Meets [NFR-04](../specification/requirements.md#3-non-functional-requirements) and the AGENTS.md ground rule **only if no network client is checked into the repo**. A checked-in authoring script that calls Gemini is LIVE-GATEWAY-class. Google's provider terms still apply to authoring in AI Studio (GF-D11, §10.6) | **Forbidden** today by NFR-04, the AGENTS.md "Software only" ground rule and [contract §12](../design/contracts-and-algorithms.md#12-deliberately-not-in-the-mvp) "Never" |
+| Gate | GF-CC-01 approved | GF-CC-01 plus **GF-D1**: Phase 2 decision D3 approved for this integration, amending NFR-04, the ground rule, contract §12 and the decisions log ([boundaries §9](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3), whose condition 2 admits the one confined X-RUN/live app folder). It is the same decision as MDB-D1 (#130) and TIG-D1 (#142), approved per integration (XI-9). Depends on X-RUN/live (provisional, #110) |
 | Default | On (when built) | Off. Optional, with the offline library as fallback and a networking-off demo test |
 
 The rest of the pipeline is identical in both modes: validate, compile, preview, accept, inject. Recommendation: build OFFLINE-AUTHORING first. It shows the whole "prompt → mathematical scene → decentralised execution" claim in the demo, with Gemini named honestly as the authoring tool, and it needs no rule change. LIVE-GATEWAY stays William's sponsor path, gated on GF-D1.
@@ -152,7 +177,7 @@ flowchart TD
   INJ --> GS["Gossip SCORE between drones<br/>(existing, #105)"]
   GS --> D["Each drone: compile from the score alone,<br/>check slotsDigest, adopt, pace, fly, hold, repair"]
   D --> OBS["Observer and renderer (read-only)"]
-  OBS -.->|"X-OUT export, optional"| TD["Tiger Data telemetry (external, William)"]
+  OBS -.->|"X-OUT export, optional"| TD["Tiger Data experiment evidence (external, William, #142)"]
   CN -.->|"X-PERSIST, optional"| MDB["MongoDB Atlas library (external, William, #130)"]
 ```
 
@@ -219,7 +244,7 @@ Segments are William's cubic B(t) = (1−t)³P₀ + 3(1−t)²tP₁ + 3(1−t)t�
 
 William's elephant excerpt (handoff §4.2) validates unchanged.
 
-**Foreground.** `#RRGGBB` (case-insensitive) becomes `[RR/255, GG/255, BB/255]`. Both forms are sRGB-encoded and are linearised as in §7.7. Any other string is rejected (`bad-colour`).
+**Foreground.** `#RRGGBB` (case-insensitive) becomes `[RR/255, GG/255, BB/255]`. Both forms are sRGB-encoded and are converted as in §7.7: passed through unchanged until GF-D6 approves linearising every hex path together, then linearised. Any other string is rejected (`bad-colour`).
 
 ### 6.3 `SceneSpec3D`
 
@@ -268,7 +293,7 @@ William's "explicit transform: centre, dimensions, orientation" becomes, per pri
 
 ### 6.4 Scene versions
 
-`version: 1` is the only schema version. The compiler reads `version` and refuses any it does not implement (`unsupported-version`). `compilerVersion` (§7.1, an integer) is separate. It names the compiler that interprets the scene. A saved scene stores both, so a later compiler can tell when its output would differ (`slotsDigest`, §8.2). A schema change that alters meaning increments `version`. A compiler change that alters output for any valid scene increments `compilerVersion`. A recipe's `compilerVersion` must equal the running module's `COMPILER_VERSION`: operator-side validation rejects any other value (`unsupported-compiler`) and a brain refuses it (§8.2). Fleets with mixed compiler versions are out of scope for Option A and are the trigger for Option B (§8.5).
+`version: 1` is the only schema version. The compiler reads `version` and refuses any it does not implement (`unsupported-version`). `compilerVersion` (§7.1, an integer) is separate. It names the compiler that interprets the scene. A saved scene stores both, so a later compiler can tell when its output would differ (`slotsDigest`, §8.2). A schema change that alters meaning increments `version`. A compiler change that alters output for any valid scene increments `compilerVersion`. A recipe's `compilerVersion` must equal the running module's `COMPILER_VERSION`: operator-side validation rejects any other value (`unsupported-compiler`, a recipe check, §6.5) and a brain refuses it (§8.2). Fleets with mixed compiler versions are out of scope for Option A and are the trigger for Option B (§8.5).
 
 ### 6.5 Validation rules
 
@@ -280,7 +305,7 @@ Validation is ordered: V1a, V2, V3, canonicalisation (§6.7), V1b, then V4–V12
 | V2 | Parse | Fresh plain objects; reject `__proto__`, `constructor`, `prototype` keys | `parse` |
 | V3 | Schema | Exact shape, enums, lengths, no extra keys, finite numbers, integer fields | `schema` |
 | V4 | References | Unique part ids (after mirroring) and material ids; every `materialId` declared; ≥ 1 `union` (2D) | `reference` |
-| V5 | Ranges | Centres and curve points in [-1.5, 1.5] (CR-30); sizes in [0.005, 1], except `cone.topRadius` in [0, 1]; colours in [0, 1]; priority 1..5; rotations within ±360; `compilerVersion` = `COMPILER_VERSION` (`unsupported-compiler`) | `range` |
+| V5 | Ranges | Centres and curve points in [-1.5, 1.5] (CR-30); sizes in [0.005, 1], except `cone.topRadius` in [0, 1]; colours in [0, 1]; priority 1..5; rotations within ±360 | `range` |
 | V6 | Geometry | Simple polygons; 3k+1 Bézier points; evaluated part boxes within ±1.6; tube radius below local curvature radius | `geometry` |
 | V7 | Complexity | §6.6 limits | `complexity` |
 | V8 | Connectivity 2D | Non-empty mask; specks < 0.5% dropped (warning), except a speck of a protected part, which is kept and warned with its part id; several components → `disconnected` (warning) | `empty-geometry` |
@@ -289,7 +314,11 @@ Validation is ordered: V1a, V2, V3, canonicalisation (§6.7), V1b, then V4–V12
 | V11 | Trial compile | `compileGeneratedScene` is `ok` for the current n0 and params. Operator side only: the compiled slots' graph with edges ≤ `rRadio` is connected (L2 self-partition, §8.11, CR-28) | compiler code (§7.11); `radio-partitioned` |
 | V12 | Linter | L1–L6 (provisional: depends on #110). **Warnings only; they never block** | warnings |
 
-V1–V10 are one pure implementation in a proposed `src/score/generated/validation.ts`, shared by the Composer, CLI, tests and (via subprocess) the gateway. App code does not validate with JSON Schema, because Gemini ignores several keywords (§6.8).
+V1–V11 are one pure implementation in a proposed `src/score/generated/` (`validation.ts` plus the compiler), shared by the Composer, CLI and tests. The gateway imports the same modules by relative path (decision XI-2, §10.4), so server-side validation is complete, trial compile included. App code does not validate with JSON Schema, because Gemini ignores several keywords (§6.8).
+
+**Recipe checks.** V1–V12 check a scene. `compilerVersion` and the `sceneHash` label are fields of a `GeneratedRecipe` (§8.1), not of the scene, so they are checked on the recipe, after its scene passes V1–V11. The operator side checks them in `validateDraft`, `makeGeneratedRecipe` and library load; a brain checks them in `acceptsRecipe` (GF-CC-02, §8.2). Codes:
+- `unsupported-compiler`: `compilerVersion` ≠ `COMPILER_VERSION` (§6.4);
+- `hash-mismatch`: the `sceneHash` field differs from the hash recomputed from the scene (§8.3).
 
 ### 6.6 Complexity limits
 
@@ -314,12 +343,14 @@ These are proposed defaults, planning values to confirm with the ladder runs ([`
 1. Start from the V3-valid scene.
 2. Expand defaults: a missing `rotationDeg` becomes zeros and a missing `symmetry` becomes `'none'`. Hex foreground stays a string; there is no colour conversion at this stage.
 3. Quantise every non-integer number to a grid of **1e-4**: `q = Math.round(v * 1e4) / 1e4`. Turn `-0` into `0`. Reject NaN and ±Infinity, which cannot reach this point after V3 but are checked again. Coordinates span [-1.5, 1.5], so the grid gives 30,001 steps per axis. At the largest plausible world extent (about 120 m, §7.6) a step is about 6 mm, far below `slotSpacingMin`.
-4. Serialise with object keys sorted by UTF-16 code unit, arrays in order, no whitespace. Numbers use ECMAScript `Number.prototype.toString`, which the language specification defines exactly (shortest round-trip), so Node and browsers agree.
+4. Serialise with the repo's one canonical-JSON definition, `canonicalJson` in `src/cli/run.ts:27-36` (XI-7): object keys sorted by UTF-16 code unit, arrays in order, no whitespace, strings and numbers through `JSON.stringify`, and a throw on any non-finite number. Numbers therefore take ECMAScript's shortest round-trip form, which the language specification defines exactly, so Node and browsers agree.
 5. Encode as UTF-8 with a small hand-written encoder, so the score package needs no platform globals.
+
+**One canonical JSON, three users (XI-7).** Tiger artifact hashes (#142), MongoDB `contentHash` (#130) and `sceneHash` use the same function. Gemini only adds step 3: it quantises scene numbers before canonicalisation, for scenes only, never for run records. `src/score` may import only `src/score` and `src/contracts` (`tests/boundaries.test.ts:9`), so it cannot import `src/cli`. The function therefore moves to one pure module, the single shared extraction proposal (owner: Arnav; Tiger TIG-D7), never a second copy. Its location must be one that `src/score` may import.
 
 **The compiler compiles the canonical scene, not the raw one.** Two scenes that differ only below the quantisation grid therefore compile identically, and the hash honestly names what was compiled.
 
-**Hash function: SHA-256 in pure TypeScript** (32-bit integer operations only, exact in every engine; checked against NIST test vectors). `node:crypto` is barred by the boundary rules and Web Crypto is asynchronous. A 64-bit FNV-1a would be enough for memo keys (accidental collision about k²/2⁶⁵, around 10⁻¹² for 10⁴ scenes), but it is not collision-resistant. Saved libraries and `slotsDigest` records (§8.2, §13) may cross a trust boundary later and benefit from a standard hash with published vectors. The hash runs once per recipe object (§8.3): at validation or composition, and once per drone per adoption, because each brain holds its own copy. Its cost (planning estimate: well under 1 ms for 16 KB) is therefore paid n0 times per world in the adoption window, never in steady state once the observer fix of §8.3 lands. One function serves every use. Under AS-06 there is no adversary today.
+**Hash function: SHA-256 everywhere (XI-7).** Inside `src/score` (brains, compiler, validation) it is **pure TypeScript** (32-bit integer operations only, exact in every engine; checked against NIST test vectors), because `node:crypto` is barred by the boundary rules and Web Crypto is asynchronous. Server-side, the gateway may use `node:crypto`'s SHA-256 instead, which gives the same digest. A 64-bit FNV-1a would be enough for memo keys (accidental collision about k²/2⁶⁵, around 10⁻¹² for 10⁴ scenes), but it is not collision-resistant. Saved libraries and `slotsDigest` records (§8.2, §13) may cross a trust boundary later and benefit from a standard hash with published vectors. The hash is cached only for scenes the score package deep-froze (§8.3). It runs at validation or composition, and once per drone per adoption, because each brain swaps its adopted copy for its own `copyRecipe` copy (GF-CC-02). Its cost (planning estimate: well under 1 ms for 16 KB) is therefore paid n0 times per world in the adoption window, never in steady state once the observer fix of §8.3 lands. One function serves every use. Under AS-06 there is no adversary today.
 
 ### 6.8 The JSON Schema subset Gemini supports
 
@@ -399,21 +430,22 @@ The stages follow William's table (handoff §6), with the repo's ordering and pl
 1. **Geometry.** Each part gets an inside test:
    - ellipse: its implicit equation, after the inverse rotation;
    - polygon: even-odd crossing;
-   - path: even-odd crossing against the cubic chain flattened at 16 samples per segment;
+   - path: even-odd crossing against the cubic chain flattened at 16 samples per segment. Even-odd is the defined fill for a self-intersecting path too: V6 requires only polygons to be simple, so a path that crosses itself is valid and leaves its doubly covered regions empty;
    - stroke: distance ≤ width/2 from the centreline flattened at 32 samples per segment.
 2. **Normalise, then a 512² mask** over [-1.2, 1.2]² (cell ≈ 0.0047). P1 removes absolute scale, so internal thresholds must not depend on it: the scene's union bounding box is first scaled uniformly about its centre so its longer side spans [-1.1, 1.1] (`stats.normalise`; 3D does the same before §7.3). V9, V10 and ε (§7.3) are fractions of this normalised extent, so a scene and its half-size copy compile alike. Parts apply **in array order**: `union` sets cells and `subtract` clears them, so a later union can refill a cut-out. Bounding-box culling skips irrelevant parts. This is William's internal binary mask (handoff §4.3); it is never shown.
 3. **Components.** 4-connected labelling; drop specks (V8).
 4. **Boundary.** Marching squares gives closed contours (outer and holes), resampled at δ/4. Points within one cell of an original vector edge are snapped to it. William: "Original vector geometry can still be used to sample smooth boundaries."
 5. **Candidates**, William's `FormationCandidate` (`pos`, `featureId`, `importance`, plus a class; colour comes later):
    - **boundary**: contour samples, tagged with the owning part;
-   - **interior**: a hexagonal lattice of about 1,500 points over filled cells, with its offset drawn from the seeded PRNG;
+   - **interior**: a hexagonal lattice of about max(1,500, 4·n0) points over filled cells, with its offset drawn from the seeded PRNG (about 1,500 at n0 = 200; the count scales so it never falls below the contract's "about 4·n0", CR-06);
    - **feature**: for protected parts (priority ≥ 4), samples along the stroke centreline or the part's medial line, so a trunk or tusk has candidates down its middle.
 6. **Quotas (heuristic).** William: "around 30–40% of the final points to boundary and feature curves … This is a heuristic, not a general optimum." Boundary points and protected reservations therefore share **one budget of 35%·n0**, reservations first (§7.4), so the interior keeps at least 65% and the silhouette stays filled. The boundary share is further **capped by feasibility** at ⌊perimeter / δ⌋ (§7.10).
 
 ### 7.3 3D stages
 
-1. **Meshes.** Each part, after mirroring, is tessellated at a fixed resolution (for example ellipsoids 32×16, tubes 24 around × 16 per segment). A triangle mesh is the intermediate William suggests (handoff §5.2).
-2. **Area-weighted sampling.** Triangles are drawn by cumulative area (stratified and seeded), then a point is taken inside each by barycentric coordinates. This avoids the polar clustering of uniform-angle sampling. The total is about 4,000 candidates, clamped to 2,000–5,000. Each is William's `Candidate3D` (`position`, `normal`, `colour`, `featureId`, `importance`).
+1. **Meshes.** Each original part is tessellated at a **fixed resolution**, a compiler constant versioned by `COMPILER_VERSION`: ellipsoids 32×16, tubes 24 around × 16 per segment, capsules, cylinders and cones 32 around. A triangle mesh is the intermediate William suggests (handoff §5.2). A flat triangle lies inside the analytic surface: up to about 0.0096·r on the ellipsoid mesh and about 0.0086·r on the tube (derived from the angular steps, not measured). That is close to ε of step 3 once the scene is normalised, so every sample is **projected onto the analytic surface** (the unit-sphere point is normalised before the radii scale it; tube, capsule, cylinder and cone side points move radially to the local radius; flat caps are exact). The mesh then only drives area weighting, and ε does not depend on mesh resolution or part size.
+2. **Area-weighted sampling.** Triangles are drawn by cumulative area (stratified and seeded), then a point is taken inside each by barycentric coordinates. This avoids the polar clustering of uniform-angle sampling. The total is about clamp(20·n0, 2,000, 5,000) candidates: 4,000 at n0 = 200, and never below 4·n0 up to n0 = 1,250 (CR-06). The app's rosters are 100, 150 and 200 (`main.ts:49` at origin/main c697f6c, after #113; §3 note); the G1 tests use 40. Each candidate is William's `Candidate3D` (`position`, `normal`, `colour`, `featureId`, `importance`).
+   - **Mirrored copies are not sampled.** Sampling runs over original parts only, with a mirrored original's area counted twice. Each `~m` copy then receives the exact x-negation of its original's raw candidates and dense points, with normals' x negated. The pair are exact mirrors before filtering (GF-T15). Step 3 then filters each part as usual.
 3. **Union-aware filtering.** Drop a candidate lying more than ε = 0.01 (of the normalised extent, §7.2) inside another part. The test is exact for ellipsoids, capsules, cylinders and cones; for a tube it is distance to the centreline below the local radius. Record each part's `hiddenFraction`. A protected part that loses more than 80% gets the warning `feature-mostly-hidden`, but its points are not reinstated ("do not preserve obviously nonsensical points inside solid objects").
 4. **Visibility.** V(p) = max(0, n · v_ref), with analytic normals and the reference vector from §6.1. Compiler v1 does no ray-cast self-occlusion (a heuristic).
 5. **Ranking.** William's Q(p) = αI + βV + γD, where I = importance/5 and D = distance to the selection divided by δ, capped at 2. The heuristic defaults α = 0.35, β = 0.35, γ = 0.30 are tuned by the ladder. A **rear-side floor** (heuristic: ≥ 15% of slots with V = 0) keeps real depth, "without entirely sacrificing rear-side geometry".
@@ -501,8 +533,8 @@ Belief-colour and X-ray modes deliberately override artistic colours (`droneColo
 - exactly n0 distinct slots;
 - closest pair = `slotSpacingMin·1.001` (the T17 band);
 - FPS order over the selected set;
-- determinism across Node and browser;
-- totality (§7.11);
+- determinism across Node and browser V8 realms; other engines only by golden digests once such a run exists (§7.12, GF-T19);
+- totality (§7.11, GF-T41);
 - `bounds.min.y ≥ 2` and extent ≤ the hard limit;
 - dense of 1,500–2,500 points from the intended geometry, with every slot within `slotSpacingMin` of it;
 - colours in [0, 1], under the single hex rule (§7.7, CR-33);
@@ -545,21 +577,21 @@ William: "Highly detailed 3D objects cannot be faithfully represented by 200 iso
   Steps 3 and 4 are the later phases of the single spacing search (§7.4 step 5); δ is never shrunk outside it.
 - **Never permitted:** duplicate slots, spacing below `slotSpacingMin`, fewer than n0 slots, clamping the scale, dropping a protected part without a warning.
 - **One rule in every doc: `expandRecipe` never throws for a generated recipe.** On a rejection it returns a deterministic fallback, the `sphere` formation for that `(n0, slotSpacingMin)`, held as its own frozen, memoised object. It must be total because preloaded scores (I4), the observer and `pacedSlotPos` call it without any adoption check, and `world.step` has no try/catch (`world.ts:156`): a throw would kill both worlds.
-- **Strict path, operator side** (`composeNext`, `makeScore`, `validateDraft`, CLI): these call `compileGeneratedScene` (or a proposed `expandRecipeStrict`) and throw or refuse on rejection, so the operator never schedules a transition to the fallback. The controller already catches `composeNext` throws (`actions.ts:110, 160-164`).
-- **Brain side:** in an honest flow, brains never see a rejected scene. Validation precedes injection, and GF-CC-02 refuses the scores listed in §8.2.
-- **Detecting the fallback** without module-level mutable state, which contract §4 forbids beyond a pure memo: `isFallbackFormation(f)` compares `f` by identity with the frozen fallback, a pure and test-visible marker. Tests assert it never appears for the corpus, and that a preloaded score holding a rejected generated movement leaves `world.step` running (GF-T23/GF-T24 extension in the evaluation). This is a safety net, not a feature.
+- **Strict path, operator side** (`composeNext`, `makeScore`, `validateDraft`, library load, X-IN, CLI): these call a strict variant, the proposed `expandRecipeStrict` or `compileGeneratedScene` itself, which throws a typed `GeneratedSceneRejected` on rejection. The operator therefore never schedules a transition to the fallback. The controller already catches `composeNext` throws (`actions.ts:110, 160-164`).
+- **Brain side:** in an honest flow, brains never see a rejected scene. Validation precedes injection, and GF-CC-02 refuses the scores listed in §8.2. Brains call the total `expandRecipe`, so no separate brain-only variant (such as an `expandRecipeOrFallback`) is needed.
+- **Detecting the fallback** without module-level mutable state, which contract §4 forbids beyond a pure memo: there is no counter. `isFallbackFormation(f)` compares `f` by identity with the frozen fallback, a pure and test-visible marker. GF-T41 asserts that `isFallbackFormation` is false for every accepted scene, and that for every rejected scene the strict path throws and the total path returns the fallback. A preloaded score holding a rejected generated movement must leave `world.step` running (GF-T23's preloaded case in the evaluation). This is a safety net, not a feature.
 
 ### 7.12 Determinism (GD-9)
 
 Brains call `expandRecipe` (contract §4), so the compiler obeys the brain rules:
-- no `Math.random`, `Date`, `performance`, `fetch` or DOM (core ESLint);
+- no `Math.random`, `Date`, `performance`, `fetch` or DOM. Only the core ESLint block enforces the clock and random rules in `src/score` (`eslint.config.js:9-13`); `tests/boundaries.test.ts` checks them for `src/agent` only (`:37-44`). Neither catches `crypto` or `globalThis.Date`. GF-WP-06 extends both, and the ESLint part needs its owner's sign-off;
 - no npm imports (`tests/boundaries.test.ts`);
 - index-order iteration, with total comparators that break ties by index;
 - a **seeded PRNG** (sfc32, integer-only) seeded from `sceneHash`;
 - arithmetic and `Math.sqrt` are exact IEEE and used as they are; **every other `Math.*` result** (`sin`, `cos`, `pow`, `atan2`, `acos`, `exp`, `log`, `cbrt` …) is implementation-approximated in ECMAScript and is **snapped to 1e-9**, as `shapes.ts:17-20` does; `Math.hypot` is forbidden (use the square root of a sum of squares). An ESLint `no-restricted-properties` rule scoped to `src/score/generated` enforces this (a build-config change needing its owner's sign-off). Snapping does not remove a difference that straddles a grid boundary; the golden digests (GF-T19) are the backstop;
 - outputs quantised before `slotsDigest`.
 
-**Test.** Golden `slotsDigest` values for a scene corpus, compiled in Node and in a browser build (GF-T19, GF-T20). `compilerVersion` cannot differ within one run (CR-18). It is metadata, a cache-key part, and a guard for saved scenes (§8.2).
+**Test.** Golden `slotsDigest` values for a scene corpus, compiled in Node and in a browser build (GF-T19, GF-T20). The #118 browser harness finds only Chrome-family binaries (`scripts/perf/cdp.mjs:10-23`), so today both sides are V8 and the claim is limited to **V8 realms**. Other engines are covered only by golden digests once a Firefox or WebKit run exists (new tooling, owner sign-off). Whether to replace transcendental calls with pure-arithmetic routines instead is open in [evaluation §12](../validation/gemini-formation-evaluation.md#12-notes-for-the-canonical-spec). `compilerVersion` cannot differ within one run (CR-18). It is metadata, a cache-key part, and a guard for saved scenes (§8.2).
 
 ### 7.13 Performance budgets
 
@@ -642,17 +674,18 @@ export interface SlotsDigest { n0: number; slotSpacingMin: number; digest: strin
   4. duplicate resolution compares slot indices with no version check (`encoreBrain.ts:164-165`), so drones on two scores pop each other;
   5. `composeNext` copies the current movement as movement 0 (`compose.ts`), so the next injection re-carries the refused movement and is refused too while that movement is current.
 
-  The alternative, adopting on a digest mismatch with one log note and a counter (detection, not refusal) while drifted saved scenes are refused operator-side on library load and in `validateDraft`, avoids the split. It is open (GQ-1, §22) and decided under GF-D3. The evaluation needs a partial-refusal test (proposed GF-T24b: unadopted drones, `canHeal`-false drone-ticks, SCORE sends).
+  The alternative, adopting on a digest mismatch with one log note and a counter (detection, not refusal) while drifted saved scenes are refused operator-side on library load and in `validateDraft`, avoids the split. It is open (GQ-1, §22) and decided under GF-D3. The evaluation's partial-refusal test is GF-T24b (unadopted drones, `canHeal`-false drone-ticks, SCORE sends).
 - **Compatibility.** Other kinds are not checked, so they behave bit-identically, and with `refused` absent until a refusal the S0–S5 `stateHash` is unchanged. The change still alters brain behaviour and the `EncoreState` type, so it is a new evidence revision regardless ([Phase 2 roadmap, governing constraint](../planning/PHASE2_ROADMAP.md#the-two-tracks), provisional: depends on #110).
 - **Affected modules.**
-  - `encoreBrain.ts`: `handleScoreMessage`, plus the optional, bounded `refused?` in `EncoreState`, which `stateHash` covers once present.
-  - `expand.ts`: exposes `formationDigest`.
+  - `encoreBrain.ts`: `handleScoreMessage`, plus the optional, bounded `refused?` in `EncoreState`, which `stateHash` covers once present. On adoption the brain replaces each accepted generated recipe in its adopted copy with `copyRecipe(recipe)`, so the scene is package-frozen and each drone hashes it once per adoption (§8.3).
+  - `compose.ts`: `copyRecipe` becomes an export of `src/score` (§8.7).
+  - `hashing.ts` (§6.7): one digest function, `slotsDigest(formation, n0, slotSpacingMin): string` (GF-WP-02), exported from `src/score`. It returns the string that `CompileResult.slotsDigest` holds and that goes into `SlotsDigest.digest`. Every stored digest record, such as a library entry's list per n0 (GF-WP-09), is a `SlotsDigest` with the field name `digest`.
   - Contract §9 "Adopt" text.
   - The static brain never adopts injections (`staticBrain.ts:53`), so it needs no change.
 - **Regression risks.**
   - Any `src/agent/**` behaviour change forces a new evidence revision.
   - The first compile moves from movement start to adoption, and each drone hashes its own copy then (§8.3).
-- **Required tests.** GF-T24 (mismatch refused and logged once, the world does not throw, a match is adopted); GF-T22 part 3 (`stateHash` unchanged for other kinds, with `refused` absent); GF-T36 (replay of a generated injection); proposed GF-T24b (partial refusal, above).
+- **Required tests.** GF-T24 (mismatch refused and logged once, the world does not throw, a match is adopted); GF-T22 part 3 (`stateHash` unchanged for other kinds, with `refused` absent); GF-T36 (replay of a generated injection); GF-T24b (partial refusal, above).
 - **Conflicts.** The brain-side "do not adopt on mismatch" check edits `src/agent/encoreBrain.ts` and `EncoreState`, so it is Track P only (Phase 2 D4), a new evidence revision, after #122 is archived and #115 has settled (both merged at 4c41f75; it rebases on #115's `encoreBrain.ts`). P2-WP-20 / P2-CC-01 (provisional, #110) add `validateMotion` to the same `handleScoreMessage` check: merge one at a time, and compose the check as `validateMotion`, then the generated-recipe check.
 
 ### 8.3 GF-CC-03: memo key for generated recipes
@@ -667,16 +700,16 @@ export interface SlotsDigest { n0: number; slotSpacingMin: number; digest: strin
 key = `generated:${COMPILER_VERSION}:${H(scene)}:${n0}:${slotSpacingMin}`   // the module constant, never the recipe's field
 ```
 
-- **Hash source (fixes cache poisoning).** `H(scene)` is computed once per recipe object and cached in a module-level `WeakMap<Recipe, string>` (no contract change). The recipe's own `sceneHash` and `compilerVersion` fields are never key parts; a `compilerVersion` other than `COMPILER_VERSION` is rejected (§6.4).
+- **Hash source (fixes cache poisoning).** `H(scene)` is cached by object identity **only for scenes the score package deep-froze**: a module-level `frozenScenes` WeakSet, filled by `copyRecipe` (§8.7), and a `WeakMap<object, string>` from scene to `H` filled only for its members (no contract change). Any other scene object is hashed on every call, so mutating an unfrozen recipe can never return a stale formation: correct, only slower. The recipe's own `sceneHash` and `compilerVersion` fields are never key parts; a `compilerVersion` other than `COMPILER_VERSION` is rejected (§6.4).
   - The `sceneHash` field is only a checked label. A mismatch makes the recipe invalid: operator-side validation rejects it (`hash-mismatch`), and a brain-side refusal is part of GF-CC-02.
   - `palette` is not in the key: generated recipes have none (§8.1).
-  - **Brains.** Brain state keeps its adopted score by reference (the world passes `bodies[id].state` uncloned), but each brain adopts its own `copyJson` copy (`encoreBrain.ts:137`), so the WeakMap misses once per drone: **n0 hashes per world per adoption**, spread over the adoption window (planning estimate: a few ms per tick at peak gossip; measured in GF-WP-08). Steady state costs nothing. Letting brains keep the frozen received score instead of a copy would share one key, but that is a brain change (GF-CC-02 scope; GQ-7).
-  - **Observer (a defect in the earlier draft's argument).** `ReferenceScores.reference()` returns a fresh `structuredClone` on every call (`observer/reference.ts:37`), `sample()` calls it every tick (`observer/index.ts:50`), and the geometry cache is keyed on snapshot identity (`observer/index.ts:31-34`), which is new every sample. As the code stands, every sample (every 5 ticks, per world) would canonicalise and hash the scene again. Fix, part of GF-CC-03 with no contract change: `ReferenceScores` keeps one deep-frozen copy per version and returns it by identity, or the observer memoises the `Formation` per `versionKey` and movement index. Both are safe because `register()` already rejects conflicting content for one version.
+  - **Brains.** Brain state keeps its adopted score by reference (the world passes `bodies[id].state` uncloned), but each brain adopts its own `copyJson` copy (`encoreBrain.ts:137`), which is not frozen. So GF-CC-02 has the brain replace each accepted generated recipe in its adopted copy with `copyRecipe(recipe)` (§8.2). Each drone then hashes once per adoption: **n0 hashes per world per adoption**, spread over the adoption window (planning estimate: a few ms per tick at peak gossip; measured in GF-WP-08). Steady state costs nothing. Letting brains share one frozen received score instead of n0 copies would share one hash, but that is a further brain change (GF-CC-02 scope; GQ-7).
+  - **Observer (a defect in the earlier draft's argument).** `ReferenceScores.reference()` returns a fresh `structuredClone` on every call (`observer/reference.ts:37`), `sample()` calls it every tick (`observer/index.ts:50`), and the geometry cache is keyed on snapshot identity (`observer/index.ts:31-34`), which is new every sample. As the code stands, every sample (every 5 ticks, per world) would canonicalise and hash the scene again. Fix, part of GF-CC-03 with no contract change: `ReferenceScores` keeps one copy per version, made with `copyRecipe` so its scenes are package-frozen, and returns it by identity; or the observer memoises the `Formation` per `versionKey` and movement index. Both are safe because `register()` already rejects conflicting content for one version.
 - **Rationale.** GD-5: the key no longer grows with scene size.
-- **Compatibility.** Keys for text, sphere and helix are unchanged. The WeakMap is a "memo cache of pure results", which contract §4 allows.
-- **Affected modules.** `src/score/expand.ts`; `src/observer/reference.ts` or `src/observer/index.ts`; contract §6 text.
+- **Compatibility.** Keys for text, sphere and helix are unchanged and still built on every call. The WeakSet and WeakMap are a "memo cache of pure results", which contract §4 allows.
+- **Affected modules.** `src/score/expand.ts`; `src/score/compose.ts` (`copyRecipe` fills `frozenScenes` and is exported); `src/observer/reference.ts` or `src/observer/index.ts`; contract §6 text.
 - **Regression risks.** FIFO eviction over 64 entries is unchanged. An evicted scene costs one recompile.
-- **Required tests.** GF-T22 (zero scene reads when warm; 30 KB timing; S0–S5 `stateHash`), extended to a whole world with the observer: after a generated injection, a test-only count of `H(scene)` calls is ≤ n0 + O(1) per adoption per world and 0 per steady-state tick in brains and the observer; a label mismatch is rejected (GF-T24); structurally equal recipes get equal keys.
+- **Required tests.** GF-T22 (30 KB timing; S0–S5 `stateHash`), extended to a whole world with the observer. Part (1) counts calls of `H(scene)` on a scene made by `copyRecipe`, not `Proxy` reads (a `Proxy` is a different object, never registered, so it is hashed on every call). After a generated injection the count is ≤ n0 + O(1) per adoption per world and 0 per steady-state tick in brains and the observer. An unfrozen recipe changed after one call gives a changed result on the next call. A label mismatch is rejected (GF-T24). Structurally equal recipes get equal keys.
 - **Conflicts.** None: no open PR touches `expand.ts` or `src/observer`.
 
 ### 8.4 GF-CC-04 (deferred), GF-CC-05 (alternative), GF-CC-06 (colour space)
@@ -694,7 +727,7 @@ key = `generated:${COMPILER_VERSION}:${H(scene)}:${n0}:${slotSpacingMin}`   // t
 - Cost: many subjects are rejected rather than grown (about 390 m² minimum filled area, §7.10), and density varies by shape.
 - Recommendation: **not now**.
 
-**GF-CC-06: `Slot.colour` colour space (text only).** **PROPOSED CONTRACT CHANGE — REQUIRES ARNAV APPROVAL.** Contract §2 states that `Slot.colour` is linear sRGB in [0, 1], as the 3D renderer reads it. The compiler's linearisation lands only together with the same change to the Composer and console hex paths (CR-33, §7.7); until then generated colours pass through like palettes. The thumbnail fix is separate (CR-20).
+**GF-CC-06: `Slot.colour` colour space (text only).** **PROPOSED CONTRACT CHANGE — REQUIRES ARNAV APPROVAL.** Contract §2 states that `Slot.colour` is linear sRGB in [0, 1], as the 3D renderer reads it. The compiler's linearisation lands only together with the same change to the Composer and console hex paths (CR-33, §7.7); until then generated colours pass through like palettes. The thumbnail fix is separate (CR-20). **Not scheduled.** No work package carries GF-CC-06 or the GF-D6 hex-path change; GF-WP-06 only passes colours through. Like GF-CC-04 and GF-CC-05, it gets a package only once GF-D6 is approved.
 
 ### 8.5 Option A vs Option B: what travels (GD-3)
 
@@ -709,14 +742,14 @@ key = `generated:${COMPILER_VERSION}:${H(scene)}:${n0}:${slotSpacingMin}`   // t
 
 ### 8.6 Cache keys
 
-- **Main thread** (brains, observer, compose): the GF-CC-03 key, recomputed per recipe object through the WeakMap. The one compile at `composeNext` warms it.
+- **Main thread** (brains, observer, compose): the GF-CC-03 key, with `H(scene)` cached only for package-frozen scenes (§8.3). The one compile at `composeNext` warms the formation memo.
 - **Preview worker:** its own cache, which never warms the main thread (CR-09).
 - **Saved library entries:** `(sceneHash, compilerVersion, n0, slotSpacingMin)` → `slotsDigest`. If a recompile on load differs, the warning says "this saved scene now compiles differently".
 - **Gateway:** may key on `sceneHash`, as advice only (CR-26).
 
 ### 8.7 Deep copy and immutability (`copyRecipe`)
 
-`copyRecipe` is shallow except for `palette` (`compose.ts:29-34`), so a nested `scene` would be shared by reference between the caller's draft and the composed score. Resolution (part of GF-CC-01): for `generated`, `copyRecipe` returns `{ kind, compilerVersion, sceneHash, slotsDigest: {...}, scene: deepFreeze(canonicalClone(scene)) }`. The compiler's canonical scene is a fresh, frozen object, so later mutation of the draft cannot reach a score. The controller (`actions.ts:93-98`), the world uplink and brains (`copyJson`) already copy. The remaining risk is a caller that keeps and mutates its recipe object, and freezing turns that into a TypeError instead of silent corruption, matching `expandRecipe`'s frozen `Formation` policy.
+`copyRecipe` is shallow except for `palette` (`compose.ts:29-34`), so a nested `scene` would be shared by reference between the caller's draft and the composed score. Resolution (part of GF-CC-01): for `generated`, `copyRecipe` returns `{ kind, compilerVersion, sceneHash, slotsDigest: {...}, scene: deepFreeze(canonicalClone(scene)) }` and adds that scene to `frozenScenes`, the only scenes whose hash is cached (§8.3). `copyRecipe` becomes an export of `src/score`, so brains can use it on adoption (GF-CC-02, §8.2). The compiler's canonical scene is a fresh, frozen object, so later mutation of the draft cannot reach a score. The controller (`actions.ts:93-98`), the world uplink and brains (`copyJson`) already copy. The remaining risk is a caller that keeps and mutates its recipe object, and freezing turns that into a TypeError instead of silent corruption, matching `expandRecipe`'s frozen `Formation` policy.
 
 ### 8.8 Radio message size
 
@@ -803,40 +836,45 @@ Request:
 { "prompt": "A 3D grey elephant with curved trunk and white tusks", "mode": "scene3d", "requestId": "r-000042" }
 ```
 
-- `requestId` is added: an opaque client string ≤ 64 characters, echoed back (§11.2).
+- `requestId` is added, under the shared gateway rule (XI-3, narrowed by XI-11; [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard), provisional, #110). It is optional, client-generated, opaque to the gateway and matches `^[A-Za-z0-9._:-]{1,64}$`. A matching value is echoed. A value that does not match is **dropped, not echoed**, and the request still proceeds; it is not an error. The gateway logs its own server id. The Gemini app client fills it from one monotonic client counter (for example `r-000042`, which matches) and compares responses by that counter, client-side only (§11.2). The same rule holds for the `shows` module (`mongodb-atlas-show-library.md` §10.1, #130).
 - `mode` is `"silhouette2d"` or `"scene3d"`.
 - `prompt` is 1–500 characters, trimmed, printable (proposed default for William to confirm, GF-WP-12).
 - No other field is accepted (`additionalProperties: false`): the request carries no run, telemetry, library or agent data (§10.3, "Module isolation").
 
-Success response (William's envelope, plus `requestId`):
+Success response (William's envelope, handoff §8, plus `requestId`, without his `success` flag: the HTTP status carries success, XI-3, CR-36):
 
 ```json
-{ "success": true, "requestId": "r-000042", "model": "gemini-3.1-flash-lite", "mode": "scene3d",
+{ "requestId": "r-000042", "model": "gemini-3.1-flash-lite", "mode": "scene3d",
   "scene": { "version": 1, "mode": "scene3d", "title": "…", "referenceView": "three-quarter", "materials": [], "parts": [] },
   "sceneHash": "…", "modelLatencyMs": 0 }
 ```
 
 As William notes, the empty arrays and zero latency are placeholders, not valid geometry or measured performance. The app treats `sceneHash` as advisory and recomputes it (§6.7).
 
-Error response (added):
+Error response: the one envelope of every gateway route (XI-3), shared with the `shows` and `tiger` modules:
 
 ```json
-{ "success": false, "requestId": "r-000042", "error": { "code": "provider-rate-limited", "message": "…", "retryable": true } }
+{ "error": { "code": "RATE_LIMITED", "message": "…", "details": [{ "path": "", "reason": "provider-rate-limited" }], "requestId": "r-000042" } }
 ```
 
-Error codes:
+`code` comes from the shared list. The Gemini reason goes in `details[].reason`, and `path` is a JSON path (`""` for the request as a whole). There is no `retryable` field: the app retries nothing on its own, and the operator may press Generate again after `RATE_LIMITED`, `PROVIDER_UNAVAILABLE` or `TIMEOUT`.
 
-- `bad-request`
-- `prompt-too-long`
-- `provider-rate-limited`
-- `provider-unavailable`
-- `provider-error`
-- `timeout`
-- `invalid-model-output`
-- `scene-invalid`
-- `response-too-large` (also a `MAX_TOKENS` finish)
-- `provider-blocked` (added: `SAFETY` or `RECITATION` finish, or a `promptFeedback.blockReason`)
-- `gateway-disabled`
+| HTTP | `code` (shared list) | Gemini `details[].reason` |
+|---|---|---|
+| 400 | `VALIDATION_FAILED` | `bad-request`, `prompt-too-long` (request faults); `scene-invalid` at path `""` for a model scene that fails V1–V11 server-side, followed by the first failing layer's code at its scene path (for example `{ "path": "/scene/parts/3/shape/points", "reason": "geometry" }` or `radio-partitioned`) |
+| 401 | `UNAUTHORIZED` | `token-missing` (optional per-launch token, §10.3) |
+| 403 | `FORBIDDEN` | `foreign-host`, `foreign-origin` (§10.3) |
+| 413 | `PAYLOAD_TOO_LARGE` | `request-too-large` (body over 8 KiB†) |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | `not-json` |
+| 429 | `RATE_LIMITED` | `provider-rate-limited` (Google 429 after retries), `gateway-rate-limited` (the gateway's own bucket) |
+| 502 | `PROVIDER_ERROR` | `provider-error`, `invalid-model-output`, `response-too-large` (also a `MAX_TOKENS` finish), `provider-blocked` (added: `SAFETY` or `RECITATION` finish, or a `promptFeedback.blockReason`) |
+| 503 | `PROVIDER_UNAVAILABLE` | `provider-unavailable` (Google 503 after retries), `gateway-disabled` (the `gemini` module is off: no key or no enable flag) |
+| 504 | `TIMEOUT` | `timeout` |
+| 500 | `INTERNAL` | none |
+
+Status 400 for a model scene matches the `shows` module (#130), which uses 400 for every invalid input, so one gateway has one status rule.
+
+**Reason style is not yet shared.** XI-3 fixes the codes but not the case of `details[].reason`. Gemini reasons are kebab-case (`gateway-disabled`). The `shows` module uses SCREAMING_SNAKE for the same condition: `503 DATABASE_UNAVAILABLE` with reason `MODULE_DISABLED` (`mongodb-atlas-show-library.md` §10.1, #130). Tiger reports `disabled` in `/api/health` (#142). One case convention and one shared reason for a disabled module are open (GQ-10, §22). They belong with XI-3, in [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard). Until then this spec keeps its reasons.
 
 ### 10.2 Validation layers
 
@@ -844,44 +882,46 @@ William's table, mapped to where each layer runs.
 
 | Layer (William) | Failure example | Gateway | App |
 |---|---|---|---|
-| Request validation | Empty or oversized prompt | Rejects (`bad-request`, `prompt-too-long`) | Same check before sending |
-| JSON parsing | Incomplete response | Rejects (`invalid-model-output`); optionally one regeneration | V2 again |
-| Schema validation | Missing radius, invalid material | JSON-Schema-level check | **Authoritative** V3–V5 |
-| Geometry validation | Non-finite coordinate, disconnected curve | Optional, via the core's headless validator as a subprocess (CR-24) | **Authoritative** V6, V8–V10 |
-| Complexity validation | Hundreds of components | Size and part-count limits | **Authoritative** V1, V7 |
-| Feasibility validation | Cannot place n0 separated drones | — | Trial compile (V11) |
+| Request validation | Empty or oversized prompt | Rejects (`VALIDATION_FAILED`: `bad-request`, `prompt-too-long`) | Same check before sending |
+| JSON parsing | Incomplete response | Rejects (`PROVIDER_ERROR`: `invalid-model-output`); optionally one regeneration | V2 again |
+| Schema validation | Missing radius, invalid material | V1–V5, imported (XI-2) | **Authoritative** V3–V5 |
+| Geometry validation | Non-finite coordinate, disconnected curve | V6, V8–V10, imported (XI-2, CR-24) | **Authoritative** V6, V8–V10 |
+| Complexity validation | Hundreds of components | V1, V7, imported (XI-2) | **Authoritative** V1, V7 |
+| Feasibility validation | Cannot place n0 separated drones | Trial compile V11 at the default roster `makeParams(200)` (`params.ts:83`): an early filter, since the request carries no n0 | **Authoritative** trial compile (V11) at the page's own n0 |
 | Preview validation | Wrong animal | — | Human review in the Composer (§11) |
 
-The app never relies on the gateway's checks. It treats every scene as untrusted, whether it came from the gateway or the library.
+Server-side validation is therefore complete (XI-2): the gateway runs the same pure V1–V11 code, so the two sides cannot drift within one checkout. The app still never relies on the gateway's checks. It treats every scene as untrusted, whether it came from the gateway, the `shows` module or the library.
 
 ### 10.3 Security and operations
 
-Rows marked † are **proposed defaults for William to confirm (GF-WP-12)**; he owns hosting, prompts and keys (§2). Binding for the app are only the envelope, error codes, `requestId` echo, response size cap, key placement and the localhost request rules.
+Rows marked † are **proposed defaults for William to confirm (GF-WP-12)**; he owns hosting, prompts and keys (§2). Binding for the app are only the envelope and error codes (XI-3, §10.1), the `requestId` echo, the response size cap, key placement and the localhost request rules.
 
 | Concern | Rule |
 |---|---|
 | Key isolation | Only in the gateway's environment (`GEMINI_API_KEY`; the SDK prefers `GOOGLE_API_KEY` if both are set). **Never** in browser code, `VITE_*` or the repo. Google: "Do not hardcode API keys directly in web or mobile apps". Ephemeral tokens are Live-API-only and do not apply |
-| Env config | Server-side: key, model, timeouts, limits, enable flag. The app holds only the gateway URL (localhost), off by default |
+| Env config | Server-side: key, model, timeouts, limits, enable flag. The app holds only the gateway URL (localhost) and the `gemini` client's own build-time, non-secret boolean flag, off by default. Each module has its own flag, constant-folded so the default build holds no network path (XI-14, [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard)) |
 | Request validation | §10.1 limits. JSON only, no unknown fields, ≤ 8 KiB† |
-| Localhost is not a boundary | Binding to `127.0.0.1` and restricting CORS do not stop a page in the operator's browser: a cross-origin "simple" POST (`text/plain`, no preflight) still runs the handler, spending quota and sending its prompt, and DNS rebinding lets that page read responses. So: (1) any request whose `Content-Type` is not exactly `application/json` gets 415 before any upstream call, which forces a preflight; (2) only `Host` values `127.0.0.1:PORT` and `localhost:PORT` are accepted (defeats rebinding); (3) every state-changing route requires an exact `Origin` match; (4) optionally a per-launch random token printed by the gateway and pasted into the app, never a `VITE_*` variable. The same rules apply to the `shows` module (`/api/shows*`, MongoDB writes, #130) |
-| Module isolation | The `gemini` module imports and reads nothing from the other gateway modules (`shows`, telemetry) or from X-OUT data, whose snapshots carry beliefs. Prompts are never built automatically from run, telemetry or library metrics, so Gemini cannot become an outer-loop controller fed by swarm state |
-| Dependencies | Exact versions (no `^` or `~`) and a committed lockfile; install with `npm ci --ignore-scripts`; a minimum release age (proposed ≥ 14 days: `@google/genai` 3.3.0 was published 2026-11-12, so start from the last 3.x release older than that, or wait); `npm audit signatures` in the gateway's own check; `node:http` rather than a web framework. Each module reads only its own environment variables, and a disabled module's secrets are never loaded. A compromised gateway exposes every secret it holds, Gemini and Atlas alike |
+| Localhost is not a boundary | Binding to `127.0.0.1` and restricting CORS do not stop a page in the operator's browser: a cross-origin "simple" POST (`text/plain`, no preflight) still runs the handler, spending quota and sending its prompt, and DNS rebinding lets that page read responses. So every route goes through the one shared guard in `guard.ts` (XI-12, [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard)). The `gemini` module never redefines it. For this module it means: a non-JSON body gets 415 `UNSUPPORTED_MEDIA_TYPE` before any upstream call, which forces a preflight; the `Host` allow-list defeats rebinding (403 `FORBIDDEN`); the exact `Origin` match on every non-GET, with a missing or `null` Origin refused (403 `FORBIDDEN`), stops cross-site POSTs; the optional per-launch token is pasted into the app, never a `VITE_*` variable (401 `UNAUTHORIZED` without it). The bind, peer and CORS rules are the guard's too |
+| Module isolation | The `gemini` module imports and reads nothing from the other gateway modules (`shows`, `tiger`) or from X-OUT data, whose snapshots carry beliefs. Prompts are never built automatically from run, telemetry or library metrics, so Gemini cannot become an outer-loop controller fed by swarm state |
+| Dependencies | The one shared policy of [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard) (XI-12): exact versions and a committed lockfile, `npm ci --ignore-scripts`, a 14-day minimum release age, `npm audit signatures`, `node:http` rather than a web framework, and each module reads only its own secrets. For this module: `@google/genai` 3.3.0 was published 2026-11-12, so start from the last 3.x release older than 14 days, or wait (GQ-9). A disabled module's secrets are never loaded. A compromised gateway exposes every secret it holds, Gemini and Atlas alike |
 | Response size | `maxOutputTokens` 2,048 (2D) / 8,192 (3D)† (4,096 is about the 16 KB cap at 4 bytes per token, so a scene near the cap would be cut off). Whether thinking tokens count against `maxOutputTokens` on 3.1 Flash-Lite is UNVERIFIED. Raw text ≤ 64 KiB. Canonical scene ≤ 16 KB. Parse only when `candidates[0].finishReason === 'STOP'`; never parse a partial response (§10.1 codes) |
 | Timeouts | 30 s per provider call; 45 s per request in total† |
 | Rate limits | A configurable token bucket (default 1 in flight, 6 per minute)†. Free-tier RPM/RPD are UNVERIFIED, so none are hard-coded |
-| Errors | 429 → `provider-rate-limited`, 503 → `provider-unavailable`, other errors → `provider-error`, deadline → `timeout` |
+| Errors | Upstream 429 → `RATE_LIMITED` (`provider-rate-limited`), 503 → `PROVIDER_UNAVAILABLE` (`provider-unavailable`), other upstream errors → `PROVIDER_ERROR` (`provider-error`), deadline → `TIMEOUT`. Full mapping in §10.1 |
 | Retries | **429 and 503 only**: exponential backoff with jitter, ≤ 2 retries within the deadline. Never 400/402/403. The SDK's default list also retries 408 and 5xx, so set `retryOptions.httpStatusCodes = [429, 503]` or disable SDK retries (default behaviour without `retryOptions` is UNVERIFIED) |
 | Regeneration | William's "one optional retry" after a failed validation is operator-visible, never silent |
-| Stale responses | Echo `requestId`; the app drops any response that is not the latest (§11.2) |
-| Untrusted output | Data only. Reject; never repair silently. No `eval`, no code or tool execution, no HTML/SVG from model text (William: "never run AI-generated code or raw SVG markup"). `title` is rendered as text |
-| Data use and region | On the **free tier, prompts and outputs are used to improve Google's products** and may be read by human reviewers (pricing page, VERIFIED; Additional Terms). The Gemini API Additional Terms also say API clients made available to users in the **UK, Switzerland and the EEA must use Paid Services only**, and that users must be **18 or older** (PARTLY VERIFIED: fetched 2026-11-15 through a summariser; re-read the wording). DurHack is in the UK, so LIVE-GATEWAY in the app likely needs a paid key (GQ-5). Never send private data. The prompt box says so |
+| Stale responses | Echo `requestId` (one monotonic client counter, §10.1); the app drops any response that is not the latest (§11.2) |
+| Untrusted output | Data only. Reject; never repair silently. No `eval`, no code or tool execution, no HTML/SVG from model text (William: "never run AI-generated code or raw SVG markup"). `title` and ids are rendered as text. The app's markup sink is the `html` attribute of `h(tag, { html })`, which sets `innerHTML` (`src/app/ui/dom.ts:18`), and the Composer kinds row this tab extends already uses it (`Composer.ts:383`). So an `html:` value may only be a member of `icon` from `src/app/ui/icons.ts`, never model text (GF-T34) |
+| Data use and region | On the **free tier, prompts and outputs are used to improve Google's products** and may be read by human reviewers (pricing page, VERIFIED). The UK/EEA paid-only and 18+ terms are recorded once in §10.6 and decided as GF-D11. Never send private data. The prompt box says so |
 | Logging | Request id, mode, latency, token counts (including `thoughtsTokenCount`), outcome. Never keys; prompts only on opt-in |
 
 ### 10.4 Location and packaging (CR-10, CR-21)
 
-- There is no backend anywhere. The one optional service is a shared gateway at `integrations/gateway/` with its own `package.json` and lockfile and independently optional modules: `gemini` (this spec), `shows` (MongoDB, #130) and later William's telemetry. Routes: `/api/generate-formation`, `/api/shows*`, `/api/health`. William's `server/` folder becomes this package.
-- The app reaches it only through X-RUN/live (provisional, #110; [OPTIONAL_INTEGRATION_BOUNDARIES §6.1](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#61-x-runlive-provisional-d3-gated)), from the one confined app folder that section proposes (`src/app/live/`), behind a default-off build flag. Its only payload into Encore is a candidate composition that must pass X-IN validation before any injection; carrying a generated cue needs `encore.composition` v2 (CR-29).
-- It is not a workspace: the root `npm ci` installs none of it, the root tsconfig does not cover it, and `check.sh` stays offline-clean. The root `eslint.config.js` must ignore `integrations/**`: a build-config change needing its owner's sign-off.
+- There is no backend anywhere. The one optional service is a shared gateway at `integrations/gateway/` (XI-1) with its own `package.json` and lockfile and independently optional modules: `gemini` (this spec), `shows` (MongoDB, #130) and `tiger` (Tiger Data, #142). Each module is enabled only by its own server-side configuration. The absence or failure of one never disables another, the app, the simulator, the CLI or `report.ts`. No module creates its own server. Routes: `/api/generate-formation`, `/api/shows*`, `/api/health`, plus the `tiger` module's read-only routes (`/api/runs`, `/api/runs/:runId/metrics`, `/api/comparisons`, `/api/experiments/comparison`; Tiger §6.7, TD-12, #142). William's `server/` folder becomes this package.
+- **One skeleton (XI-12).** The gateway has one server, one `guard.ts`, one `errors.ts` (the §10.1 envelope, `sanitise`, `redact`), one `config.ts` and one `GET /api/health`, defined once in [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard) (provisional, #110). Whichever module work package is approved first builds it. The `gemini` module (GF-WP-12) depends on it and never redefines the guard or the errors.
+- **Decision XI-2: what the gateway may import.** The gateway (Node, run with tsx) may import, by relative path, only pure, dependency-free modules: `src/contracts/**`, `src/score/**` (so `src/score/generated`), `src/telemetry/**` (proposed, #142) and the pure composition validator `src/app/compose/validate.ts` (XI-13; created by P2-WP-30a or MDB-WP-02, whichever lands first; [boundaries §6.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#62-shared-gateway-skeleton-and-guard)). It never imports `src/app`, `src/agent`, `src/sim`, `src/observer` or `src/cli`, except a pure canonical-JSON helper once extracted (§6.7). This supersedes the earlier "cannot import `src/`" (CR-24) and makes server-side validation complete, trial compile included (§10.2), for generated scenes and saved shows alike.
+- The app reaches it only through X-RUN/live (provisional, #110; [OPTIONAL_INTEGRATION_BOUNDARIES §6.1](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#61-x-runlive-provisional-d3-gated)), from the one confined app folder that section proposes (`src/app/live/`, XI-14), behind the `gemini` client's own default-off build flag (one per module; §10.3). Its only payload into Encore is a candidate composition that must pass X-IN validation before any injection; carrying a generated cue needs `encore.composition` v2 (CR-29).
+- It is not a workspace: the root `npm ci` installs none of it, the root tsconfig does not cover it, and `check.sh` stays offline-clean. The root `eslint.config.js` must ignore `integrations/**`. That, and any change to the root `package.json` or CI, needs its owner's sign-off.
 - `@google/genai` 3.3.0 needs Node ≥ 22.0.0 (VERIFIED). The repo's Node 22.12+ is compatible.
 - The root `package.json` is not touched. It is owned by William (`wpimento`; "Williams" in TEAM_ROLES) and paused.
 
@@ -914,12 +954,14 @@ Status labels: VERIFIED = official source seen on 2026-11-15; PARTLY VERIFIED = 
 | Free tier | Free within quota | Free tier exists | VERIFIED |
 | Free-tier RPM / RPD | "Check actual account limits in Google AI Studio" | Not published; per project; RPD resets at midnight Pacific | UNVERIFIED (numbers) |
 | Free-tier data use | "Provider data-use terms may apply" | "Used to improve our products": Yes on free tier, No on paid | VERIFIED (pricing page only) |
-| Region and age | — | Additional Terms: only Paid Services for API clients offered to users in the UK, Switzerland and the EEA; users 18+ (§10.3) | PARTLY VERIFIED (summariser fetch of `aistudio.google.com/docs/terms`, 2026-11-15) |
+| Region and age | — | Additional Terms: only Paid Services for API clients offered to users in the UK, Switzerland and the EEA; users 18+ (record below; GF-D11) | PARTLY VERIFIED (summariser fetch of `aistudio.google.com/docs/terms`, 2026-11-15) |
 | Paid input | $0.25 / 1M tokens | $0.25 text/image/video; $0.50 audio | VERIFIED |
 | Paid output | $1.50 / 1M, including thinking | Same | VERIFIED |
 | Temperature 0.2–0.5 | "Experiment around 0.2–0.5" | Not checked | UNVERIFIED: check Google's current Gemini 3 sampling guidance before benchmarking |
 | 429 handling | "429 handling" | Retry with exponential backoff and jitter; 503 too; never 400/402/403 | VERIFIED |
 | Key placement | Server-side, never `VITE_` | Same; ephemeral tokens are Live API only | VERIFIED |
+
+**Provider terms (the one record; GF-D11).** The Gemini API Additional Terms say that API clients made available to users in the **UK, Switzerland and the EEA must use Paid Services only**, and that users must be **18 or older**. PARTLY VERIFIED: fetched 2026-11-15 through a summariser, so the wording must be re-read at the source. DurHack is in the UK, so LIVE-GATEWAY in the app likely needs a paid key. OFFLINE-AUTHORING through AI Studio is subject to the same terms. Whether and how the team complies is decision GF-D11, for William and Arnav, before any live demo (GQ-5). Other sections cite this record and do not restate it.
 
 William's recommended configuration (handoff §2: minimal thinking for 2D, low for 3D, temperature 0.3 in his sketch, one optional retry, 6–20 and 12–30 parts) is kept as **settings to benchmark**, exactly as he labelled them.
 
@@ -937,11 +979,14 @@ William's `AIFormationPanel.ts` and `FormationPreview.ts` become a **"Generated"
 type Draft =
   | { …existing fields…; source: 'builtin' }
   | { id; name; source: 'generated'; mode: 'silhouette2d' | 'scene3d'; prompt: string;
+      libraryScene: string | null;   // added: the assets/scenes/ entry or X-IN file the scene came from (OFFLINE-AUTHORING); null for a prompt
       scene: SceneSpec | null; status: 'idle' | 'requesting' | 'validating' | 'ready' | 'rejected';
       requestId: string | null; result: CompileResult | null; sent: string[] };
 ```
 
-`validateDraft` gains a generated branch (V1–V11) whose `recipe` is the `GeneratedRecipe`. The tab replaces the greyed "Parametric" and "SVG outline" entries. The work starts after #113 mounts the Composer.
+A library draft has `libraryScene` set and an empty `prompt`; a prompt draft has `libraryScene: null`.
+
+`validateDraft` gains a generated branch (V1–V11, then the recipe checks of §6.5) whose `recipe` is the `GeneratedRecipe`. Its DOM-free body lives in the pure validator `src/app/compose/validate.ts` (XI-13, §10.4), so the branch goes there and calls V1–V11 from `src/score/generated`. The tab replaces the greyed "Parametric" and "SVG outline" entries. The work starts after #113 mounts the Composer; #113 merged in 6d5ea32, after the audit base (§3 note).
 
 ### 11.2 The user flow (10 steps)
 
@@ -949,14 +994,14 @@ type Draft =
 |---|---|---|
 | 1 | Select mode | 2D or 3D; source is the library (OFFLINE-AUTHORING) or a prompt (LIVE-GATEWAY) |
 | 2 | Enter prompt | 1–500 characters; free-tier data-use note in LIVE-GATEWAY |
-| 3 | Generate | New `requestId` per click; status `requesting`; "Cancel" available |
+| 3 | Generate | New `requestId` per click, from one monotonic client counter (§10.1); status `requesting`; "Cancel" available |
 | 4 | Validated result or clear error | Responses that are not the latest `requestId` are **dropped**. Errors name layer and path ("Part `trunk`: stroke needs 3k+1 points (got 5)") or the provider condition ("Gemini is rate-limited; try again or pick a saved scene") |
 | 5 | Preview exact compiled formation | Worker compile; PreviewLayer draws the **exact** slots, labelled "**Target arrangement (preview) — not flown**" |
 | 6 | Inspect warnings and feasibility | Compiler warnings, world size, islands (L3), predicted crossings (L1), paced speed (L5), `transitionTicks` (L-checks provisional: depends on #110) |
 | 7 | Accept or reject | Reject returns to step 2; one operator-triggered regeneration |
 | 8 | Inject | One live drone; one main-thread compile in `composeNext`; one `INJECT_SCORE` into both worlds and the log |
 | 9 | Observe | Existing belief colours, radio layer, timeline, adoption readout. **Adoption is not occupancy** |
-| 10 | Save / replay | With persistence, save scene and hashes through the gateway's `shows` module (X-PERSIST inside X-RUN/live, gated; William's MongoDB spec, #130); replay through X-IN with no Gemini call |
+| 10 | Save / replay | With persistence, save the generated recipe (scene and hashes) through the gateway's `shows` module, over X-RUN/live and X-PERSIST (provisional, #110). That is gated on MDB-D1 (#130), D3 approved for the `shows` module (XI-9); approving GF-D1 does not open it. A scene generated live also needed GF-D1 to reach the app. It is stored in `saved_shows.composition` as a `schemaVersion: 2` document (William's MongoDB spec, #130). Replay through X-IN as an `encore.composition` v2 file, with no Gemini call |
 
 ### 11.3 Preview vs live separation and wording
 
@@ -974,7 +1019,7 @@ type Draft =
 ## 12. Offline behaviour
 
 - **The core and the demo run with networking off** (NFR-04): build, preview, library scenes, compile, inject, gossip, repair.
-- **Library:** validated scene files under `assets/scenes/` with `sceneHash`, `compilerVersion` and `slotsDigest` per n0 (layout and loader in GF-WP-09). They are bundled at build time, not fetched: the built files request nothing outside `localhost`. Alternatively the operator loads them through X-IN (file picker; no URL, no fetch). Each loaded scene still passes V1–V11. A digest mismatch on load is a warning that the compiler has changed.
+- **Library:** validated scene files under `assets/scenes/` with `sceneHash`, `compilerVersion` and `slotsDigest` per n0 (layout and loader in GF-WP-09). They are bundled at build time, not fetched: the built files request nothing outside `localhost`. Alternatively the operator loads them through X-IN as `encore.composition` v2 files (file picker; no URL, no fetch; CR-29). The MVP path is "Load as drafts" (X-IN step 7): each cue becomes a Composer draft, and the operator injects it (XI-15). Each loaded scene still passes V1–V11. A digest mismatch on load is a warning that the compiler has changed.
 - **Saved compositions replay without Gemini.** The score holds the whole scene (William's "Offline principle"). Run provenance needs no contract change: `RunRecord.events` already holds each `INJECT_SCORE` with its full score.
 - **LIVE-GATEWAY off or failing:** the Generated tab shows the library and a clear "Gateway unavailable" state. Nothing else changes.
 - **Test:** GF-T35 (networking off; `check.sh` green with `integrations/` removed) and GF-T36 (replay).
@@ -983,29 +1028,40 @@ type Draft =
 
 ## 13. Persistence boundaries (GD-13)
 
-Both stores are **provisional and William-owned**. Neither is needed to run, and they attach only through Phase 2 boundaries (provisional: depends on #110): X-PERSIST runs only inside X-RUN; X-OUT is the read-only telemetry export. GF-WP-15's MongoDB half is realised by William's MongoDB spec, integrated in #130 (`docs/integrations/mongodb-atlas-show-library.md`, `docs/planning/mongodb-integration-work-packages.md`, MDB-WP-01…09); its Tiger Data half stays reserved for William. No schemas are defined here.
+Both stores are **provisional**, and their designs are William's: MongoDB in #130, Tiger Data in #142. Neither is needed to run. They attach only through Phase 2 boundaries (provisional: depends on #110):
+- **X-PERSIST (provisional, #110)** covers optional persistence of compositions (the show library) and of experiment evidence (validated run records), never live control. It runs only inside X-RUN, here the gateway.
+- **X-OUT** is the read-only export of records, snapshots and metrics.
+- **Data ownership (XI-6).** MongoDB holds compositions and no telemetry. Tiger Data holds experiment evidence only, and its optional experiment catalogue is never in `saved_shows` (Tiger TD-11).
+
+GF-WP-15's MongoDB half is realised by William's MongoDB spec, integrated in #130 (`docs/integrations/mongodb-atlas-show-library.md`, `docs/planning/mongodb-integration-work-packages.md`, MDB-WP-01…09). Its Tiger Data half stays in William's lane (#142). No schemas are defined here.
 
 ### 13.1 MongoDB Atlas: generated formation library
 
-William's Gemini handoff lists `formationId`, `prompt`, `mode`, `modelId`, `sceneSpec` (canonical form, §6.7), `sceneHash`, `compilerVersion`, `droneCount` (n0), `placementParams`, `createdAt`, `generationMs` and `compileMs`. This spec adds `slotsDigest` (GD-13), so a later compiler's different output is detected (William: "Saving canonical compiled slots or a checksum also helps detect changes"). The schema itself belongs to the #130 spec.
+**The model is #130's, not restated here (XI-6).** William's Gemini handoff (§11) listed library fields (`formationId`, `sceneSpec`, `droneCount`, `generationMs` …). His later MongoDB spec supersedes that list. The canonical show-library model is `encore.saved_shows` in `docs/integrations/mongodb-atlas-show-library.md` (#130), and the mapping from the old list is recorded there.
 
-The app never queries MongoDB at run time (CR-25). Library entries reach the app as exported scene files (X-IN) or by being checked into `assets/scenes/`. "Rate-limit resilience" (William) comes from the offline library, not from a live database read.
+What this spec needs from that model:
+- A generated movement is stored as its `GeneratedRecipe` inside `saved_shows.composition`, in a `schemaVersion: 2` document (schemaVersion 1 holds text, sphere and helix only). The recipe carries its own `compilerVersion`, `sceneHash` and `slotsDigest` (GD-13), so a later compiler's different output is detected (William: "Saving canonical compiled slots or a checksum also helps detect changes").
+- On load the app recompiles and compares `slotsDigest` where its `n0` and `slotSpacingMin` match the page's (§8.2). A mismatch is a warning, never a silent load.
+- **Identity links (XI-6).** `sceneHash` names one generated recipe. MongoDB `contentHash` names one saved composition. Tiger's import manifest records a `compositionId` (#142). All three use the one canonical JSON (§6.7).
+- **Size (XI-8).** A schemaVersion 1 body is at most 64 KiB. A generated (schemaVersion 2) document gets a budget of movements × 16 KB (GF-NFR-04) plus overhead, set when GF-CC-01 is approved.
+
+**When the app may call it (XI-5, CR-25).** After MDB-D1 (#130), the D3 approval for the `shows` module (XI-9), the app may browse, retrieve and save through the `shows` module while the simulation runs, but **never inside the tick loop or any decision path**. GF-D1 does not open the `shows` module; it gates only the `gemini` module, which a generated scene needs only when it is generated live. A retrieved show enters only as a candidate composition through X-IN, and reaches a drone only through an operator `INJECT_SCORE` (I7). Without MDB-D1, library entries reach the app as exported `encore.composition` files (X-IN) or by being checked into `assets/scenes/`. "Rate-limit resilience" (William) comes from the offline library, not from a live database read.
 
 ### 13.2 Tiger Data: run telemetry
 
-William's metrics, read from X-OUT exports of real runs:
+William's metrics. The simulation rows come from validated run records (X-OUT exports and `RunRecord` files), which Tiger Data stores as experiment evidence (#142). The two wall-clock rows are not run evidence: Tiger's plan keeps them out of its MVP, with a separate table if ever (Tiger TCR-33, #142), so they stay in the gateway log and GF-WP-13's dated results.
 
 | Metric | Meaning (William) | Encore source |
 |---|---|---|
-| Formation generation | Gemini wall-clock latency | Gateway log (`generationMs`) |
-| Compile time | Local geometry processing duration | App, wall-clock around the worker compile (outside the core, which has no clock) |
+| Formation generation | Gemini wall-clock latency | Gateway log (`modelLatencyMs`, §10.1); not Tiger evidence |
+| Compile time | Local geometry processing duration | App, wall-clock around the worker compile (outside the core, which has no clock); not Tiger evidence |
 | Score adoption | Proportion that learned the new score | Observer `versions`, `adoptP50`, `adoptMax`, `unadopted` |
 | Slot coverage | Occupied target slots | Observer `coverage`, `pwc`/`npwc` |
 | Geometric fidelity | Match to dense intended geometry | Observer `sfMean`, `sfMax` |
 | Collision count | Runtime safety/performance outcome | Observer `collisions`, `nearMisses` |
 | Transition time | Scheduled vs observed arrival | `transitionTicks` vs first hold sample with high occupancy |
 | Settling time | Position/velocity tolerance met | Observer samples |
-| Linkage | "Attach the formation ID and run ID" (handoff §11) | `sceneHash` (and the library's `formationId`, #130) in the injected score, and the `RunRecord`'s run identity; no contract change (§12) |
+| Linkage | "Attach the formation ID and run ID" (handoff §11) | `sceneHash` in the score, and the `RunRecord`'s run identity. An injected generated score is already inside `RunRecord.events`; a preloaded one gets `compositionId = sceneHash:<hex>` in Tiger's manifest (#142); a saved show is named by MongoDB `contentHash` (#130). No contract change (§12) |
 
 **Adoption is not occupancy** (William): a drone can hold the newest score while still flying, and the hold tick does not prove settling. William's illustrative dashboard values (8.6 s generation, 94% adoption, 89% coverage, 2 collisions) are **not evidence** and must never appear as results.
 
@@ -1067,7 +1123,7 @@ For responsiveness:
 | GF-R09 | Nested generated scenes increase cache and serialisation costs | "Large geometry/observer work can drop frames"; handoff §6.3 cache issue | Correctness of budget | GF-CC-03 key; deep copy and freeze (§8.7); 16 KB cap; worker | GF-T21, GF-T22; [evaluation §8](../validation/gemini-formation-evaluation.md#8-performance-criteria) | Smaller scenes |
 | GF-R10 | Preview success does not imply flight completion | "Make preview and flight separate experiences"; "Adoption is not occupancy"; "Fidelity metric may disagree with slot coverage" | Correctness of wording | Preview label; live numbers only from the observer (§11.3); `dense` from the intended shape | GF-T29, GF-T30, GF-T26 | — |
 | GF-R11 | API quotas and connectivity can disrupt live demonstrations | "Free-tier availability is not guaranteed" (high) | Operational | OFFLINE-AUTHORING default; library fallback; backoff on 429/503 only (§10.3) | GF-T33, GF-T35 | Library |
-| GF-R12 | External services must not become simulation dependencies | William's "Offline principle"; "MongoDB caching" | Correctness | Scene travels in the score; no run-time DB or Gemini call (CR-25); gateway optional (§10.4) | GF-T35, GF-T36 | Remove `integrations/` |
+| GF-R12 | External services must not become simulation dependencies | William's "Offline principle"; "MongoDB caching" | Correctness | Scene travels in the score; no DB or Gemini call inside the tick loop or a decision path, no Gemini call without GF-D1 and no DB call without MDB-D1 (CR-25); gateway optional (§10.4) | GF-T35, GF-T36 | Remove `integrations/` |
 | GF-R13 | New geometry must not destabilise existing evaluation metrics | "Interpret against `dense` and compare fair conditions" | Correctness | Additive kind; S0–S5 unchanged; derived GF-S scenarios; no new `RunRecord.summary` keys | GF-T22 part 3, GF-T27 | Feature off by default |
 | GF-R14 | Generated colours require explicit colour-space handling | "Linear vs sRGB, glow and blending"; "Colours look wrong" | Correctness (rule) + heuristic (look) | GF-CC-06; luminance and reserved-colour warnings (§7.7) | GF-T17; visual check | Operator recolours |
 | GF-R15 | Visual recognisability cannot be guaranteed solely by mathematical validation | "Valid JSON but poor object"; handoff §12 | Heuristic (human-judged) | Human preview; Class C protocol | [Evaluation §6](../validation/gemini-formation-evaluation.md#6-recognisability-protocol-class-c), GF-T37 | Do not demo unrecognised scenes |
@@ -1076,28 +1132,28 @@ For responsiveness:
 | GF-R18 | Unhealable islands and confined repair (repo: limit 1, L3) | — | Heuristic, with a reported metric | Component-form L3 report; V8/V9 (§8.11) | GF-T08, GF-T28 | Connect the parts |
 | GF-R19 | Evidence fragility: GF-CC-02 changes `src/agent` behaviour and `EncoreState` | — | Process | Track P only, new evidence revision (§8.2) | GF-T22 part 3, GF-T24 | Defer GF-CC-02 |
 | GF-R20 | Provider churn: model shutdown scheduled 2027-05-07 | — | Operational | Model id in gateway config; saved scenes are model-independent | GF-T40 (dated per model) | Successor model |
-| GF-R21 | A generated formation cuts its own radio graph (L2) | — | Correctness | `radio-partitioned` rejection (V11, §8.11, CR-28) | Proposed eval test (two blobs > 15 m apart, injection during hold, report `unadopted`) | Connect or compact the scene |
-| GF-R22 | Partial refusal of a generated score splits the swarm | — | Correctness (multi-device only) | Uniform refusal reasons only; detection alternative GQ-1 (§8.2) | Proposed GF-T24b | Recompile operator-side; inject a score all accept |
+| GF-R21 | A generated formation cuts its own radio graph (L2) | — | Correctness | `radio-partitioned` rejection (V11, §8.11, CR-28) | GF-T08 (two-blob fixture rejected); GF-T25 (L2 self-partition run, `unadopted` per component) | Connect or compact the scene |
+| GF-R22 | Partial refusal of a generated score splits the swarm | — | Correctness (multi-device only) | Uniform refusal reasons only; detection alternative GQ-1 (§8.2) | GF-T24b | Recompile operator-side; inject a score all accept |
 | GF-R23 | The local gateway is reachable from any page in the operator's browser | — | Correctness (security) | Content-Type, Host and Origin rules (§10.3) | GF-T33 extension | Gateway disabled |
 
 ---
 
 ## 16. Conflict records
 
-Renumbered from the code-compatibility audit's C1–C18 (as CR-01…CR-18 in the same order), plus CR-19…CR-27 found while writing this spec and CR-28…CR-35 from the review (§22). "Approval" names who decides.
+Renumbered from the code-compatibility audit's C1–C18 (as CR-01…CR-18 in the same order), plus CR-19…CR-27 found while writing this spec, CR-28…CR-35 from the review (§22) and CR-36 from the cross-integration rulings. "Approval" names who decides.
 
 | ID | Source proposal (William) | Current behaviour (repo) | Incompatibility | Recommended resolution | Approval |
 |---|---|---|---|---|---|
-| CR-01 | Live prompt → Gemini via a Node API; MongoDB; Tiger Data | NFR-04; AGENTS.md ground rule; contract §12 "Never"; decisions log 19:25/19:50 | Contradicts MUST rules for the live path | Two modes (GD-1): OFFLINE-AUTHORING now, with no network client in the repo; LIVE-GATEWAY after GF-D1 | Team (GF-D1 = D3) |
+| CR-01 | Live prompt → Gemini via a Node API; MongoDB; Tiger Data | NFR-04; AGENTS.md ground rule; contract §12 "Never"; decisions log 19:25/19:50 | Contradicts MUST rules for the live path | Two modes (GD-1): OFFLINE-AUTHORING now, with no network client in the repo; LIVE-GATEWAY after GF-D1 | Team (GF-D1: D3 approved for this integration, XI-9) |
 | CR-02 | `Recipe` gains `generated` | Three-kind union; FR-09 | Contract change touching every switch | GF-CC-01; FR-09 unchanged + GF-FR-01 | Arnav |
-| CR-03 | Scene recompiled via `expandRecipe` | `JSON.stringify` key per call, 600–800 calls/tick | 45–165 ms/tick at 10–30 KB (local bench) | GF-CC-03 + WeakMap | Arnav |
+| CR-03 | Scene recompiled via `expandRecipe` | `JSON.stringify` key per call, 600–800 calls/tick | 45–165 ms/tick at 10–30 KB (local bench) | GF-CC-03, with `H(scene)` cached only for package-frozen scenes (§8.3) | Arnav |
 | CR-04 | 40 × 25 m and 5 m caps; bounds-first; spacing "≥ 1.5 m" | Scale to `slotSpacingMin·1.001`; size is an output; T17 ≤ 1.01 | Caps break FR-08/T17 if enforced by scaling | P1 + caps as validation; P2 = GF-CC-05 | Arnav (GF-D5) |
 | CR-05 | Feature-aware selection **and** priority | FPS order; FR-10, AS-09, `pwc`, healing | Non-FPS order breaks prefixes and healing | Selection feature-aware, order FPS (GD-6); GF-CC-04 deferred | Arnav |
 | CR-06 | 800–5,000 candidates; 512² mask | "about 4·n0"; ≤ 200 ms cold | Text deviation | §6 wording "at least 4·n0" for generated | Arnav |
 | CR-07 | 8–15 s lead | 60 ticks; adoption in 15 ticks (#105) | Not needed; longer limit-9 window | Keep 60; app override | — |
 | CR-08 | Nested `scene` | `copyRecipe` shallow | Aliasing | Deep copy + freeze (§8.7) | Arnav |
 | CR-09 | Worker compile | One cache per realm | Worker does not warm main thread | Worker for preview only | Arnav |
-| CR-10 | `@google/genai` and DB clients in `package.json`; `server/` | Root deps owned by William (paused); `server/` untypechecked | Ownership; offline install | Shared optional `integrations/gateway/` package (§10.4); root ESLint ignores `integrations/**` | William / Arnav, after GF-D1 |
+| CR-10 | `@google/genai` and DB clients in `package.json`; `server/` | Root deps owned by William (paused); `server/` untypechecked | Ownership; offline install | Shared optional `integrations/gateway/` package with modules `gemini`, `shows`, `tiger` (XI-1, §10.4); root ESLint ignores `integrations/**` | William / Arnav, after GF-D1 |
 | CR-11 | Compiler in `src/score/generated` | Core bans clock, random, fetch, npm imports | Libraries or random samplers fail CI | Self-contained TS, seeded PRNG, snapping | — |
 | CR-12 | Scene in SCORE gossip | No size model; score "is small" | Overstates realism | Disclosure (AS-11, proposed) + 16 KB cap | Arnav (GF-D7) |
 | CR-13 | Output → compile → inject | No recipe validation in brains; crash in `world.step` | Malformed scene crashes both worlds | V1–V11; total compiler; GF-CC-02 | Arnav |
@@ -1111,18 +1167,19 @@ Renumbered from the code-compatibility audit's C1–C18 (as CR-01…CR-18 in the
 | CR-21 | App calls gateway over HTTP; `server/` | X-RUN (provisional): files, plus X-RUN/live from one confined, default-off app folder (`src/app/live/`) after D3 (boundaries §6.1) | Live HTTP exists only under that amendment | GF-D1; depends on X-RUN/live (provisional, #110); the app client lives in the confined folder | Team |
 | CR-22 | `compilerVersion: 1` vs `string` in `CompileResult` | — | Internal mismatch | Integer everywhere | Arnav |
 | CR-23 | `foreground: string` (hex) | `pattern` unsupported by Gemini | Hex cannot be constrained | `hex \| [r,g,b]`; model asks for the array | Arnav |
-| CR-24 | Gateway runs `validateScene` | X-RUN may not import `src/` | Validator drift | Gateway checks size and schema, or runs the core validator as a subprocess; the app is authoritative | William + Arnav |
-| CR-25 | MongoDB as live cache | App makes no network calls | Live DB read is network | Export to files (X-IN) or `assets/scenes/`; persistence per #130 | William |
+| CR-24 | Gateway runs `validateScene` | The gateway may import, by relative path, only pure modules: `src/contracts/**`, `src/score/**`, the pure composition validator, `src/telemetry/**` ([boundaries §6](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#6-x-run-external-integration-runner), provisional, #110) | An earlier draft read "X-RUN may not import `src/`", so the gateway could run only a subset or a subprocess: validator drift | Superseded by decision XI-2 (§10.4): the gateway imports `src/score/generated` and runs V1–V11, trial compile included (§10.2). The app still re-validates every scene and stays authoritative | Arnav (XI-2) |
+| CR-25 | MongoDB as live cache | App makes no network calls | A live DB read is network. An earlier draft said "never at run time", which was wrong | XI-5: after MDB-D1 (#130; XI-9) the app may call the `shows` module while the simulation runs, never inside the tick loop or a decision path; nothing it returns reaches a drone except via an operator `INJECT_SCORE` (I7). Without MDB-D1: files (X-IN) or `assets/scenes/`. Model per #130 (§13.1) | William (sponsor) + Arnav (XI-5) |
 | CR-26 | Gateway returns `sceneHash` | GD-4 | Trust boundary | App recomputes | — |
 | CR-27 | "Exactly 200" | `n0` varies (40 in G1; `?n0=` in #113) | Breaks other rosters | `n0` everywhere; digests per n0 | — |
 | CR-28 | (none: generated shapes are new) | Radio delivers within `rRadio` = 15 m (`world.ts:184`); L2 reports components (RFC §9.3) | A formation with parts > 15 m apart partitions the swarm for later injections | Reject `radio-partitioned` at validation (§8.11); acknowledgement alternative open (GQ-2) | Arnav |
-| CR-29 | Scenes travel in compositions and the library | X-IN `encore.composition` v1: `Recipe` is exactly text \| sphere \| helix, positions rejected, new fields need v2, 64 KiB per file ([boundaries §3.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#32-file-format-sketch-encorecomposition-v1)) | v1 cannot carry a generated cue; 16 cues × 16 KB exceed the gate | `encore.composition` **v2** in #110's boundaries doc. Scene coordinates are unit-space geometry, never drone positions: they are compiled, FPS-ordered and rescaled by P1, so no field addresses a drone, slot index or tick. Per-cue cap 16 KB canonical, and an explicit per-file rule (GQ-3). Provisional: depends on #110 | Arnav (#110) |
+| CR-29 | Scenes travel in compositions and the library | X-IN `encore.composition` v1: `Recipe` is exactly text \| sphere \| helix, positions rejected, new fields need v2, 64 KiB per file ([boundaries §3.2](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#32-file-format-sketch-encorecomposition-v1)) | v1 cannot carry a generated cue; 16 cues × 16 KB exceed the gate | `encore.composition` **v2** in #110's boundaries doc. Scene coordinates are unit-space geometry, never drone positions: they are compiled, FPS-ordered and rescaled by P1, so no field addresses a drone, slot index or tick. Per-cue cap 16 KB canonical, and an explicit per-file rule (GQ-3). Provisional: depends on #110. v2 adds two things to v1: an optional per-cue `holdTicks` and generated cues after GF-CC-01 (XI-15, [boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes)). Names stay fixed (XI-15, boundaries §3.3): files are `encore.composition` v1 (text, sphere, helix, no holds) or v2 (holds, generated cues); saved shows in MongoDB are `saved_shows.composition` (#130), schemaVersion 1 or 2 with the XI-8 caps (§13.1). No third kind | Arnav (#110) |
 | CR-30 | Coordinates "approximately in [-1, 1]" (handoff §4.2) | An earlier draft made it a hard [-1, 1] / ±1.2 limit, which William's own 3D example fails (trunk to x ≈ 1.33) | Silent tightening | Centres and curve points within ±1.5, evaluated geometry within ±1.6 (§6.1, V5, V6) | Arnav |
 | CR-31 | 3D example faces +x (head at x = 0.72); `mirror-x` | `mirror-x` reflects in x = 0; camera presets name views | Mirroring duplicates the head instead of pairing ears and legs | Subject convention: front +z, symmetry plane x = 0 (§6.1); fixtures rotate the example −90° about y. A `mirror-z` value for profile poses is open (GQ-4) | Arnav + William |
 | CR-32 | "Keep Z fixed" for 2D (handoff §4.6) | P1 scales height with √n0; floor at 2 m | Tall 2D subjects become `below-floor` | Layering as simplification 5 (§7.6, §7.11), the text-layers remedy; or GF-CC-05 for this case (GQ-6) | Arnav + William |
 | CR-33 | Hex/sRGB colours, linearised for generated scenes (§7.7) | Composer and console store hex as raw `/255` (`store.ts:116-119`, `commands.ts:278-281`) | Same hex flies as two colours | One rule for every hex path: linearise all together (GF-D6, screenshots) or pass generated colours through | Arnav (GF-D6) |
 | CR-34 | `GeneratedRecipe = { kind; compilerVersion: 1; sceneHash; scene }` (handoff §6.1) | — | `slotsDigest` added (GF-CC-02) | Keep the addition; it is the only cross-device drift check | Arnav |
 | CR-35 | Priorities: 2D "Essential", 3D "High" (handoff §13, "Final priorities") | Base levels MUST/SHOULD/STRETCH; any `GF-CC` is Track P | The feature is optional and needs contract changes | 2D → SHOULD, 3D → STRETCH; "bounded compiler" and "preview before injection" → MUST (if GF-FR-01) (§18) | Arnav + William |
+| CR-36 | Success body `{ "success": true, … }` (handoff §8); an earlier draft added `{ "success": false, "error": { "code": "provider-rate-limited", "retryable": … } }` | One gateway serves `gemini`, `shows` and `tiger`; #130 uses `{ "error": { "code": "DATABASE_UNAVAILABLE", … } }` | Two envelope and code styles in one gateway | XI-3: one envelope for every route, no `success` flag, the shared SCREAMING_SNAKE code list; Gemini reasons go in `details[].reason` (§10.1) | Arnav (XI-3) |
 
 ---
 
@@ -1135,7 +1192,7 @@ Renumbered from the code-compatibility audit's C1–C18 (as CR-01…CR-18 in the
 - **Observer** (P2-CC-06): `dense` comes from the intended surface and receives the same motion transform, so `sfMean`/`sfMax` stay meaningful. Dense is never the 200 slots.
 - **Gossip.** Generated scores propagate through the existing gossip with no special coordination. Dual injections follow T16 ordering (P2-T14 applies unchanged).
 - **Repair.** L3 islands interact with limit 1. Healing in motion (P2-CC-04) is shape-independent.
-- **Integration boundaries.** OFFLINE-AUTHORING scenes enter through X-IN as composition files whose cues may hold generated recipes. That needs `encore.composition` **v2**, not v1: v1's `Recipe` is exactly the three-kind union and rejects any position, and its 64 KiB gate cannot hold 16 cues of 16 KB (CR-29). Run telemetry leaves through X-OUT. MongoDB and Tiger Data sit behind X-PERSIST/X-RUN.
+- **Integration boundaries.** OFFLINE-AUTHORING scenes enter through X-IN as composition files whose cues may hold generated recipes. That needs `encore.composition` **v2**, not v1: v1's `Recipe` is exactly the three-kind union and rejects any position, and its 64 KiB gate cannot hold 16 cues of 16 KB (CR-29). X-IN files are `encore.composition` v1 or v2 and nothing else (XI-15, CR-29). v2 also adds an optional per-cue `holdTicks`, carried as data; loading is "Load as drafts" ([boundaries §3.3](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#33-proposed-v2-holds-and-generated-recipes)). Run records and telemetry leave through X-OUT. Saved shows (MongoDB `saved_shows.composition`, #130) and experiment evidence (Tiger Data, #142) sit behind X-PERSIST (provisional, #110), inside the gateway. The app reaches the gateway only over X-RUN/live (provisional, #110).
 - **Tracks.** Every `GF-CC` is a contract change, so the generated-formation feature is **Track P** (post-submission, or earlier only with Arnav's explicit approval, Phase 2 D4/GF-D8). No Track H work package needs any part of it.
 
 ---
@@ -1161,7 +1218,7 @@ Columns as in [requirements.md](../specification/requirements.md). These are pro
 | GF-FR-13 | MUST (if GF-FR-01) | `dense` is about 2,000 points of the intended geometry, never the slots | 1,500–2,500 points; every slot within `slotSpacingMin` of dense | score |
 | GF-FR-14 | SHOULD | Saved generated compositions replay with no Gemini or database call | Replay from file offline; digest check | app-ui |
 | GF-FR-15 | MUST (if GF-FR-11) | Stale gateway responses are dropped by `requestId` | Out-of-order response test | app-ui |
-| GF-NFR-01 | MUST (if GF-FR-01) | Deterministic across Node and browser | Golden digests equal in both | score |
+| GF-NFR-01 | MUST (if GF-FR-01) | Deterministic across Node and browser V8 realms; other engines by golden digests once such a run exists (§7.12) | Golden digests equal in Node and a Chrome-family build | score |
 | GF-NFR-02 | MUST (if GF-FR-01) | Cold compile ≤ 200 ms at n0 = 200 in Node for CL-1–CL-4 scenes; 3D CL-4+ per GF-D8 | Perf test | score |
 | GF-NFR-03 | MUST (if GF-FR-01) | A generated movement adds ≤ 0.5 ms per tick per world at n0 = 200 in steady state; the adoption-window cost (n0 hashes per world, §8.3) is measured and reported | 30 KB-scene perf test on `stepBoth` with the observer, not on `expandRecipe` alone | score |
 | GF-NFR-04 | MUST (if GF-FR-01) | Canonical scene ≤ 16 KB; payload-size abstraction disclosed | V1 test; assumption row present | score |
@@ -1175,7 +1232,7 @@ Columns as in [requirements.md](../specification/requirements.md). These are pro
 
 | ID | Decision | Recommendation | Confidence | Blocks |
 |---|---|---|---|---|
-| GF-D1 | Phase 2 **D3** approved **for this integration** ([roadmap](../planning/PHASE2_ROADMAP.md#decisions-for-arnav); conditions in [boundaries §9](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3), provisional: depends on #110): amend **NFR-04**, the AGENTS.md ground rule, contract §12 and the decisions log to allow an optional, off-by-default LIVE-GATEWAY. D3's condition 2 must keep its exception for the one confined X-RUN/live app folder (§6.1); the roadmap's D3 row names only X-RUN. Approving D3 for #130 does not approve it here (CR-21) | No change during the hackathon. Afterwards only with William and Haris consulted by Arnav | High | GF-FR-11, GF-WP-12 |
+| GF-D1 | Phase 2 **D3** approved **for this integration** ([roadmap](../planning/PHASE2_ROADMAP.md#decisions-for-arnav); conditions in [boundaries §9](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#9-the-no-network-rule-and-decision-d3), provisional: depends on #110): amend **NFR-04**, the AGENTS.md ground rule, contract §12 and the decisions log to allow an optional, off-by-default LIVE-GATEWAY. D3's condition 2 must keep its exception for the one confined app folder of X-RUN/live (provisional, #110; [boundaries §6.1](../design/OPTIONAL_INTEGRATION_BOUNDARIES.md#61-x-runlive-provisional-d3-gated)). It is one decision, shared with MDB-D1 (#130) and TIG-D1 (#142), approved per integration (XI-9): approving it for #130 does not approve it here (CR-21). Scope: the optional gateway only. The core and the default build stay offline, the library and analytics UI stay off unless a non-secret flag enables them, the default build makes zero external requests, and NFR-04's acceptance test is unchanged | No change during the hackathon. Afterwards only with William and Haris consulted by Arnav | High | GF-FR-11, GF-WP-12 |
 | GF-D2 | Approve GF-CC-01 (recipe kind and scene types) | Approve, post-submission (Track P) | Medium | Everything else |
 | GF-D3 | Approve GF-CC-02 (brain adoption check), including refusal vs detection on a digest mismatch (GQ-1) | Track P only: a new evidence revision after #122 is archived and #115 has settled (§8.2) | Medium | GF-FR-07 |
 | GF-D4 | Approve GF-CC-03 (memo key) | Approve with GF-CC-01; it is required for real time | High | GF-NFR-03 |
@@ -1185,6 +1242,7 @@ Columns as in [requirements.md](../specification/requirements.md). These are pro
 | GF-D8 | Timing (whole feature in Track P) and compile budget: if 3D CL-4+ misses 200 ms, raise the budget for generated recipes only, or precompile at authoring time and accept Option B for those scenes | Track P; keep 200 ms until measured (GF-WP-13) | High (timing) | Scheduling, GF-NFR-02 |
 | GF-D9 | Library location `assets/scenes/` and whether model-authored scenes may be committed (free-tier data use, provenance metadata) | Allow, with prompt, model id and date stored | Medium | GF-WP-09 |
 | GF-D10 | GF-CC-04 importance-weighted order | Decline for now | Medium | — |
+| GF-D11 | Provider terms: the UK/EEA "Paid Services only" and 18+ terms (PARTLY VERIFIED, recorded once in §10.6). They apply to LIVE-GATEWAY and to OFFLINE-AUTHORING through AI Studio | William and Arnav decide, after re-reading the terms at the source, before any live demo and before committing model-authored scenes | Low (wording unverified) | Any live demo; GF-D9; GQ-5 |
 
 ---
 
@@ -1198,7 +1256,7 @@ Columns as in [requirements.md](../specification/requirements.md). These are pro
 6. Does the Phase 2 `encore.composition` v2 format (CR-29) need a field for scene provenance (prompt, model id), or is that persistence-only (William)?
 7. Ray-cast self-occlusion for 3D visibility in compiler version 2: worth it at 200 lights?
 
-Questions raised by the review are GQ-1…GQ-9 in [§22](#22-review-record).
+Questions raised by the review are GQ-1…GQ-10 in [§22](#22-review-record).
 
 ---
 
@@ -1212,14 +1270,14 @@ GF-WP numbers follow the [work packages](../planning/gemini-integration-work-pac
 | GF-FR-02 | §6.2, §7.2 | GF-CC-01 | GF-WP-01, GF-WP-03, GF-WP-04 | GF-T01–T05, GF-T06–T10, GF-T37 |
 | GF-FR-03 | §6.3, §7.3 | GF-CC-01 | GF-WP-01, GF-WP-05 | GF-T01–T05, GF-T11–T15, GF-T37 |
 | GF-FR-04 | §6.5, §10.2 | — | GF-WP-01, GF-WP-10 | GF-T01–T05 |
-| GF-FR-05 | §7.11, §8.2 | GF-CC-02 | GF-WP-06, GF-WP-07 | GF-T23, GF-T24 |
+| GF-FR-05 | §7.11, §8.2 | GF-CC-02 | GF-WP-06, GF-WP-07 | GF-T23, GF-T24, GF-T41 |
 | GF-FR-06 | §6.7, §8.3 | GF-CC-01, GF-CC-03 | GF-WP-02 | GF-T20, GF-T24 |
-| GF-FR-07 | §8.2 | GF-CC-02 | GF-WP-07 | GF-T24, GF-T36 |
+| GF-FR-07 | §8.2 | GF-CC-02 | GF-WP-07 | GF-T24, GF-T24b, GF-T36 |
 | GF-FR-08 | §11.2, §11.3 | — | GF-WP-10 | GF-T29, GF-T30 |
 | GF-FR-09 | §9, §11.2 | — | GF-WP-11 | GF-T29, GF-T36 |
 | GF-FR-10 | §12 | — | GF-WP-09 | GF-T35 |
 | GF-FR-11 | §10 | — (GF-D1) | GF-WP-12 | GF-T32–T34 |
-| GF-FR-12 | §7.7 | GF-CC-06 | GF-WP-06 | GF-T17 |
+| GF-FR-12 | §7.7 | GF-CC-06 | GF-WP-06 (pass-through only); GF-CC-06 and the hex-path change unscheduled until GF-D6 (§8.4) | GF-T17 |
 | GF-FR-13 | §7.8 | — | GF-WP-06 | GF-T18 |
 | GF-FR-14 | §12, §13 | — | GF-WP-09, GF-WP-11, GF-WP-15 | GF-T35, GF-T36 |
 | GF-FR-15 | §11.2 | — | GF-WP-10 | GF-T31 |
@@ -1245,14 +1303,21 @@ Four review lenses read this spec, its companions and William's handoff against 
 
 **Integration.** Challenged: "GF-D1 = D3", the X-IN format, colour consistency across hex paths, labelling William's gateway parameters, Phase 2 conflicts, missing CRs, CR-19, X-PERSIST, a non-existent "governing fact 1", test labels and the William/Williams naming. Changed: GF-D1 is D3 approved for this integration, keeping condition 2's X-RUN/live exception (§4.3, §19, CR-21); `encore.composition` v2 (CR-29, §17); CR-33 for hex paths; † proposed defaults (§10.3); P2-WP-20 / P2-CC-01 in the Conflicts rows (§8.1, §8.2); CR-34, CR-35 and the linkage row (§13.2); CR-19 points to #110's single record; roadmap governing-constraint link (§7.1, §8.2); GF-T29 label (§8.1); "William" throughout. Not changed: X-PERSIST already covers a show library and runs inside the gateway (boundaries §5); only the step-10 wording was sharpened (§11.2).
 
+**Cross-integration pass.** The rulings XI-1…XI-15, shared with #130 and #142, were written after the review began and are now applied (index in §1). Changed: one gateway with `gemini`, `shows` and `tiger` modules (§10.4, CR-10); decision XI-2 on gateway imports, superseding CR-24, so server-side validation includes the trial compile (§6.5, §10.2); one error envelope and code list, with Gemini reasons in `details[].reason` (§10.1, CR-36); CR-25 corrected to "never inside the tick loop or a decision path" (§13.1, GF-R12); the MongoDB field list replaced by a pointer to #130's `encore.saved_shows` (§13.1); one canonical JSON and SHA-256 (§6.7); size caps (§13.1); GF-D1 as one decision approved per integration (§19); no assignees (§2). Also applied from the companions' review: the totality rule's strict variant and test (§7.11, GF-T41); the memo cache only for package-frozen scenes, with the brain's `copyRecipe` swap (§8.2, §8.3, §8.7); `requestId` from one monotonic client counter (§10.1); the `h({ html })` sink (§10.3); mesh resolution fixed and samples projected onto the surface (§7.3); mirrored copies reflected, not resampled (§7.3); candidate counts scaled with n0 (§7.2, §7.3); even-odd as the defined path fill (§7.2); V8-realm determinism wording (§7.12, GF-NFR-01); the ESLint and boundaries-test gap (§7.12); a library field in `Draft` (§11.1); provider terms recorded once as GF-D11 (§10.6).
+
+**Consistency pass.** Applied XI-11…XI-15: the `requestId` pattern and drop rule (§10.1); the one gateway skeleton and guard (§10.3, §10.4); the pure validator's location (§10.4, §11.1); one build flag per module in `src/app/live/` (§10.3, §10.4); `holdTicks` and "Load as drafts" for v2 (§12, §17, CR-29). Also: the `shows` steps gated on MDB-D1, not GF-D1 (§11.2, §13.1, CR-25, GF-R12); the `tiger` routes (§10.4); recipe checks split from V5 (§6.5); one digest function name (§8.2); GF-CC-06 marked unscheduled (§8.4, §21); the foreground pass-through (§6.2); the #113 merge note (§3); G2 citations replaced by section references. Companion-doc changes this implies:
+- Evaluation: GF-T31 and GF-T33 test that a non-matching `requestId` is not echoed and the request still succeeds (§10.1); §1.1 notes that #113 merged after the audit base (§3).
+- Work packages: GF-WP-10 and GF-WP-12 point to §10.1 for `requestId`; GF-WP-12's allowed routes add the `tiger` routes (§10.4) and depend on the shared skeleton; GF-WP-09's `digests[]` entries become `SlotsDigest` (field `digest`, §8.2); the Gating section lists GF-CC-06 as unscheduled; the §3 blocked table notes the #113 merge.
+
 | ID | Question | Why open | Who decides | Decision |
 |---|---|---|---|---|
 | GQ-1 | On a `slotsDigest` mismatch, should a brain refuse (current text) or adopt and log (detection), leaving drift refusal to the operator side? | Refusal is binding text for GF-CC-02, but partial refusal splits the swarm (§8.2) | Arnav | GF-D3 |
 | GQ-2 | Radio self-partition: reject `radio-partitioned`, or allow injection behind an explicit operator acknowledgement? | Rejection removes some legitimate multi-part scenes; no measurement yet | Arnav | GF-D5 |
 | GQ-3 | `encore.composition` v2 per-file rule: raise the 64 KiB gate, or cap generated cues per file (for example ≤ 3)? | Belongs to #110's boundaries doc; trades X-IN's guard against show length | Arnav (#110) | GF-D7 |
 | GQ-4 | Add `mirror-z` for profile poses facing ±x, or keep the front-+z convention only? | Profiles are the natural audience view for many animals; the enum is William's | Arnav + William | GF-D2 |
-| GQ-5 | LIVE-GATEWAY at DurHack: is a paid key available, given the UK paid-only term (PARTLY VERIFIED)? | Terms wording to re-read; budget and sponsor rules are William's | William | GF-D1 |
+| GQ-5 | LIVE-GATEWAY at DurHack: is a paid key available, given the UK paid-only term (PARTLY VERIFIED, §10.6)? | Terms wording to re-read; budget and sponsor rules are William's | William and Arnav | GF-D11 |
 | GQ-6 | Tall 2D subjects: layering (CR-32), outright rejection, or GF-CC-05 for this case only? | Layering departs from "Keep Z fixed" | Arnav + William | GF-D5 |
-| GQ-7 | Accept n0 scene hashes per adoption per world, or let brains keep the frozen received score so one key is shared? | The second is a brain change; the first is unmeasured | Arnav | GF-D4 |
+| GQ-7 | Accept n0 scene hashes per adoption per world (one per drone's `copyRecipe` copy, §8.3), or let brains share one frozen received score so one hash is shared? | The second is a brain change; the first is unmeasured | Arnav | GF-D4 |
 | GQ-8 | Hex colours: linearise every path together (option a) or pass generated colours through (option b)? | Option a changes existing palettes visibly | Arnav | GF-D6 |
 | GQ-9 | Gateway SDK version: wait for the 14-day release age of 3.3.0, or pin the last older 3.x? | Depends on when GF-D1 is approved | William | GF-D1 |
+| GQ-10 | One case for `details[].reason` across gateway modules, and one shared reason for a disabled module (Gemini `gateway-disabled`, #130 `MODULE_DISABLED`, Tiger `disabled` in health)? | XI-3 fixes codes, not reason case; it is set once with XI-3 in boundaries §6.2, then §10.1 here and #130 §10.1 follow (§10.1) | Arnav | GF-D1 |
