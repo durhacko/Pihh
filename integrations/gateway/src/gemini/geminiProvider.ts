@@ -107,6 +107,72 @@ export interface ProviderObservation {
   readonly outcome: ProviderOutcome['kind'];
   readonly finishReason?: string;
   readonly usage?: Readonly<Record<string, number>>;
+  /** For a 4xx/5xx only: the sanitised classification of Google's error body (never its message or anything else). */
+  readonly error?: UpstreamErrorClass;
+}
+
+/** Google's error classification, each value filtered to an enum or field-path shape; nothing free-text. */
+export interface UpstreamErrorClass {
+  readonly status?: string;
+  readonly reasons?: readonly string[];
+  readonly fields?: readonly string[];
+}
+
+/** An error body is read up to this many bytes and this long, only to classify it. */
+const ERROR_BODY_MAX = 16 * 1024;
+const ERROR_BODY_MS = 2_000;
+const ENUM_SHAPE = /^[A-Z_]{1,64}$/;
+const FIELD_SHAPE = /^[A-Za-z0-9_.[\]]{1,128}$/;
+
+/** The classification of a Google error body: error.status, details[].reason, details[].fieldViolations[].field. */
+export function classifyErrorBody(body: string): UpstreamErrorClass | undefined {
+  let json: unknown;
+  try { json = JSON.parse(body); } catch { return undefined; }
+  const error = record(record(json)?.error);
+  if (!error) return undefined;
+  const status = typeof error.status === 'string' && ENUM_SHAPE.test(error.status) ? error.status : undefined;
+  const reasons: string[] = [];
+  const fields: string[] = [];
+  const details: unknown = error.details;
+  for (const detail of Array.isArray(details) ? details.map(record) : []) {
+    if (!detail) continue;
+    if (typeof detail.reason === 'string' && ENUM_SHAPE.test(detail.reason) && reasons.length < 8) reasons.push(detail.reason);
+    const violations: unknown = detail.fieldViolations;
+    for (const v of Array.isArray(violations) ? violations.map(record) : []) {
+      if (v && typeof v.field === 'string' && FIELD_SHAPE.test(v.field) && fields.length < 8) fields.push(v.field);
+    }
+  }
+  if (!status && reasons.length === 0 && fields.length === 0) return undefined;
+  return { ...(status ? { status } : {}), ...(reasons.length ? { reasons } : {}), ...(fields.length ? { fields } : {}) };
+}
+
+/** Reads at most `max` bytes of a body stream within `ms`; whatever arrived (or '' on failure). Cancels the rest. */
+async function readErrorBody(stream: ReadableStream<Uint8Array> | null, max: number, ms: number, abort: AbortSignal): Promise<string> {
+  if (!stream || typeof stream.getReader !== 'function') return '';
+  const reader = stream.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  let text = '';
+  let bytes = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = new Promise<null>(resolve => {
+    timer = setTimeout(() => resolve(null), ms);
+    abort.addEventListener('abort', () => resolve(null), { once: true });
+  });
+  try {
+    for (;;) {
+      const next = await Promise.race([reader.read(), stop]);
+      if (next === null || next.done) break;
+      bytes += next.value.byteLength;
+      text += decoder.decode(next.value, { stream: true });
+      if (bytes >= max) break;
+    }
+  } catch {
+    // an unreadable error body classifies as nothing
+  } finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => {});
+  }
+  return text.slice(0, max);
 }
 
 export interface GeminiProviderDeps {
@@ -265,10 +331,11 @@ export function createGeminiProvider(config: EnabledGeminiConfig, deps: GeminiPr
         });
         status = Number.isInteger(response.status) ? response.status : 0;
         if (status !== 200) {
-          // An error status (a 3xx included) is final whatever its body: nothing in it is read (a 429 stays a 429,
-          // however large; a redirect is never followed).
-          await response.body?.cancel().catch(() => {});
-          return finish(timedOut || controller.signal.aborted ? { kind: 'timeout' } : { kind: 'upstream-error', status }, status);
+          // An error status (a 3xx included) is final whatever its body (a 429 stays a 429, however large; a redirect
+          // is never followed). A 4xx/5xx body is read only to classify it (capped, sanitised, never returned).
+          const error = status >= 400 ? classifyErrorBody(await readErrorBody(response.body, ERROR_BODY_MAX, ERROR_BODY_MS, controller.signal)) : undefined;
+          if (status < 400) await response.body?.cancel().catch(() => {});
+          return finish(timedOut || controller.signal.aborted ? { kind: 'timeout' } : { kind: 'upstream-error', status }, status, error ? { error } : {});
         }
         body = await readBounded(response);
       } catch {

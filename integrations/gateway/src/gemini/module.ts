@@ -41,7 +41,11 @@ export function loadSceneSchemas(): Readonly<Record<FormationMode, object>> {
 }
 
 /** The last upstream call as health may show it (sanitised: no key, prompt, model text or error body). */
-export interface LastUpstream { readonly httpStatus: number; readonly outcome: string; readonly finishReason?: string; readonly latencyMs: number; readonly at: string }
+export interface LastUpstream {
+  readonly httpStatus: number; readonly outcome: string; readonly finishReason?: string; readonly latencyMs: number; readonly at: string;
+  /** For a 4xx/5xx: Google's error.status, details[].reason and fieldViolations[].field, sanitised (no message). */
+  readonly error?: { readonly status?: string; readonly reasons?: readonly string[]; readonly fields?: readonly string[] };
+}
 
 /** The module offline: the real validator, no provider (tests, and any run without the flag and the key). */
 export function defaultGeminiDeps(config: GeminiConfig): GeminiDeps {
@@ -56,7 +60,7 @@ export function liveGeminiDeps(config: GeminiConfig, transport: Transport = PLAT
     transport, schemas: loadSceneSchemas(), now: () => performance.now(),
     observe: o => onUpstream?.({
       httpStatus: o.httpStatus, outcome: o.outcome, latencyMs: Math.round(o.latencyMs),
-      ...(o.finishReason ? { finishReason: o.finishReason } : {}), at: new Date().toISOString(),
+      ...(o.finishReason ? { finishReason: o.finishReason } : {}), ...(o.error ? { error: o.error } : {}), at: new Date().toISOString(),
     }),
   });
   return { config, provider, validator: createSceneValidator() };
