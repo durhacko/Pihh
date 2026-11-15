@@ -117,9 +117,14 @@ export async function probeShows(o: ClientOptions = {}): Promise<Exclude<ShowsAv
   return shows.writable === true ? 'up' : 'read-only';
 }
 
-/** POST /api/shows with the Idempotency-Key; retries reuse the same key and body (§10.5, §10.6). */
+/**
+ * POST /api/shows. The key travels twice, equal (§10.2 allows both when they match): in the Idempotency-Key header and
+ * as the body's `operationId`, which is what the gateway reads (its routes see no headers). The body is serialised
+ * once, so every retry resends it byte for byte with the same key (§10.5, §10.6).
+ */
 export async function saveShow(request: ShowRequest, operationId: string, o: ClientOptions = {}): Promise<ApiResult<{ show: SavedShow; idempotentReplay: boolean }>> {
-  const raw = await sendWithRetry(2, 'POST', '/api/shows', o, JSON.stringify(request), { 'Content-Type': 'application/json', 'Idempotency-Key': operationId });
+  const body = JSON.stringify({ ...request, operationId });
+  const raw = await sendWithRetry(2, 'POST', '/api/shows', o, body, { 'Content-Type': 'application/json', 'Idempotency-Key': operationId });
   if ((raw.status === 201 || raw.status === 200) && isObject(raw.body) && isObject(raw.body.show)) {
     const summary = summaryOf(raw.body.show);
     return { ok: true, value: { show: { ...(raw.body.show as unknown as SavedShow), ...summary }, idempotentReplay: raw.body.idempotentReplay === true } };

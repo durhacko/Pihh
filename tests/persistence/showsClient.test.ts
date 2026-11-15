@@ -9,6 +9,7 @@ import { makeParams } from '../../src/contracts';
 import { Drafts } from '../../src/app/ui/Composer';
 import { fallbackDelayMs, getShow, listShows, newOperationId, probeShows, retryAfterMs, saveShow, summaryOf, type ClientOptions } from '../../src/app/live/shows';
 import { createPanel, MESSAGES } from '../../src/app/live/SavedCompositions';
+import { validateShowRequest } from '../../src/app/compose/validate';
 import { FakeDocument, FakeElement } from '../app/ui/fakeDom';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -73,7 +74,10 @@ describe('client: save, list, get (§10.2, §10.3, §10.5, §10.6)', () => {
     const r = await saveShow(request, key, api.options);
     expect(r.ok && r.value.show.title).toBe('Hello');
     expect(api.calls[0]).toMatchObject({ method: 'POST', url: '/api/shows', headers: { 'Idempotency-Key': key, 'Content-Type': 'application/json' } });
-    expect(JSON.parse(api.calls[0]!.body!)).toEqual(request);
+    // The gateway reads the key from the body (its routes see no headers): operationId equals the header (§10.2).
+    expect(JSON.parse(api.calls[0]!.body!)).toEqual({ ...request, operationId: key });
+    // The exact bytes sent pass the validator the gateway runs on write (operationId is an allowed, unchecked key).
+    expect(validateShowRequest(JSON.parse(api.calls[0]!.body!), makeParams(200)).ok).toBe(true);
   });
 
   it('retries POST at most twice, on network/timeout/503/429 only, with the same key and body', async () => {
@@ -81,7 +85,9 @@ describe('client: save, list, get (§10.2, §10.3, §10.5, §10.6)', () => {
     const r = await saveShow(request, 'k1', api.options);
     expect(r.ok && r.value.idempotentReplay).toBe(true);
     expect(api.calls).toHaveLength(3);
-    expect(new Set(api.calls.map(c => `${c.headers['Idempotency-Key']}|${c.body}`)).size).toBe(1);
+    expect(new Set(api.calls.map(c => `${c.headers['Idempotency-Key']}|${c.body}`)).size).toBe(1);   // byte-identical retries
+    for (const c of api.calls) expect(JSON.parse(c.body!).operationId).toBe(c.headers['Idempotency-Key']);   // body key = header key
+    expect(JSON.parse(api.calls[0]!.body!).operationId).toBe('k1');
     const failing = fakeApi({ 'POST /api/shows': 'hang' });
     const f = await saveShow(request, 'k2', failing.options);
     expect(f.ok ? 'ok' : [f.code, f.retryable]).toEqual(['TIMEOUT', true]);
@@ -207,8 +213,10 @@ describe('panel: states (§12) with a fake client', () => {
     expect(p.text()).toContain(MESSAGES.empty);
     p.button('Save composition')!.click(); await p.panel.idle();
     expect(p.text()).toContain('Saved “Durhack”.');
-    const sent = JSON.parse(p.api.calls.find(c => c.method === 'POST')!.body!);
-    expect(sent).toEqual({ schemaVersion: 1, title: 'Durhack', source: 'manual', composition: { v: 1, movements: [{ recipe: { kind: 'text', text: 'DURHACK', palette: [[0, 0.72, 0.62], [0.98, 0.78, 0.22]] }, holdTicks: 600 }] } });
+    const post = p.api.calls.find(c => c.method === 'POST')!;
+    const sent = JSON.parse(post.body!);
+    expect(sent).toEqual({ schemaVersion: 1, title: 'Durhack', source: 'manual', composition: { v: 1, movements: [{ recipe: { kind: 'text', text: 'DURHACK', palette: [[0, 0.72, 0.62], [0.98, 0.78, 0.22]] }, holdTicks: 600 }] }, operationId: post.headers['Idempotency-Key'] });
+    expect(sent.operationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(p.button('Durhack')).toBeDefined();
   });
 
