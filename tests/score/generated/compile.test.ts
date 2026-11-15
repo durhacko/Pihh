@@ -127,6 +127,13 @@ describe('GF-T16: exactly n0 slots in farthest-point order', () => {
     }
   });
 
+  it('pins the 3D warnings (code, partId, order) to what #259 shipped: the 2D refactor must not change them', () => {
+    // Captured from the merged #259 head (01372ad) before the shared finish() refactor.
+    const pin = (f: string, n0: number) => ok(compiled(f, n0)).warnings.map((w) => [w.code, w.partId ?? null]);
+    expect(pin('valid-3d-elephant.json', 200)).toEqual([['feature-starved', 'tusk~m'], ['dark-light-may-vanish', 'eyes']]);
+    expect(pin('valid-3d-sphere.json', 40)).toEqual([['reserved-colour', 'white']]);
+  });
+
   it('3D fixtures: farthestPointOrder over the placed slots is exactly the identity (no lattice ties)', () => {
     for (const f of VALID_3D) {
       const slots = ok(compiled(f, 200)).formation.slots;
@@ -163,7 +170,7 @@ describe('GF-T17: spacing, finiteness and colour', () => {
     expect(colourWarningsFor([0.1, 0.1, 0.1], 'charcoal').map((w) => w.code)).toEqual(['dark-light-may-vanish']);
     expect(linearLuminance([1, 1, 1])).toBeCloseTo(1, 9);
     const dark = ok(compileGeneratedScene(sphereScene([0.1, 0.1, 0.1]), makeParams(40), 40));
-    expect(dark.warnings).toContainEqual(expect.objectContaining({ code: 'dark-light-may-vanish', detail: expect.stringContaining('material paint') }));
+    expect(dark.warnings).toContainEqual(expect.objectContaining({ code: 'dark-light-may-vanish', partId: 'paint' }));
     expect(dark.formation.slots.every((s) => s.colour.join(',') === '0.1,0.1,0.1')).toBe(true);
   });
 });

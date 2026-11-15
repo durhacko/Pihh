@@ -142,14 +142,11 @@ function compile3D(
   const input: SelectionCandidate[] = cands.map((c) => ({ pos: c.pos, part: c.solid, source: 'surface', importance: c.importance, visibility: c.visibility }));
   const selection = selectSlots({ mode: 'scene3d', candidates: input, parts, area: sampled.stats.exposedArea, n0 });
   if (!selection.ok) return reject(selection.code, selection.detail);
-  if (selection.rear.selected < selection.rear.floor) {
-    warnings.push({ code: 'rear-floor-unmet', detail: `${selection.rear.selected} of ${n0} slots face away from the reference view; the heuristic floor asks ${selection.rear.floor} (§7.3 step 5)` });
-  }
-  const used = new Set(selection.selected.map((c) => solids[cands[c].solid].materialId));
   return finish({
     mode: 'scene3d', hash, n0, spacing, params, warnings, reject, selection, dense: sampled.dense,
     pos: (c) => cands[c].pos, colour: (c) => cands[c].colour, part: (c) => cands[c].solid, parts,
-    colourWarnings: scene.materials.filter((m) => used.has(m.id)).flatMap((m) => colourWarningsFor(m.rgb, `material ${m.id}`)),
+    // Every declared material, with its id in partId, exactly as #259 shipped (a used-only filter is a later decision).
+    colourWarnings: scene.materials.flatMap((m) => colourWarningsFor(m.rgb, `material ${m.id}`).map((w) => ({ ...w, partId: m.id }))),
     stats: { candidates: { boundary: 0, interior: 0, feature: 0, surface: cands.length }, normalise: sampled.stats.normalise, hiddenFraction: sampled.stats.hiddenFraction },
   });
 }
@@ -248,6 +245,9 @@ function finish(f: Finish): CompileResult {
     if (p.protected && perPart[p.id] < K_MIN) {
       warnings.push({ code: 'feature-starved', partId: p.id, detail: `protected part ${p.id} has ${perPart[p.id]} slot${perPart[p.id] === 1 ? '' : 's'} (fewer than ${K_MIN})` });
     }
+  }
+  if (selection.rear.selected < selection.rear.floor) {   // 3D only: the 2D floor is 0
+    warnings.push({ code: 'rear-floor-unmet', detail: `${selection.rear.selected} of ${n0} slots face away from the reference view; the heuristic floor asks ${selection.rear.floor} (§7.3 step 5)` });
   }
   const simplifications = simplificationsOf(f.mode, selection.phase, warnings);
   warnings.push(...f.colourWarnings);
