@@ -16,25 +16,27 @@ export class WorldView {
   readonly layers: Layer[];
   private resizeObserver: ResizeObserver;
   private unsubscribeQuality: () => void;
-  /** Only the static pane of a SPLIT may render at half rate; the caller says so explicitly (options.splitArm). */
-  private readonly isStaticPane: boolean;
+  /** The arm this view shows (options.arm); only the static view, and only while the layout is split, may half-rate. */
+  private readonly arm: 'encore' | 'static' | undefined;
+  private layout: 'split' | 'encore' | 'static' = 'encore';
+  private level = 0;
   private halfRate = false;
   private frameCount = 0;
 
   /**
-   * options.splitArm: which arm this view shows when it is one pane of a split (omit for a single view). Only
-   * splitArm 'static' takes the half-rate quality rung. options.quality: test seam; the app uses the shared controller.
+   * options.arm: which world this view shows. The half-rate quality rung applies to the static view only while the
+   * layout is split (setLayout), never to a view shown alone. options.quality: test seam; the app uses the shared one.
    */
   constructor(
     private host: HTMLElement, params: Params, readonly rig: CameraRig,
-    options: { splitArm?: 'encore' | 'static'; quality?: QualityController } = {},
+    options: { arm?: 'encore' | 'static'; quality?: QualityController } = {},
   ) {
     const quality = options.quality ?? sharedQuality();
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.domElement.setAttribute('aria-label', 'Three dimensional drone airspace');
     host.append(this.renderer.domElement);
-    this.isStaticPane = options.splitArm === 'static';
+    this.arm = options.arm;
     this.layers = createLayers();
     for (const layer of this.layers) layer.init({ scene: this.scene, camera: rig.camera, params });
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -47,8 +49,22 @@ export class WorldView {
   private applyQuality(level: number): void {
     // setPixelRatio re-applies the current size, so the drawing buffer follows at once.
     this.renderer.setPixelRatio(level >= PIXEL_RATIO_ONE_LEVEL ? 1 : Math.min(window.devicePixelRatio, 1.5));
-    this.halfRate = this.isStaticPane && level >= HALF_RATE_LEVEL;
+    this.level = level;
+    this.updateHalfRate();
     for (const layer of this.layers) layer.setQuality?.(level);
+  }
+
+  /** The app's current layout. Called whenever it changes (main.ts layoutViews). */
+  setLayout(layout: 'split' | 'encore' | 'static'): void {
+    this.layout = layout;
+    this.updateHalfRate();
+  }
+
+  /** True while this view skips every other frame (quality rung 4, static view, split layout). For tests. */
+  get halfRateActive(): boolean { return this.halfRate; }
+
+  private updateHalfRate(): void {
+    this.halfRate = this.arm === 'static' && this.layout === 'split' && this.level >= HALF_RATE_LEVEL;
   }
 
   resize(): void {

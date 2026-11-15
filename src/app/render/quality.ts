@@ -9,7 +9,7 @@
 //
 // Automatic, as a safety net for weak (software-GL) machines: only when rendered fps stays below AUTO_FPS_FLOOR for
 // SUSTAIN_WINDOWS consecutive windows (about 4.5 s) does it step down one level (after a warm-up, with a hold between
-// steps), never back up, so a demo does not flicker between levels. `?q=low` forces the lowest level, `?q=high` the
+// steps), never back up, so a demo does not flicker between levels. A hidden tab is never judged. `?q=low` forces the lowest level, `?q=high` the
 // highest, `?q=0`..`?q=4` a given level; a forced level never changes.
 
 export const QUALITY_LADDER = [
@@ -17,7 +17,7 @@ export const QUALITY_LADDER = [
   'plain heartbeat lines off',
   'halos off',
   'pixel ratio 1',
-  'static view at half rate',
+  'static view at half rate in split',
 ] as const;
 export const LOWEST_QUALITY = QUALITY_LADDER.length - 1;
 /** Step down when the measured rendered frame rate is below this. */
@@ -28,8 +28,12 @@ export const FPS_WINDOW_MS = 1500;
 export const WARMUP_MS = 3000;
 /** After a step, let the new level settle for at least this long before judging again. */
 export const HOLD_MS = 2000;
-/** A gap between two frames longer than this (hidden tab, debugger) restarts the window instead of counting. */
-export const GAP_MS = 500;
+/**
+ * A gap between two frames longer than this (debugger pause, laptop sleep) restarts the window instead of counting.
+ * Long on purpose: a truly slow machine renders at 1-2 fps (gaps of 500-1000 ms) and must still be judged. A hidden
+ * tab is detected directly instead (document.hidden / visibilitychange, see sharedQuality).
+ */
+export const GAP_MS = 5000;
 /** Step only after this many CONSECUTIVE windows below the floor (about 4.5 s): a brief dip never degrades. */
 export const SUSTAIN_WINDOWS = 3;
 
@@ -103,6 +107,12 @@ export class QualityController {
     return `Quality ${this.level}/${LOWEST_QUALITY} · ${QUALITY_LADDER[this.level]} · ${how}`;
   }
 
+  /** Forget the current window (the page was hidden, or frames were not being produced for a known reason). */
+  restartWindow(): void {
+    this.lowWindows = 0;
+    if (this.started !== null) this.lastFrame = -Infinity;   // the next frame starts a fresh window
+  }
+
   private set(level: number, now: number): void {
     this.level = level;
     this.lastChange = now;
@@ -124,7 +134,9 @@ export function sharedQuality(): QualityController {
   shared = controller;
   if (browser) {
     controller.subscribe(level => { document.documentElement.dataset.quality = String(level); });
-    const monitor = (now: number) => { controller.frame(now); requestAnimationFrame(monitor); };
+    // A hidden tab renders no (or throttled) frames: never judge them, and start a fresh window when it returns.
+    document.addEventListener('visibilitychange', () => controller.restartWindow());
+    const monitor = (now: number) => { if (!document.hidden) controller.frame(now); requestAnimationFrame(monitor); };
     requestAnimationFrame(monitor);
   }
   return controller;

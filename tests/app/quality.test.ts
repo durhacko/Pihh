@@ -7,7 +7,7 @@ import type { RadioEvent, WorldSnapshot } from '../../src/contracts';
 import { makeFakeSnapshot } from '../fixtures/fakeSnapshot';
 import { RadioTrace } from '../../src/app/render/colourModes/radioTrace';
 import {
-  AUTO_FPS_FLOOR, FPS_WINDOW_MS, HOLD_MS, LOWEST_QUALITY, QUALITY_LADDER, QualityController, SUSTAIN_WINDOWS, WARMUP_MS, parseQuality,
+  AUTO_FPS_FLOOR, FPS_WINDOW_MS, GAP_MS, HOLD_MS, LOWEST_QUALITY, QUALITY_LADDER, QualityController, SUSTAIN_WINDOWS, WARMUP_MS, parseQuality,
 } from '../../src/app/render/quality';
 
 /** Feeds frames at `fps` for `ms` starting at `t`; returns the time after the last frame. */
@@ -28,7 +28,7 @@ describe('?q= parsing', () => {
     expect(parseQuality('?q=medium')).toEqual({ level: 0, mode: 'auto' });
   });
   it('the ladder is the documented order and ends at the half-rate static view', () => {
-    expect(QUALITY_LADDER).toEqual(['full', 'plain heartbeat lines off', 'halos off', 'pixel ratio 1', 'static view at half rate']);
+    expect(QUALITY_LADDER).toEqual(['full', 'plain heartbeat lines off', 'halos off', 'pixel ratio 1', 'static view at half rate in split']);
     expect(LOWEST_QUALITY).toBe(4);
   });
 });
@@ -82,11 +82,27 @@ describe('automatic stepping', () => {
     expect(q.level).toBe(reached);
   });
 
-  it('a long gap between frames (hidden tab) restarts the window instead of reading as a slow frame rate', () => {
+  it('a gap longer than GAP_MS (debugger, sleep) restarts the window instead of reading as a slow frame rate', () => {
     const q = new QualityController();
     let t = run(q, 0, 60, WARMUP_MS + 1000);
-    for (let i = 0; i < 6; i++) { t += 5_000; t = run(q, t, 60, 400); }   // backgrounded: rare bursts of frames
+    for (let i = 0; i < 6; i++) { t += GAP_MS + 1000; t = run(q, t, 60, 400); }   // rare bursts of frames
     expect(q.level).toBe(0);
+  });
+
+  it('a hidden tab (restartWindow on visibilitychange, frames not fed while hidden) never steps down', () => {
+    const q = new QualityController();
+    let t = run(q, 0, 60, WARMUP_MS + 1000);
+    for (let i = 0; i < 6; i++) {
+      q.restartWindow(); t += 3000;          // hidden for 3 s: the monitor feeds nothing
+      q.restartWindow(); t = run(q, t, 60, 1000);   // visible again at full speed
+    }
+    expect(q.level).toBe(0);
+  });
+
+  it('a really slow machine (1.5 fps: every frame gap over 500 ms) is still judged and steps down to the lowest level', () => {
+    const q = new QualityController();
+    run(q, 0, 1.5, 120_000);
+    expect(q.level).toBe(LOWEST_QUALITY);
   });
 });
 
@@ -98,7 +114,7 @@ describe('forced levels', () => {
     run(high, 0, 5, 60_000);
     expect(low.level).toBe(LOWEST_QUALITY);
     expect(high.level).toBe(0);
-    expect(low.describe()).toBe('Quality 4/4 · static view at half rate · forced by ?q=');
+    expect(low.describe()).toBe('Quality 4/4 · static view at half rate in split · forced by ?q=');
   });
 
   it('subscribe reports the current level at once; unsubscribe stops further calls', () => {
@@ -109,7 +125,7 @@ describe('forced levels', () => {
     off();
     run(q, 0, 10, 60_000);
     expect(seen).toEqual([0]);
-    expect(q.describe()).toMatch(/^Quality 4\/4 · static view at half rate · auto below 30 fps$/);
+    expect(q.describe()).toMatch(/^Quality 4\/4 · static view at half rate in split · auto below 30 fps$/);
   });
 });
 
@@ -147,5 +163,17 @@ describe('the level reaches the HUD (hudPayload.quality)', () => {
     const payload = hudPayload(worlds, { fps: 30, layout: 'encore' });
     expect(payload.quality).toBe(sharedQuality().describe());
     expect(payload.quality).toMatch(/^Quality [0-4]\/4 · /);
+  });
+});
+
+describe('the level in the readout (#113 shell, Readout.ts)', () => {
+  it('shows nothing at full quality, and a muted "Qn/4 · rung" item below it', async () => {
+    const { readoutItems } = await import('../../src/app/ui/Readout');
+    const base = { samples: { encore: null, static: null }, view: 'encore' as const, n0: 200, phase: null, fps: 60, stopped: null };
+    const q = (level: number) => ({ level, lowest: LOWEST_QUALITY, name: QUALITY_LADDER[level], description: `Quality ${level}/4` });
+    expect(readoutItems({ ...base, quality: q(0) }).some(i => i.key === 'quality')).toBe(false);
+    expect(readoutItems(base).some(i => i.key === 'quality')).toBe(false);
+    const item = readoutItems({ ...base, quality: q(2) }).find(i => i.key === 'quality');
+    expect(item).toEqual({ key: 'quality', label: 'Q2/4', value: 'halos off', muted: true, title: 'Quality 2/4' });
   });
 });
