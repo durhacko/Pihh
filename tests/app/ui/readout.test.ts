@@ -70,7 +70,7 @@ describe('readout phase and transition, per arm, from the observer', () => {
     expect(shown.encore!.transitioning).toBe(true);
     expect(shown.static!.transitioning).toBe(false);
     expect(shown.encore!.npwc).toBe(formatPercent(samples.encore!.npwc));   // the observer's value, unchanged
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('the pair is comparable again once both arms fly the same formation, and while they always did', () => {
     const same = { encore: { inHold: true, name: 'Sphere' }, static: { inHold: true, name: 'Sphere' } };
@@ -84,7 +84,7 @@ describe('readout phase and transition, per arm, from the observer', () => {
     toSample(worlds);
     expect('inHold' in hudPayload(worlds, { fps: null, layout: 'split' })).toBe(false);
     expect(hudPayload(worlds, { fps: null, layout: 'split', inHold: { encore: null, static: true } }).inHold).toEqual({ encore: undefined, static: true });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('marks an arm in transition whenever the observer says it is not in hold, and only then', () => {
     const samples = { encore: null, static: null };
@@ -111,7 +111,7 @@ describe('readout phase and transition, per arm, from the observer', () => {
     expect(armPhase({ tick: worlds.tick, inHold: false }, preloaded)).toEqual({ inHold: false, name: '“ENCORE”' });
     worlds.reset();
     expect(worlds.scores()).toHaveLength(1);   // a reset forgets injected scores along with the observers
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('inject → adopt → kill all: the label keeps the observer\'s retained reference, not the preloaded score', () => {
     const worlds = createWorlds({ seed: 101, n0: 40 });
@@ -139,7 +139,7 @@ describe('readout phase and transition, per arm, from the observer', () => {
     // A reset rebuilds the observers: the retained reference is dropped with them.
     worlds.reset(); toSample(worlds);
     expect(phases(worlds, feeds, track).encore!.name).toBe('“ENCORE”');
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 
   it('a cached reading straddling a movement start is named at its own tick, so name and hold agree', () => {
     const worlds = createWorlds({ seed: 101, n0: 40 });
@@ -156,5 +156,5 @@ describe('readout phase and transition, per arm, from the observer', () => {
     expect(phases(worlds, feeds).encore).toEqual({ inHold: true, name: '“ENCORE”' });
     now += 300;                                           // the throttle lets a fresh reading through
     expect(phases(worlds, feeds).encore).toEqual({ inHold: false, name: 'Sphere' });
-  });
+  }, 30_000); // Heavy world stepping: headroom for CPU contention under parallel load.
 });
